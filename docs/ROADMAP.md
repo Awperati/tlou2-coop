@@ -3,6 +3,12 @@
 Target build: `tlou-ii.exe`, PE timestamp `67ED75F7` (2025-04-03), image base `0x140000000`.
 Engine: Naughty Dog in-house, native x64, D3D12. No anti-cheat. No official mod API.
 
+## Dev loop (no game restarts)
+
+`version.dll` is now only a loader. It runs a shadow copy of `tlou2-coop\coop.dll`
+and hot-reloads it whenever that file changes. `deploy.cmd` copies a fresh build in.
+Writing `teleport` to `tlou2-coop\cmd.txt` runs the test teleport without touching the game window.
+
 ## How the mod hooks in
 
 The game imports `VERSION.dll`. Our `version.dll` sits next to the exe, forwards
@@ -26,8 +32,8 @@ Each PC runs its own copy of the story. The host is authoritative.
 | # | Milestone | Status |
 |---|---|---|
 | M0 | Loader, LAN protocol, discovery, teleport rules, roster, accessible overlay | Unit-tested; loader + LAN join **verified in game** |
-| M1 | Player actor and transform | Player pointer pattern unique; pos `+0x130`, rot `+0x140` from static RE. **Untested in game** |
-| M2 | Engine teleport (dev-menu `teleport` event) on the game's window thread | Built, patterns unique. **Untested in game** (F10 test key) |
+| M1 | Player actor and transform | **Verified in game** 2026-10-09: pos `+0x130` tracks walking, yaw from quat `+0x140` turns with the player |
+| M2 | Engine teleport (dev-menu `teleport` event) on the game's window thread | **Fails in game**: the call faults and is caught (no crash). Fault details logged from the next build |
 | M3 | Companion puppet: take over the buddy NPC with remote state | Not started |
 | M4 | Objective + transition gate: hook world/region loads | Logic unit-tested; game hook not started |
 | M5 | Client plays the companion: model swap, loadouts | Not started |

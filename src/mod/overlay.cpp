@@ -133,6 +133,7 @@ void ThreadMain() {
     }
     if (voice) voice->Release();
     DestroyWindow(g_wnd);
+    UnregisterClassW(L"TLOU2CoopOverlay", GetModuleHandleW(nullptr));   // hot reload re-registers it
     g_wnd = nullptr;
     CoUninitialize();
 }

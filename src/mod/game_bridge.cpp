@@ -22,25 +22,43 @@ using BoundFrameCtorFn = void*(__fastcall*)(void* out, const void* locator, cons
 using EventSendFn = void*(__fastcall*)(void* result, const void* sender, uint64_t eventId, const ProcessHandle* to,
                                        const EventArg*, const EventArg*, const EventArg*, const EventArg*);
 
+// Where the last caught fault happened, for the log.
+DWORD g_faultCode = 0;
+uintptr_t g_faultAddr = 0;
+uintptr_t g_faultRead = 0;
+int g_faultStage = 0;
+
+int RecordFault(EXCEPTION_POINTERS* ep) {
+    g_faultCode = ep->ExceptionRecord->ExceptionCode;
+    g_faultAddr = reinterpret_cast<uintptr_t>(ep->ExceptionRecord->ExceptionAddress);
+    g_faultRead = ep->ExceptionRecord->NumberParameters >= 2 ? ep->ExceptionRecord->ExceptionInformation[1] : 0;
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 // Plain C body so __try works; any fault is caught instead of crashing the game.
 bool CallTeleport(uintptr_t player, uintptr_t fnSend, uintptr_t fnBind, uintptr_t fnBf, uint64_t sid,
                   const float* locator) {
+    g_faultStage = 0;
     __try {
         alignas(16) uint8_t binding[64] = {};
         alignas(16) uint8_t boundFrame[128] = {};
         alignas(16) uint8_t result[64] = {};
         alignas(16) uint8_t sender[16] = {};
+        g_faultStage = 1;
         reinterpret_cast<BindingDefaultFn>(fnBind)(binding);
+        g_faultStage = 2;
         reinterpret_cast<BoundFrameCtorFn>(fnBf)(boundFrame, locator, binding);
+        g_faultStage = 3;
         EventArg args[4] = {};
         args[0].value = reinterpret_cast<uint64_t>(boundFrame);
         args[0].type = kArgBoundFrame;
         ProcessHandle to{};
         to.ptr = *reinterpret_cast<uint64_t*>(player + 0x80);
         to.id = *reinterpret_cast<uint32_t*>(player + 0x94);
+        g_faultStage = 4;
         reinterpret_cast<EventSendFn>(fnSend)(result, sender, sid, &to, &args[0], &args[1], &args[2], &args[3]);
         return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (RecordFault(GetExceptionInformation())) {
         return false;
     }
 }
@@ -58,7 +76,17 @@ uintptr_t GameBridge::resolveFunction(const Ini& ini, const char* key) {
 
 bool GameBridge::engineTeleport(uintptr_t player, const Vec3& pos, float yaw) {
     alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
-    return CallTeleport(player, fnEventSend_, fnBindingDefault_, fnBoundFrameCtor_, teleportEvent_, locator);
+    if (CallTeleport(player, fnEventSend_, fnBindingDefault_, fnBoundFrameCtor_, teleportEvent_, locator)) return true;
+    static const ModuleRange mod = MainModule();
+    HMODULE m = nullptr; wchar_t name[MAX_PATH] = L"?";
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(g_faultAddr), &m)) GetModuleFileNameW(m, name, MAX_PATH);
+    const wchar_t* base = wcsrchr(name, L'\\');
+    Log("teleport fault: stage %d, code 0x%08lX at %p (%ls+0x%llx), data address %p, thread %lu",
+        g_faultStage, g_faultCode, reinterpret_cast<void*>(g_faultAddr), base ? base + 1 : name,
+        static_cast<unsigned long long>(g_faultAddr - reinterpret_cast<uintptr_t>(m)), reinterpret_cast<void*>(g_faultRead),
+        GetCurrentThreadId());
+    return false;
 }
 
 // Section layout in offsets.ini:

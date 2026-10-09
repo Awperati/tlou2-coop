@@ -1,4 +1,5 @@
-// Entry point. Loaded by tlou-ii.exe as version.dll; starts the co-op thread.
+// coop.dll: the co-op runtime. version.dll (loader.cpp) loads a shadow copy of it
+// and calls CoopStart/CoopStop, so a rebuilt coop.dll hot-reloads in the running game.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <xinput.h>
@@ -25,11 +26,12 @@ using namespace coop;
 namespace {
 
 std::atomic<bool> g_run{false};
+bool g_reloaded = false;
 std::thread g_thread;
 HMODULE g_self = nullptr;
 
 std::wstring ModDir() {
-    wchar_t p[MAX_PATH]; GetModuleFileNameW(g_self, p, MAX_PATH);
+    wchar_t p[MAX_PATH]; GetModuleFileNameW(nullptr, p, MAX_PATH);   // game folder
     std::wstring s(p);
     return s.substr(0, s.find_last_of(L"\\/") + 1);
 }
@@ -107,7 +109,7 @@ void CoopMain() {
     OverlayStart(oo);
 
     // Let the engine finish booting before scanning memory.
-    for (int i = 0; i < 100 && g_run; ++i) Sleep(100);
+    for (int i = 0; i < (g_reloaded ? 0 : 100) && g_run; ++i) Sleep(100);
     GameBridge bridge;
     bridge.Init(offsets);
 
@@ -191,7 +193,7 @@ void CoopMain() {
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
     uintptr_t lastPlayerObj = 1;
-    ULONGLONG lastPosLog = 0;
+    ULONGLONG lastPosLog = 0, lastCmdPoll = 0;
     bool mainHooked = false, testWasDown = false;
     const int testKey = cfg.get("debug", "TestTeleportKey", "F10").empty() ? 0 : ParseKey(cfg.get("debug", "TestTeleportKey", "F10"));
     bool prevPressed = false, toggled = false;
@@ -268,8 +270,26 @@ void CoopMain() {
 
         if (!mainHooked) mainHooked = MainThreadInit();
 
+        // Command file: lets a developer drive tests without touching the game window.
+        bool cmdTeleport = false;
+        if (now - lastCmdPoll >= 500) {
+            lastCmdPoll = now;
+            std::wstring cmdPath = dir + L"tlou2-coop\\cmd.txt";
+            Ini cmd;
+            if (GetFileAttributesW(cmdPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                std::string text;
+                if (FILE* f = _wfopen(cmdPath.c_str(), L"rb")) {
+                    char b[256]{}; size_t n = fread(b, 1, sizeof(b) - 1, f); fclose(f); text.assign(b, n);
+                }
+                DeleteFileW(cmdPath.c_str());
+                text = Lower(Trim(text));
+                Log("command: %s", text.c_str());
+                if (text == "teleport") cmdTeleport = true;
+            }
+        }
+
         // Solo test: teleport 3 m ahead through the engine. Proves M2 without a partner.
-        bool testDown = testKey && bridge.GameWindowFocused() && (GetAsyncKeyState(testKey) & 0x8000);
+        bool testDown = cmdTeleport || (testKey && bridge.GameWindowFocused() && (GetAsyncKeyState(testKey) & 0x8000));
         if (testDown && !testWasDown && self) {
             TeleportTo t;
             t.yaw = self->yaw;
@@ -309,27 +329,29 @@ void CoopMain() {
     LogClose();
 }
 
-bool IsGameProcess() {
-    wchar_t p[MAX_PATH]; GetModuleFileNameW(nullptr, p, MAX_PATH);
-    std::wstring exe = p;
-    exe = exe.substr(exe.find_last_of(L"\\/") + 1);
-    for (auto& c : exe) c = static_cast<wchar_t>(towlower(c));
-    return exe == L"tlou-ii.exe" || exe == L"tlou-ii-l.exe";
+} // namespace
+
+extern "C" __declspec(dllexport) void CoopStart(int reloaded) {
+    if (g_run) return;
+    g_reloaded = reloaded != 0;
+    g_run = true;
+    g_thread = std::thread(CoopMain);
 }
 
-} // namespace
+// Called by the loader (never under the loader lock): stops and joins everything.
+extern "C" __declspec(dllexport) void CoopStop() {
+    if (!g_run) return;
+    g_run = false;
+    if (g_thread.joinable()) g_thread.join();
+}
 
 BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(mod);
         g_self = mod;
-        if (IsGameProcess()) {
-            g_run = true;
-            g_thread = std::thread(CoopMain);
-            g_thread.detach();   // never join under the loader lock
-        }
     } else if (reason == DLL_PROCESS_DETACH) {
         g_run = false;
+        if (g_thread.joinable()) g_thread.detach();   // process exit: never join here
     }
     return TRUE;
 }
