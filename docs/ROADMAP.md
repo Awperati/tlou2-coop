@@ -9,6 +9,24 @@ Engine: Naughty Dog in-house, native x64, D3D12. No anti-cheat. No official mod 
 and hot-reloads it whenever that file changes. `deploy.cmd` copies a fresh build in.
 Writing `teleport` to `tlou2-coop\cmd.txt` runs the test teleport without touching the game window.
 
+## Synthetic input (verified in game 2026-10-09)
+
+The game ignores injected keyboard/mouse: it reads raw input and drops events with
+no device. It does poll XInput. `input_inject.cpp` patches `XInputGetState` and
+`XInputGetCapabilities` in `xinput1_4.dll` and presents a virtual pad 0, connected from
+start-up. Commands in `cmd.txt`, one per line:
+
+| Command | Effect |
+|---|---|
+| `press down 200` | Button for 200 ms (`a b x y start back lb rb ls rs up down left right`, combine with `+`) |
+| `stick l 0 32767 1500` | Left stick full forward for 1.5 s |
+| `trigger r 255 300` | Right trigger |
+| `wait 500` | Pause the script |
+| `inputstats`, `modules` | Diagnostics in the log |
+
+Verified: D-pad moved the pause-menu selection, Start unpaused, and the left stick
+walked the player about 4 m. The game seems to pause itself when it loses focus.
+
 ## How the mod hooks in
 
 The game imports `VERSION.dll`. Our `version.dll` sits next to the exe, forwards

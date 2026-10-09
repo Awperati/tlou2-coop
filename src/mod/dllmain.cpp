@@ -19,6 +19,7 @@
 #include "mod/game_bridge.h"
 #include "mod/log.h"
 #include "mod/main_thread.h"
+#include "mod/input_inject.h"
 #include "mod/overlay.h"
 
 using namespace coop;
@@ -123,6 +124,7 @@ void CoopMain() {
     for (int i = 0; i < (g_reloaded ? 0 : 100) && g_run; ++i) Sleep(100);
     GameBridge bridge;
     bridge.Init(offsets);
+    if (cfg.getBool("debug", "InputInject", true)) InputInjectInstall();
 
     Session session;
     std::mt19937 rng{std::random_device{}()};
@@ -293,10 +295,16 @@ void CoopMain() {
                     char b[256]{}; size_t n = fread(b, 1, sizeof(b) - 1, f); fclose(f); text.assign(b, n);
                 }
                 DeleteFileW(cmdPath.c_str());
-                text = Lower(Trim(text));
-                Log("command: %s", text.c_str());
-                if (text == "teleport") cmdTeleport = true;
-                if (text == "modules") LogInputModules();
+                // One command per line (or ';'). Input lines queue up and play in order.
+                for (char& c : text) if (c == ';' || c == '\r') c = '\n';
+                for (auto& raw : SplitList(text, '\n')) {
+                    std::string line = Lower(Trim(raw));
+                    Log("command: %s", line.c_str());
+                    if (line == "teleport") cmdTeleport = true;
+                    else if (line == "modules") LogInputModules();
+                    else if (line == "inputstats") InputLogStats();
+                    else if (!InputScriptAdd(line)) Log("command not understood: %s", line.c_str());
+                }
             }
         }
 
@@ -336,6 +344,7 @@ void CoopMain() {
     }
     session.Stop();
     bridge.Shutdown();
+    InputInjectRemove();
     MainThreadShutdown();
     OverlayStop();
     Log("TLOU2 Co-op stopped");
