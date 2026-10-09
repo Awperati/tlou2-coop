@@ -24,6 +24,7 @@ struct BridgeFeatures {
 class GameBridge {
 public:
     bool Init(const Ini& offsets);
+    void Shutdown();   // undo code patches; call before the DLL unloads
     const BridgeFeatures& features() const { return f_; }
 
     std::optional<PlayerState> ReadLocalPlayer(uint32_t tick);

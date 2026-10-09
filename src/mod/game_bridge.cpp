@@ -1,6 +1,7 @@
 #include "mod/game_bridge.h"
 #include "mod/log.h"
 #include "mod/main_thread.h"
+#include "mod/fiber_hook.h"
 #include "mod/sigscan.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -139,7 +140,11 @@ bool GameBridge::Init(const Ini& ini) {
     fnBoundFrameCtor_ = resolveFunction(ini, "boundframe_ctor");
     teleportEvent_ = std::stoull(ini.get("engine", "teleport_event", "0"), nullptr, 0);
     engineTeleport_ = player_.root && fnEventSend_ && fnBindingDefault_ && fnBoundFrameCtor_ && teleportEvent_;
-    if (engineTeleport_) f_.teleport = true;
+    if (engineTeleport_) {
+        f_.teleport = true;
+        // Engine calls need a game fiber; run them from inside GetPlayer().
+        if (ini.getBool("engine", "fiber_hook", true)) FiberHookInstall(resolveFunction(ini, "get_player"), player_.root);
+    }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
     f_.puppet = resolveChain(ini, "companion", companion_) && offPos_ != 0;
     f_.worldPack = resolveChain(ini, "world", worldName_);
@@ -180,7 +185,8 @@ bool GameBridge::TeleportLocalPlayer(const TeleportTo& t) {
     if (engineTeleport_) {
         // The engine's own "teleport" event, as the dev menu sends it. Main thread only.
         Vec3 pos = t.pos; float yaw = t.yaw;
-        RunOnMainThread([this, pos, yaw] {
+        auto run = FiberHookActive() ? RunOnGameFiber : RunOnMainThread;
+        run([this, pos, yaw] {
             uintptr_t pl = follow(player_);
             bool ok = pl && engineTeleport(pl, pos, yaw);
             Log("engine teleport to %.2f %.2f %.2f: %s", pos.x, pos.y, pos.z, ok ? "sent" : "FAILED");
@@ -292,6 +298,8 @@ void GameBridge::DiscoverTick() {
         }
     }
 }
+
+void GameBridge::Shutdown() { FiberHookRemove(); }
 
 bool GameBridge::GameWindowFocused() const {
     DWORD pid = 0;

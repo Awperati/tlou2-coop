@@ -323,6 +323,7 @@ void CoopMain() {
         Sleep(16);
     }
     session.Stop();
+    bridge.Shutdown();
     MainThreadShutdown();
     OverlayStop();
     Log("TLOU2 Co-op stopped");

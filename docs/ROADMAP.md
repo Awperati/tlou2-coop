@@ -33,7 +33,7 @@ Each PC runs its own copy of the story. The host is authoritative.
 |---|---|---|
 | M0 | Loader, LAN protocol, discovery, teleport rules, roster, accessible overlay | Unit-tested; loader + LAN join **verified in game** |
 | M1 | Player actor and transform | **Verified in game** 2026-10-09: pos `+0x130` tracks walking, yaw from quat `+0x140` turns with the player |
-| M2 | Engine teleport (dev-menu `teleport` event) on the game's window thread | **Fails in game**: the call faults and is caught (no crash). Fault details logged from the next build |
+| M2 | Engine teleport (dev-menu `teleport` event) run on a game job fiber | **Verified in game** 2026-10-09: moved the player to the exact target x/z, ground snapped y, no crash |
 | M3 | Companion puppet: take over the buddy NPC with remote state | Not started |
 | M4 | Objective + transition gate: hook world/region loads | Logic unit-tested; game hook not started |
 | M5 | Client plays the companion: model swap, loadouts | Not started |
@@ -73,9 +73,16 @@ make a byte pattern, put it in `offsets.ini`, and check `tlou2-coop.log`.
 | `BoundFrame(out, locator, binding)` | rva `0x133A1B0` | 80 bytes: 48-byte binding, then locator `{pos xyzw, quat xyzw}` |
 | Default binding | rva `0x133A130` | |
 
+### Threading rule (found the hard way)
+Engine code reads per-fiber job context from `TEB->FiberData`. On a plain thread that is
+`0x1E00`, and `Event::Send` faults at rva `0x123166F` reading it. The window thread is not
+a game fiber either. We now patch `GetPlayer()` (rva `0xDA8A80`) with an exact
+re-implementation that drains our queue when it is called from a fiber. The patch is
+undone before every hot reload.
+
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
-- Engine calls run inside `__try`, on the game's window thread (WH_GETMESSAGE hook). If that thread is not the game-logic thread, teleport may race the update; watch for crashes on F10.
+- Engine calls run inside `__try`, from inside a game job that called `GetPlayer()`. That job may be mid-update; so far no crash.
 - The quaternion yaw convention is assumed (Y up). If F10 jumps sideways, the axis order is wrong.
 
 In-game check for M1 and M2 (needs a person at the PC):
