@@ -1,5 +1,6 @@
 #include "mod/game_bridge.h"
 #include "mod/log.h"
+#include "mod/main_thread.h"
 #include "mod/sigscan.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -8,6 +9,57 @@
 #include <cstring>
 
 namespace coop {
+
+namespace {
+struct Quat { float x, y, z, w; };
+float YawFromQuat(const Quat& q) { return std::atan2(2.f * (q.w * q.y + q.x * q.z), 1.f - 2.f * (q.x * q.x + q.y * q.y)); }
+
+struct EventArg { uint64_t value; uint32_t pad; uint32_t type; };
+struct ProcessHandle { uint64_t ptr; uint32_t id; uint32_t pad; };
+constexpr uint32_t kArgBoundFrame = 18;
+using BindingDefaultFn = void*(__fastcall*)(void* out);
+using BoundFrameCtorFn = void*(__fastcall*)(void* out, const void* locator, const void* binding);
+using EventSendFn = void*(__fastcall*)(void* result, const void* sender, uint64_t eventId, const ProcessHandle* to,
+                                       const EventArg*, const EventArg*, const EventArg*, const EventArg*);
+
+// Plain C body so __try works; any fault is caught instead of crashing the game.
+bool CallTeleport(uintptr_t player, uintptr_t fnSend, uintptr_t fnBind, uintptr_t fnBf, uint64_t sid,
+                  const float* locator) {
+    __try {
+        alignas(16) uint8_t binding[64] = {};
+        alignas(16) uint8_t boundFrame[128] = {};
+        alignas(16) uint8_t result[64] = {};
+        alignas(16) uint8_t sender[16] = {};
+        reinterpret_cast<BindingDefaultFn>(fnBind)(binding);
+        reinterpret_cast<BoundFrameCtorFn>(fnBf)(boundFrame, locator, binding);
+        EventArg args[4] = {};
+        args[0].value = reinterpret_cast<uint64_t>(boundFrame);
+        args[0].type = kArgBoundFrame;
+        ProcessHandle to{};
+        to.ptr = *reinterpret_cast<uint64_t*>(player + 0x80);
+        to.id = *reinterpret_cast<uint32_t*>(player + 0x94);
+        reinterpret_cast<EventSendFn>(fnSend)(result, sender, sid, &to, &args[0], &args[1], &args[2], &args[3]);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+} // namespace
+
+uintptr_t GameBridge::resolveFunction(const Ini& ini, const char* key) {
+    auto pat = ini.get("engine", key);
+    if (pat.empty()) { Log("bridge: [engine] %s not mapped", key); return 0; }
+    static const ModuleRange mod = MainModule();
+    auto hit = FindPattern(mod, pat);
+    if (!hit) { Log("bridge: [engine] %s pattern not found (game updated?)", key); return 0; }
+    Log("bridge: [engine] %s at +0x%llx", key, static_cast<unsigned long long>(*hit - mod.base));
+    return *hit;
+}
+
+bool GameBridge::engineTeleport(uintptr_t player, const Vec3& pos, float yaw) {
+    alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+    return CallTeleport(player, fnEventSend_, fnBindingDefault_, fnBoundFrameCtor_, teleportEvent_, locator);
+}
 
 // Section layout in offsets.ini:
 //   pattern     = IDA byte pattern that hits an instruction referencing a global
@@ -48,10 +100,19 @@ bool GameBridge::Init(const Ini& ini) {
         offPos_ = ini.getInt("player", "pos", 0);
         offVel_ = ini.getInt("player", "vel", 0);
         offYaw_ = ini.getInt("player", "yaw", 0);
+        offRot_ = ini.getInt("player", "rot", 0);
         offHealth_ = ini.getInt("player", "health", 0);
         f_.localPlayer = offPos_ != 0;
         f_.teleport = f_.localPlayer && ini.getBool("player", "pos_writable", false);
     }
+    discoverForced_ = ini.getBool("player", "discover", false);
+    fnEventSend_ = resolveFunction(ini, "event_send");
+    fnBindingDefault_ = resolveFunction(ini, "binding_default");
+    fnBoundFrameCtor_ = resolveFunction(ini, "boundframe_ctor");
+    teleportEvent_ = std::stoull(ini.get("engine", "teleport_event", "0"), nullptr, 0);
+    engineTeleport_ = player_.root && fnEventSend_ && fnBindingDefault_ && fnBoundFrameCtor_ && teleportEvent_;
+    if (engineTeleport_) f_.teleport = true;
+    Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
     f_.puppet = resolveChain(ini, "companion", companion_) && offPos_ != 0;
     f_.worldPack = resolveChain(ini, "world", worldName_);
     if (resolveChain(ini, "objective", objective_)) {
@@ -77,6 +138,7 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
     s.pos = *pos;
     if (offVel_) if (auto v = Read<Vec3>(p + offVel_)) s.vel = *v;
     if (offYaw_) if (auto y = Read<float>(p + offYaw_)) s.yaw = *y;
+    if (offRot_) if (auto q = Read<Quat>(p + offRot_)) s.yaw = YawFromQuat(*q);
     if (offHealth_) if (auto h = Read<float>(p + offHealth_)) s.health = static_cast<uint8_t>(*h < 0 ? 0 : (*h > 100 ? 100 : *h));
     if (InCombat()) s.flags |= 4;
     if (s.health == 0) s.flags |= 8;
@@ -87,6 +149,16 @@ bool GameBridge::TeleportLocalPlayer(const TeleportTo& t) {
     if (!f_.teleport) return false;
     uintptr_t p = follow(player_);
     if (!p) return false;
+    if (engineTeleport_) {
+        // The engine's own "teleport" event, as the dev menu sends it. Main thread only.
+        Vec3 pos = t.pos; float yaw = t.yaw;
+        RunOnMainThread([this, pos, yaw] {
+            uintptr_t pl = follow(player_);
+            bool ok = pl && engineTeleport(pl, pos, yaw);
+            Log("engine teleport to %.2f %.2f %.2f: %s", pos.x, pos.y, pos.z, ok ? "sent" : "FAILED");
+        });
+        return true;
+    }
     // Writing the transform alone can be undone by the physics/character
     // controller next frame. The proper route is to call the engine's own
     // teleport function once RE finds it; this is the fallback.

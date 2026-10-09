@@ -4,6 +4,7 @@
 #include <xinput.h>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <map>
 #include <random>
@@ -16,6 +17,7 @@
 #include "core/teleport.h"
 #include "mod/game_bridge.h"
 #include "mod/log.h"
+#include "mod/main_thread.h"
 #include "mod/overlay.h"
 
 using namespace coop;
@@ -189,6 +191,9 @@ void CoopMain() {
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
     uintptr_t lastPlayerObj = 1;
+    ULONGLONG lastPosLog = 0;
+    bool mainHooked = false, testWasDown = false;
+    const int testKey = cfg.get("debug", "TestTeleportKey", "F10").empty() ? 0 : ParseKey(cfg.get("debug", "TestTeleportKey", "F10"));
     bool prevPressed = false, toggled = false;
     PromptState prevPrompt = PromptState::Hidden;
 
@@ -261,6 +266,24 @@ void CoopMain() {
             OverlayClearPrompt();
         }
 
+        if (!mainHooked) mainHooked = MainThreadInit();
+
+        // Solo test: teleport 3 m ahead through the engine. Proves M2 without a partner.
+        bool testDown = testKey && bridge.GameWindowFocused() && (GetAsyncKeyState(testKey) & 0x8000);
+        if (testDown && !testWasDown && self) {
+            TeleportTo t;
+            t.yaw = self->yaw;
+            t.pos = {self->pos.x + std::sin(self->yaw) * 3.f, self->pos.y + 0.2f, self->pos.z + std::cos(self->yaw) * 3.f};
+            Log("test teleport from %.2f %.2f %.2f yaw %.2f", self->pos.x, self->pos.y, self->pos.z, self->yaw);
+            bridge.TeleportLocalPlayer(t);
+        }
+        testWasDown = testDown;
+
+        if (self && now - lastPosLog >= 5000) {
+            lastPosLog = now;
+            Log("player pos %.2f %.2f %.2f yaw %.2f", self->pos.x, self->pos.y, self->pos.z, self->yaw);
+        }
+
         if (bridge.needsDiscovery() && now - lastDiscover >= 1000) {
             lastDiscover = now;
             uintptr_t obj = bridge.PlayerObject();
@@ -280,6 +303,7 @@ void CoopMain() {
         Sleep(16);
     }
     session.Stop();
+    MainThreadShutdown();
     OverlayStop();
     Log("TLOU2 Co-op stopped");
     LogClose();

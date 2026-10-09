@@ -60,6 +60,27 @@ for a in [x for x in os.environ.get("PROBE_FUNCS", "").split(",") if x]:
         except Exception as e:
             emit("decompile failed: %s" % e)
 
+# PROBE_IMM="FC5BA7D4" lists code that carries that 32-bit immediate.
+import ida_search
+for imm in [x for x in os.environ.get("PROBE_IMM", "").split(",") if x]:
+    v = int(imm, 16)
+    pat = " ".join("%02X" % b for b in v.to_bytes(4, "little"))
+    emit("=" * 100)
+    emit("IMM 0x%X" % v)
+    ea = idc.get_inf_attr(idc.INF_MIN_EA)
+    end = idc.get_inf_attr(idc.INF_MAX_EA)
+    n = 0
+    while n < 60:
+        ea = ida_bytes.find_bytes(pat, ea, range_end=end)
+        if ea == idc.BADADDR or ea is None:
+            break
+        head = idc.get_item_head(ea)
+        f = ida_funcs.get_func(head)
+        if f and idc.is_code(ida_bytes.get_flags(head)):
+            emit("  0x%X in %s (0x%X): %s" % (head, ida_name.get_name(f.start_ea), f.start_ea, idc.generate_disasm_line(head, 0)))
+            n += 1
+        ea += 1
+
 # PROBE_DISASM="0x140DA8A80:40" prints that many instructions with their bytes.
 for spec in [x for x in os.environ.get("PROBE_DISASM", "").split(",") if x]:
     a, n = spec.split(":")

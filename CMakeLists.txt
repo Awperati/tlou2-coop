@@ -24,6 +24,7 @@ add_library(coop_mod SHARED
     src/mod/game_bridge.cpp
     src/mod/sigscan.cpp
     src/mod/overlay.cpp
+    src/mod/main_thread.cpp
 )
 set_target_properties(coop_mod PROPERTIES OUTPUT_NAME "version")
 target_compile_definitions(coop_mod PRIVATE UNICODE _UNICODE NOMINMAX)

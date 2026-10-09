@@ -25,15 +25,15 @@ Each PC runs its own copy of the story. The host is authoritative.
 
 | # | Milestone | Status |
 |---|---|---|
-| M0 | Loader, LAN protocol, discovery, teleport rules, roster, accessible overlay, tests | Done |
-| M1 | Find the player actor and its transform; fill `[player]` | Player pointer found; position offset pending (auto-finder in DLL) |
-| M2 | Call the engine's own teleport instead of raw position writes | |
-| M3 | Companion puppet: take over the buddy NPC with remote state | |
-| M4 | Objective + transition gate: hook world/region loads, hold until gate is ready | |
-| M5 | Client plays the companion: player model/skin swap, character loadouts | |
-| M6 | World sync: enemy authority, damage, pickups, cutscene triggers | |
-| M7 | Save/checkpoint sync, pause and menu handling | |
-| M8 | Dedicated server and 3-layer movement (prediction, reconciliation, interpolation) | Later |
+| M0 | Loader, LAN protocol, discovery, teleport rules, roster, accessible overlay | Unit-tested; loader + LAN join **verified in game** |
+| M1 | Player actor and transform | Player pointer pattern unique; pos `+0x130`, rot `+0x140` from static RE. **Untested in game** |
+| M2 | Engine teleport (dev-menu `teleport` event) on the game's window thread | Built, patterns unique. **Untested in game** (F10 test key) |
+| M3 | Companion puppet: take over the buddy NPC with remote state | Not started |
+| M4 | Objective + transition gate: hook world/region loads | Logic unit-tested; game hook not started |
+| M5 | Client plays the companion: model swap, loadouts | Not started |
+| M6 | World sync: enemies, damage, pickups, cutscenes | Not started |
+| M7 | Save/checkpoint sync, pause and menus | Not started |
+| M8 | Dedicated server and 3-layer movement | Later |
 
 ## RE leads (from strings in the retail exe)
 
@@ -62,9 +62,21 @@ make a byte pattern, put it in `offsets.ini`, and check `tlou2-coop.log`.
 | Dev menu "Teleport Player" | rva `0x3F86F0` | Builds a locator in front of camera 0, then `Event::Send` to the player |
 | `Event::Send(Process*, ...)` | rva `0x156F870` | Event id `0xFC5BA7D4` used for teleport; calls Process vtable +240 |
 | `GetRenderCamera(i)` | rva `0x138CA00` | `0x148243BE0 + 976 * i` |
+| Player `teleport` event | id `0xB805933EFC5BA6D4` | Handled at rva `0xB766AD`; saves `Process+0x130` (pos) and `+0x140` (quat) first |
+| Event arg | 16 bytes `{u64 value; u32 pad; u32 type}` | BoundFrame arg is type 18 |
+| `BoundFrame(out, locator, binding)` | rva `0x133A1B0` | 80 bytes: 48-byte binding, then locator `{pos xyzw, quat xyzw}` |
+| Default binding | rva `0x133A130` | |
 
-Next for M1: walk around in game for ~30 s and read the `discover:` lines in
-`tlou2-coop.log`. The top candidate is the position offset; put it in `[player] pos`.
+### Risks
+- Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
+- Engine calls run inside `__try`, on the game's window thread (WH_GETMESSAGE hook). If that thread is not the game-logic thread, teleport may race the update; watch for crashes on F10.
+- The quaternion yaw convention is assumed (Y up). If F10 jumps sideways, the axis order is wrong.
+
+In-game check for M1 and M2 (needs a person at the PC):
+1. Quit the game, copy `buildersion.dll` and `config\*.ini` into place.
+2. Load a save. Walk. `tlou2-coop.log` should print a changing `player pos` every 5 s.
+3. Press F10. The log says `engine teleport ... sent` and you move 3 m ahead.
+If `player pos` stays 0 or constant, set `discover = true` in `[player]` and walk for 30 s.
 
 ## Server phase (after LAN works)
 
