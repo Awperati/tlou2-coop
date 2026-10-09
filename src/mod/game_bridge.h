@@ -25,6 +25,10 @@ class GameBridge {
 public:
     bool Init(const Ini& offsets);
     void Shutdown();   // undo code patches; call before the DLL unloads
+
+    // Companion (M3). Both run on a game fiber and log what they find.
+    void QueueBuddyReport();
+    void QueueBuddyTeleport(const Vec3& pos, float yaw);
     const BridgeFeatures& features() const { return f_; }
 
     std::optional<PlayerState> ReadLocalPlayer(uint32_t tick);
@@ -51,7 +55,8 @@ private:
     BridgeFeatures f_;
     Chain player_, companion_, worldName_, objective_, combat_;
     uint32_t offPos_ = 0, offYaw_ = 0, offRot_ = 0, offHealth_ = 0, offVel_ = 0;
-    uintptr_t fnEventSend_ = 0, fnBindingDefault_ = 0, fnBoundFrameCtor_ = 0;
+    uintptr_t fnEventSend_ = 0, fnBindingDefault_ = 0, fnBoundFrameCtor_ = 0, fnGetAnyBuddy_ = 0;
+    uintptr_t findBuddyOnFiber();
     uint64_t teleportEvent_ = 0;
     bool engineTeleport_ = false, discoverForced_ = false;
     uint32_t offObjPos_ = 0, offObjRadius_ = 0, offObjTransition_ = 0;

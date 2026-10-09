@@ -52,7 +52,7 @@ Each PC runs its own copy of the story. The host is authoritative.
 | M0 | Loader, LAN protocol, discovery, teleport rules, roster, accessible overlay | Unit-tested; loader + LAN join **verified in game** |
 | M1 | Player actor and transform | **Verified in game** 2026-10-09: pos `+0x130` tracks walking, yaw from quat `+0x140` turns with the player |
 | M2 | Engine teleport (dev-menu `teleport` event) run on a game job fiber | **Verified in game** 2026-10-09: moved the player to the exact target x/z, ground snapped y, no crash |
-| M3 | Companion puppet: take over the buddy NPC with remote state | Not started |
+| M3 | Companion puppet | **Partly verified in game**: `GetAnyBuddy` (rva `0x52E940`, found by its own name string) returns the buddy Npc; same layout as the player (pos `+0x130`). The `teleport` event did not move a buddy resting in a scripted couch pose. Next: retest with a following companion; NPC teleport natives (`npc-teleport`, `npc-teleport-to`) are looked up by hashed id, not string |
 | M4 | Objective + transition gate: hook world/region loads | Logic unit-tested; game hook not started |
 | M5 | Client plays the companion: model swap, loadouts | Not started |
 | M6 | World sync: enemies, damage, pickups, cutscenes | Not started |

@@ -135,6 +135,14 @@ bool GameBridge::Init(const Ini& ini) {
         f_.teleport = f_.localPlayer && ini.getBool("player", "pos_writable", false);
     }
     discoverForced_ = ini.getBool("player", "discover", false);
+    {
+        static const ModuleRange mod = MainModule();
+        auto name = ini.get("engine", "get_any_buddy_fn");
+        auto f = name.empty() ? std::nullopt : FindFunctionByString(mod, name);
+        fnGetAnyBuddy_ = f ? *f : 0;
+        Log("bridge: [engine] GetAnyBuddy %s", f ? "found" : "not found");
+        if (f) Log("bridge: [engine] GetAnyBuddy at +0x%llx", static_cast<unsigned long long>(*f - mod.base));
+    }
     fnEventSend_ = resolveFunction(ini, "event_send");
     fnBindingDefault_ = resolveFunction(ini, "binding_default");
     fnBoundFrameCtor_ = resolveFunction(ini, "boundframe_ctor");
@@ -297,6 +305,49 @@ void GameBridge::DiscoverTick() {
             else Log("  score %3d  player+0x%X", top[i].first, field);
         }
     }
+}
+
+namespace {
+using GetAnyBuddyFn = uintptr_t (*)();
+uintptr_t CallGetAnyBuddy(uintptr_t fn) {
+    __try { return reinterpret_cast<GetAnyBuddyFn>(fn)(); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return ~uintptr_t(0); }
+}
+} // namespace
+
+uintptr_t GameBridge::findBuddyOnFiber() {
+    if (!fnGetAnyBuddy_) return 0;
+    uintptr_t b = CallGetAnyBuddy(fnGetAnyBuddy_);
+    if (b == ~uintptr_t(0)) { Log("buddy: GetAnyBuddy faulted"); return 0; }
+    return b;
+}
+
+void GameBridge::QueueBuddyReport() {
+    RunOnGameFiber([this] {
+        uintptr_t b = findBuddyOnFiber();
+        uintptr_t pl = follow(player_);
+        if (!b) { Log("buddy: none (no companion in this scene?)"); return; }
+        auto pos = Read<Vec3>(b + offPos_);
+        auto q = Read<Quat>(b + offRot_);
+        auto id = Read<uint32_t>(b + 0x94);
+        auto vt = Read<uintptr_t>(b);
+        static const ModuleRange mod = MainModule();
+        float dist = -1;
+        if (pl && pos) if (auto pp = Read<Vec3>(pl + offPos_)) dist = Distance(*pp, *pos);
+        Log("buddy: Npc %p vtable +0x%llx id %u pos %.2f %.2f %.2f yaw %.2f, %.1f m from player",
+            reinterpret_cast<void*>(b), vt ? static_cast<unsigned long long>(*vt - mod.base) : 0ull, id ? *id : 0,
+            pos ? pos->x : 0, pos ? pos->y : 0, pos ? pos->z : 0, q ? YawFromQuat(*q) : 0.f, dist);
+    });
+}
+
+void GameBridge::QueueBuddyTeleport(const Vec3& pos, float yaw) {
+    if (!engineTeleport_) { Log("buddy: engine teleport unavailable"); return; }
+    RunOnGameFiber([this, pos, yaw] {
+        uintptr_t b = findBuddyOnFiber();
+        if (!b) { Log("buddy: none to move"); return; }
+        bool ok = engineTeleport(b, pos, yaw);
+        Log("buddy: teleport to %.2f %.2f %.2f: %s", pos.x, pos.y, pos.z, ok ? "sent" : "FAILED");
+    });
 }
 
 void GameBridge::Shutdown() { FiberHookRemove(); }

@@ -303,6 +303,12 @@ void CoopMain() {
                     if (line == "teleport") cmdTeleport = true;
                     else if (line == "modules") LogInputModules();
                     else if (line == "inputstats") InputLogStats();
+                    else if (line == "buddy") bridge.QueueBuddyReport();
+                    else if (line == "buddy here" && self) {
+                        // 2 m to the player's right.
+                        Vec3 p = {self->pos.x + std::cos(self->yaw) * 2.f, self->pos.y + 0.2f, self->pos.z - std::sin(self->yaw) * 2.f};
+                        bridge.QueueBuddyTeleport(p, self->yaw);
+                    }
                     else if (!InputScriptAdd(line)) Log("command not understood: %s", line.c_str());
                 }
             }
