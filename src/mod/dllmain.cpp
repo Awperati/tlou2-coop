@@ -79,6 +79,17 @@ XInputGetStateFn LoadXInput() {
 
 std::wstring KeyLabel(const std::string& key) { return Wide(Trim(key).empty() ? "T" : Trim(key)); }
 
+// Which input stacks the game has loaded: tells us where synthetic input can enter.
+void LogInputModules() {
+    const wchar_t* names[] = {L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll", L"GameInput.dll",
+                              L"dinput8.dll", L"hid.dll", L"steam_api64.dll", L"libScePad.dll", L"PlayStationSdk.dll"};
+    for (auto* n : names) Log("module %ls: %s", n, GetModuleHandleW(n) ? "loaded" : "-");
+    RAWINPUTDEVICE devs[16]; UINT count = 16;
+    UINT got = GetRegisteredRawInputDevices(devs, &count, sizeof(RAWINPUTDEVICE));
+    for (UINT i = 0; i < got && i < 16; ++i)
+        Log("raw input: usagePage 0x%X usage 0x%X flags 0x%X", devs[i].usUsagePage, devs[i].usUsage, devs[i].dwFlags);
+}
+
 void CoopMain() {
     const std::wstring dir = ModDir();
     Ini cfg, rosterIni, offsets;
@@ -285,6 +296,7 @@ void CoopMain() {
                 text = Lower(Trim(text));
                 Log("command: %s", text.c_str());
                 if (text == "teleport") cmdTeleport = true;
+                if (text == "modules") LogInputModules();
             }
         }
 
