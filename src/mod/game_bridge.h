@@ -1,0 +1,47 @@
+// Everything that touches TLOU2's memory lives here.
+// Addresses come from config/offsets.ini as byte patterns + field offsets,
+// so new reverse-engineering results drop in without a rebuild.
+// Each feature reports whether it is mapped; unmapped features are no-ops.
+#pragma once
+#include "core/config.h"
+#include "core/protocol.h"
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace coop {
+
+struct BridgeFeatures {
+    bool localPlayer = false;   // read the player's position/yaw/health
+    bool teleport = false;      // write the player's position
+    bool puppet = false;        // drive the companion NPC as a remote player
+    bool worldPack = false;     // know which chapter is loaded
+    bool objective = false;     // know the current objective / transition
+    bool combat = false;        // know when enemies are engaged
+};
+
+class GameBridge {
+public:
+    bool Init(const Ini& offsets);
+    const BridgeFeatures& features() const { return f_; }
+
+    std::optional<PlayerState> ReadLocalPlayer(uint32_t tick);
+    bool TeleportLocalPlayer(const TeleportTo& t);
+    bool DrivePuppet(uint8_t slot, const PlayerState& s);
+    std::string CurrentWorldPack();
+    std::optional<Objective> CurrentObjective();
+    bool InCombat();
+    bool GameWindowFocused() const;
+
+private:
+    struct Chain { uintptr_t root = 0; std::vector<uint32_t> hops; };
+    bool resolveChain(const Ini& ini, const char* section, Chain& out);
+    uintptr_t follow(const Chain& c) const;
+
+    BridgeFeatures f_;
+    Chain player_, companion_, worldName_, objective_, combat_;
+    uint32_t offPos_ = 0, offYaw_ = 0, offHealth_ = 0, offVel_ = 0;
+    uint32_t offObjPos_ = 0, offObjRadius_ = 0, offObjTransition_ = 0;
+};
+
+} // namespace coop
