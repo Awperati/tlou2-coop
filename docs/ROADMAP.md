@@ -26,7 +26,7 @@ Each PC runs its own copy of the story. The host is authoritative.
 | # | Milestone | Status |
 |---|---|---|
 | M0 | Loader, LAN protocol, discovery, teleport rules, roster, accessible overlay, tests | Done |
-| M1 | Find the player actor and its transform; fill `[player]` | Next |
+| M1 | Find the player actor and its transform; fill `[player]` | Player pointer found; position offset pending (auto-finder in DLL) |
 | M2 | Call the engine's own teleport instead of raw position writes | |
 | M3 | Companion puppet: take over the buddy NPC with remote state | |
 | M4 | Objective + transition gate: hook world/region loads, hold until gate is ready | |
@@ -47,6 +47,24 @@ The exe still carries dev-menu and assert strings. They point straight at the sy
 
 Workflow: open `re/tlou-ii.i64` in IDA 9.0, xref the string, name the function,
 make a byte pattern, put it in `offsets.ini`, and check `tlou2-coop.log`.
+
+## Verified in game (2026-10-09)
+
+- `version.dll` loads in `tlou-ii.exe`, opens UDP 47820/47821, and the bridge initialises without crashing.
+- `coop_lan_sim client` found the in-game host by LAN broadcast and joined (slot 1, 31 ms RTT).
+- The game process cannot be killed from a normal shell ("Access is denied"). Close it from the game menu.
+
+## Engine facts found (rva = address - 0x140000000)
+
+| What | Where | Notes |
+|---|---|---|
+| `GetPlayer()` | rva `0xDA8A80` | Reads player handle global `0x14411A510` = {ptr, id}; Process* = ptr+8, valid if `Process+0x94 == id` |
+| Dev menu "Teleport Player" | rva `0x3F86F0` | Builds a locator in front of camera 0, then `Event::Send` to the player |
+| `Event::Send(Process*, ...)` | rva `0x156F870` | Event id `0xFC5BA7D4` used for teleport; calls Process vtable +240 |
+| `GetRenderCamera(i)` | rva `0x138CA00` | `0x148243BE0 + 976 * i` |
+
+Next for M1: walk around in game for ~30 s and read the `discover:` lines in
+`tlou2-coop.log`. The top candidate is the position offset; put it in `[player] pos`.
 
 ## Server phase (after LAN works)
 

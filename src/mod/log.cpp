@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <cstdarg>
 #include <cstdio>
+#include <share.h>
 #include <mutex>
 
 namespace coop {
@@ -14,7 +15,8 @@ std::mutex g_mu;
 
 void LogOpen(const std::wstring& path) {
     std::lock_guard lk(g_mu);
-    if (!g_file) _wfopen_s(&g_file, path.c_str(), L"w");
+    // Shared so the log can be read while the game runs.
+    if (!g_file) g_file = _wfsopen(path.c_str(), L"w", _SH_DENYNO);
 }
 
 void Log(const char* fmt, ...) {

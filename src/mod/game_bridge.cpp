@@ -3,6 +3,9 @@
 #include "mod/sigscan.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 
 namespace coop {
 
@@ -126,6 +129,68 @@ bool GameBridge::InCombat() {
     if (!f_.combat) return false;
     uintptr_t p = follow(combat_);
     return p != 0;
+}
+
+namespace {
+constexpr size_t kSelfBytes = 0x1000;
+constexpr size_t kKidBytes = 0x400;
+constexpr size_t kMaxKids = 96;
+
+bool LooksLikeHeapPtr(uintptr_t p) { return p > 0x10000 && p < 0x7FFFFFFFFFFF && (p & 7) == 0; }
+
+bool PlausiblePos(const float* f) {
+    for (int i = 0; i < 3; ++i) if (!(f[i] > -20000.f && f[i] < 20000.f)) return false;
+    return std::fabs(f[0]) + std::fabs(f[1]) + std::fabs(f[2]) > 0.5f;
+}
+} // namespace
+
+void GameBridge::DiscoverTick() {
+    uintptr_t obj = follow(player_);
+    if (!obj) return;
+    Snapshot s;
+    s.obj = obj;
+    s.self.resize(kSelfBytes);
+    if (!SafeRead(obj, s.self.data(), kSelfBytes)) return;
+    for (size_t off = 0; off + 8 <= kSelfBytes && s.kidPtrs.size() < kMaxKids; off += 8) {
+        uintptr_t p; std::memcpy(&p, &s.self[off], 8);
+        if (!LooksLikeHeapPtr(p)) continue;
+        std::vector<uint8_t> kid(kKidBytes);
+        if (!SafeRead(p, kid.data(), kKidBytes)) continue;
+        s.kidPtrs.push_back(off);
+        s.kids.push_back(std::move(kid));
+    }
+
+    if (last_.obj == obj) {
+        auto scan = [&](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint64_t tag) {
+            for (size_t o = 0; o + 12 <= a.size() && o + 12 <= b.size(); o += 4) {
+                float fa[3], fb[3];
+                std::memcpy(fa, &a[o], 12); std::memcpy(fb, &b[o], 12);
+                if (!PlausiblePos(fa) || !PlausiblePos(fb)) continue;
+                float dx = fb[0] - fa[0], dy = fb[1] - fa[1], dz = fb[2] - fa[2];
+                float horiz = std::sqrt(dx * dx + dz * dz);
+                // About 1 s between ticks: walking/running moves 0.3-12 m, mostly horizontally.
+                if (horiz > 0.3f && horiz < 12.f && std::fabs(dy) < 3.f) scores_[tag | o] += 1;
+            }
+        };
+        scan(last_.self, s.self, 0);
+        for (size_t i = 0; i < s.kids.size() && i < last_.kids.size(); ++i)
+            if (s.kidPtrs[i] == last_.kidPtrs[i]) scan(last_.kids[i], s.kids[i], (uint64_t)(s.kidPtrs[i] + 1) << 32);
+    }
+    last_ = std::move(s);
+
+    if (++discoverTicks_ % 15 == 0 && !scores_.empty()) {
+        std::vector<std::pair<int, uint64_t>> top;
+        for (auto& [k, v] : scores_) top.push_back({v, k});
+        std::sort(top.rbegin(), top.rend());
+        Log("discover: player=%p, best position candidates after %d s of play:", reinterpret_cast<void*>(obj), discoverTicks_);
+        for (size_t i = 0; i < top.size() && i < 8; ++i) {
+            uint64_t k = top[i].second;
+            uint32_t field = static_cast<uint32_t>(k & 0xffffffff);
+            uint32_t via = static_cast<uint32_t>(k >> 32);
+            if (via) Log("  score %3d  [player+0x%X] -> +0x%X", top[i].first, via - 1, field);
+            else Log("  score %3d  player+0x%X", top[i].first, field);
+        }
+    }
 }
 
 bool GameBridge::GameWindowFocused() const {

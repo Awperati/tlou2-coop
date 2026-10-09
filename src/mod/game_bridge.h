@@ -5,6 +5,7 @@
 #pragma once
 #include "core/config.h"
 #include "core/protocol.h"
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -33,6 +34,12 @@ public:
     bool InCombat();
     bool GameWindowFocused() const;
 
+    // Player found but position offset unknown: call ~1/s while the player moves.
+    // Scores float3 fields that change like a walking character and logs the best.
+    bool needsDiscovery() const { return player_.root && !offPos_; }
+    void DiscoverTick();
+    uintptr_t PlayerObject() const { return follow(player_); }
+
 private:
     struct Chain { uintptr_t root = 0; std::vector<uint32_t> hops; };
     bool resolveChain(const Ini& ini, const char* section, Chain& out);
@@ -42,6 +49,11 @@ private:
     Chain player_, companion_, worldName_, objective_, combat_;
     uint32_t offPos_ = 0, offYaw_ = 0, offHealth_ = 0, offVel_ = 0;
     uint32_t offObjPos_ = 0, offObjRadius_ = 0, offObjTransition_ = 0;
+
+    struct Snapshot { uintptr_t obj = 0; std::vector<uint8_t> self; std::vector<std::vector<uint8_t>> kids; std::vector<uintptr_t> kidPtrs; };
+    Snapshot last_;
+    std::map<uint64_t, int> scores_;   // key: (childIndex+1) << 32 | fieldOffset
+    int discoverTicks_ = 0;
 };
 
 } // namespace coop

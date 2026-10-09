@@ -187,7 +187,8 @@ void CoopMain() {
     }
 
     uint32_t tick = 0;
-    ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0;
+    ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
+    uintptr_t lastPlayerObj = 1;
     bool prevPressed = false, toggled = false;
     PromptState prevPrompt = PromptState::Hidden;
 
@@ -258,6 +259,13 @@ void CoopMain() {
             prevPrompt = st;
         } else {
             OverlayClearPrompt();
+        }
+
+        if (bridge.needsDiscovery() && now - lastDiscover >= 1000) {
+            lastDiscover = now;
+            uintptr_t obj = bridge.PlayerObject();
+            if (obj != lastPlayerObj) { Log("player object: %p", reinterpret_cast<void*>(obj)); lastPlayerObj = obj; }
+            bridge.DiscoverTick();
         }
 
         if (now - lastStatus >= 500) {
