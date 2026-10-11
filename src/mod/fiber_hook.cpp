@@ -37,6 +37,29 @@ bool OnGameFiber() {
     return fd > 0x10000;
 }
 
+extern "C" void CallOnStack(void (*fn)(void*), void* arg, void* stackTop);
+
+// Big private stack for our engine calls. The fibers that call GetPlayer() can be
+// deep in their own stacks; c-spawn-npc then overflowed (0xC00000FD, 2026-10-11).
+constexpr size_t kStackSize = 4u << 20;
+uint8_t* g_stack = nullptr;
+
+void RunTask(void* p) { (*static_cast<std::function<void()>*>(p))(); }
+
+void RunOnBigStack(std::function<void()>& fn) {
+    if (!g_stack) g_stack = static_cast<uint8_t*>(VirtualAlloc(nullptr, kStackSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    if (!g_stack) { fn(); return; }
+    // The TEB stack bounds must cover the new stack, or __chkstk probes fault.
+    auto* tib = reinterpret_cast<NT_TIB*>(NtCurrentTeb());
+    void* oldBase = tib->StackBase;
+    void* oldLimit = tib->StackLimit;
+    tib->StackBase = g_stack + kStackSize;
+    tib->StackLimit = g_stack;
+    CallOnStack(&RunTask, &fn, g_stack + kStackSize - 64);
+    tib->StackBase = oldBase;
+    tib->StackLimit = oldLimit;
+}
+
 void Drain() {
     bool expected = false;
     if (!g_draining.compare_exchange_strong(expected, true)) return;
@@ -48,7 +71,7 @@ void Drain() {
             fn = std::move(g_queue.front());
             g_queue.pop_front();
         }
-        fn();
+        RunOnBigStack(fn);
     }
     g_draining = false;
 }

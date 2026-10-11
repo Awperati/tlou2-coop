@@ -154,6 +154,13 @@ puppet now 4 Hz with a 1 m dead zone. Real fix: drive the NPC with a move-to com
 (walk/run animation) instead of teleporting it; find the buddy move-to native next.
 Dumps: `%LOCALAPPDATA%\CrashDumps	lou-ii.exe*.21364.dmp`, parser at `tools/minidump.py`.
 
+### Crash 3, 2026-10-11 (stack overflow in c-spawn-npc)
+The second `c-spawn-npc` call died with `0xC00000FD` (stack overflow) at rva `0x2866037`.
+Our engine calls ran on whatever game fiber called `GetPlayer()`, which can be deep in its
+own stack; spawning needs tens of KB more. Fix: every queued engine call now runs on a
+private 4 MB stack (`stack_switch.asm`), with the TEB stack bounds swapped for the call.
+`npc-move-to` (native rva `0x63F0E0`) is wired as `moveto <npc-name> <metres> <motion>`; untested.
+
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
 - Engine calls run inside `__try`, from inside a game job that called `GetPlayer()`. That job may be mid-update; so far no crash.

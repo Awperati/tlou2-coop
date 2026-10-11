@@ -832,6 +832,31 @@ void GameBridge::QueueSpawned(const std::string& spawner, bool here, float metre
     });
 }
 
+// npc-move-to(npc-name, bound-frame*, int motion, int goal, symbol, bool, bool, symbol).
+// The worker (rva 0x640020) rejects motion >= 3 and off-navmesh targets, and only
+// "waits" inside a script context, so calling it from the mod just starts the move.
+void GameBridge::QueueMoveTo(const std::string& npcName, float metres, int motion) {
+    RunOnGameFiber([this, npcName, metres, motion] {
+        uintptr_t fn = BuildRva(0x63F0E0);
+        uintptr_t pl = follow(player_);
+        auto me = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
+        auto q = pl ? Read<Quat>(pl + offRot_) : std::nullopt;
+        if (!fn || !me) { Log("moveto: not available"); return; }
+        float yaw = q ? YawFromQuat(*q) : 0.f;
+        Vec3 t = {me->x + std::cos(yaw) * metres, me->y, me->z - std::sin(yaw) * metres};
+        alignas(16) float locator[8] = {t.x, t.y, t.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+        alignas(16) uint8_t binding[64] = {};
+        alignas(16) uint8_t bf[128] = {};
+        reinterpret_cast<BindingDefaultFn>(fnBindingDefault_)(binding);
+        reinterpret_cast<BoundFrameCtorFn>(fnBoundFrameCtor_)(bf, locator, binding);
+        uint64_t argv[16] = {Fnv1a(npcName), reinterpret_cast<uint64_t>(bf), static_cast<uint64_t>(motion), 0, 0, 0, 0, 0};
+        uint64_t ret[4] = {};
+        int ok = SafeNative(fn, 8, argv, ret);
+        Log("moveto: %s -> %.2f %.2f %.2f motion %d: %s ret 0x%llx", npcName.c_str(), t.x, t.y, t.z, motion,
+            ok ? "called" : "FAULT", static_cast<unsigned long long>(ret[0]));
+    });
+}
+
 void GameBridge::Shutdown() { FiberHookRemove(); }
 
 bool GameBridge::GameWindowFocused() const {
