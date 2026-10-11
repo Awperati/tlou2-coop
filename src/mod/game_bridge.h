@@ -58,6 +58,8 @@ public:
     void QueueMoveTo(const std::string& npcName, float metres, int motion);
     // Which Npc* a script NPC argument resolves to (arg reader rva 0x3FF7D0).
     void QueueResolveNpcArg(const std::string& name);
+    // Log the state-script context seen inside a script native call.
+    void QueueScriptContextReport();
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 

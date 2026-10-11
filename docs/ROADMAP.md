@@ -194,6 +194,13 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
   natives tie their command to the calling script (they read the current script process via
   `sub_141D919B0`/`sub_141D91FF0`); called from the mod there is none. Spawn and teleport do
   not need that. Next: give the call a script context, or drive locomotion below scripts.
+- Script context attempt (option 1): hooked `NativeObject::Invoke` (rva `0x160F950`), the
+  function the script VM calls every native through, and ran queued commands only when the
+  SsContext stack index (`+896`, context getter rva `0x1D91F80`) was >= 0. Verified that
+  inside it a real state-script group and thread are on the stack. Even there,
+  `npc-set-script-mode` leaves `npc-get-script-mode` at 0, `npc-move-to` returns 1, and
+  `npc-get-current-behavior` (rva `0x635FE0`) stays `0x91aaf91fc7515743` before and after.
+  Dina does not move. Not solved; the remaining guess is wrong argument encoding.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.

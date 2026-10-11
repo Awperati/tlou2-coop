@@ -91,6 +91,7 @@ bool GameBridge::engineTeleport(uintptr_t player, const Vec3& pos, float yaw, ui
     return false;
 }
 
+namespace { uintptr_t BuildRva(uint32_t rva); }
 namespace { bool CallNpcTeleport(uintptr_t npc, uint32_t slot, uintptr_t fnBind, uintptr_t fnBf, const float* locator); }
 
 // Section layout in offsets.ini:
@@ -161,6 +162,7 @@ bool GameBridge::Init(const Ini& ini) {
         static const ModuleRange modr = MainModule();
         if (auto tu = FindFunctionByString(modr, ini.get("engine", "task_update_fn", "bool __cdecl GameTaskGraphMgr::Update(void)")))
             PhaseHookInstall(*tu);
+        if (ini.getBool("engine", "script_hook", true)) ScriptHookInstall(BuildRva(0x160F950), BuildRva(0x1D91F80));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
     f_.worldPack = false;   // set below once the task manager resolves
@@ -758,7 +760,9 @@ uint64_t Fnv1a(const std::string& s) {
 
 // Script natives are fn(ret, argc, argv, ctx): argv is an array of 8-byte script values,
 // symbols are FNV-1a ids (see c-spawn-npc, rva 0x626240, and its arg iterator rva 0x1C3F180).
-void GameBridge::QueueNativeCall(const std::string& line) {
+void GameBridge::QueueNativeCall(const std::string& lineIn) {
+    bool inScript = !lineIn.empty() && lineIn[0] == '!';
+    std::string line = inScript ? lineIn.substr(1) : lineIn;
     std::istringstream in(line);
     std::string rvaText; in >> rvaText;
     uintptr_t fn = BuildRva(static_cast<uint32_t>(std::stoul(rvaText, nullptr, 16)));
@@ -772,12 +776,13 @@ void GameBridge::QueueNativeCall(const std::string& line) {
     }
     args.resize(args.size() + 8, 0);   // tolerate optional args read past argc
     int argc = static_cast<int>(args.size() - 8);
-    RunOnGameFiber([fn, args, argc, desc, rvaText]() mutable {
+    auto task = [fn, args, argc, desc, rvaText]() mutable {
         uint64_t ret[4] = {};
         int ok = SafeNative(fn, argc, args.data(), ret);
         if (ok) Log("native %s(%s ) -> 0x%llx", rvaText.c_str(), desc.c_str(), static_cast<unsigned long long>(ret[0]));
         else Log("native %s(%s ) FAULT 0x%08lX at %p", rvaText.c_str(), desc.c_str(), g_faultCode, reinterpret_cast<void*>(g_faultAddr));
-    }, true);
+    };
+    if (inScript) RunInScriptContext(task); else RunOnGameFiber(task, true);
 }
 
 namespace {
@@ -854,7 +859,7 @@ void GameBridge::QueueSpawned(const std::string& spawner, bool here, float metre
 // The worker (rva 0x640020) rejects motion >= 3 and off-navmesh targets, and only
 // "waits" inside a script context, so calling it from the mod just starts the move.
 void GameBridge::QueueMoveTo(const std::string& npcName, float metres, int motion) {
-    RunOnGameFiber([this, npcName, metres, motion] {
+    RunInScriptContext([this, npcName, metres, motion] {
         uintptr_t fn = BuildRva(0x63F0E0);
         uintptr_t pl = follow(player_);
         auto me = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
@@ -872,7 +877,7 @@ void GameBridge::QueueMoveTo(const std::string& npcName, float metres, int motio
         int ok = SafeNative(fn, 8, argv, ret);
         Log("moveto: %s -> %.2f %.2f %.2f motion %d: %s ret 0x%llx", npcName.c_str(), t.x, t.y, t.z, motion,
             ok ? "called" : "FAULT", static_cast<unsigned long long>(ret[0]));
-    }, true);
+    });
 }
 
 namespace {
@@ -898,6 +903,23 @@ void GameBridge::QueueResolveNpcArg(const std::string& name) {
         Log("npcarg: '%s' -> Npc %p id %u name '%s'", name.c_str(), reinterpret_cast<void*>(npc), id ? *id : 0,
             npc ? ProcessName(npc).c_str() : "");
     }, true);
+}
+
+// SsContext (ss-context.cpp): per-job slot 5 or a global default (getter rva 0x1D91F80);
+// +896 current stack index; entry i at +8+56*i: group instance, +16+56*i: thread instance.
+void GameBridge::QueueScriptContextReport() {
+    RunInScriptContext([] {
+        uintptr_t get = BuildRva(0x1D91F80);
+        if (!get) return;
+        uintptr_t ctx = reinterpret_cast<uintptr_t (*)()>(get)();
+        auto idx = Read<int32_t>(ctx + 896);
+        int i = idx ? *idx : -9;
+        auto grp = (i >= 0 && i < 16) ? Read<uintptr_t>(ctx + 8 + 56ull * i) : std::nullopt;
+        auto thr = (i >= 0 && i < 16) ? Read<uintptr_t>(ctx + 16 + 56ull * i) : std::nullopt;
+        Log("scriptctx: ctx %p index %d group %p thread %p%s", reinterpret_cast<void*>(ctx), i,
+            reinterpret_cast<void*>(grp ? *grp : 0), reinterpret_cast<void*>(thr ? *thr : 0),
+            grp && *grp ? StringsIn(*grp, 0x80).c_str() : "");
+    });
 }
 
 void GameBridge::Shutdown() { FiberHookRemove(); }

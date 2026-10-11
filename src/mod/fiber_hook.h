@@ -14,6 +14,10 @@ bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle);
 void FiberHookRemove();
 // Heavy tasks run only from GameTaskGraphMgr::Update (game-logic phase).
 bool PhaseHookInstall(uintptr_t taskUpdate);
+// Script-owned commands (npc-move-to, script modes) run inside a real native call,
+// so the engine sees a live state-script context. Hooks NativeObject::Invoke.
+bool ScriptHookInstall(uintptr_t nativeInvoke, uintptr_t ssContextGetter);
+void RunInScriptContext(std::function<void()> fn);
 bool FiberHookActive();
 // heavy = needs a deep stack (spawning, script natives); waits for a caller with room.
 void RunOnGameFiber(std::function<void()> fn, bool heavy = false);

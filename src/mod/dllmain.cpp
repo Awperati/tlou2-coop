@@ -314,6 +314,7 @@ void CoopMain() {
                     else if (line == "tasks") bridge.DumpTasks();
                     else if (line == "spawnlist") bridge.QueueSpawnListDump();
                     else if (line.rfind("native ", 0) == 0) bridge.QueueNativeCall(line.substr(7));
+                    else if (line == "scriptctx") bridge.QueueScriptContextReport();
                     else if (line.rfind("npcarg ", 0) == 0) bridge.QueueResolveNpcArg(Trim(line.substr(7)));
                     else if (line.rfind("moveto ", 0) == 0) {
                         std::istringstream ms(line.substr(7)); std::string name; float m = 6.f; int motion = 1;
