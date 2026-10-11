@@ -775,8 +775,8 @@ void GameBridge::QueueNativeCall(const std::string& line) {
     });
 }
 
-void GameBridge::QueueProcess(uintptr_t procIn, bool here) {
-    RunOnGameFiber([this, procIn, here] {
+void GameBridge::QueueProcess(uintptr_t procIn, bool here, float metres) {
+    RunOnGameFiber([this, procIn, here, metres] {
         static const ModuleRange mod = MainModule();
         uintptr_t proc = procIn;
         auto vt = Read<uintptr_t>(proc);
@@ -795,16 +795,18 @@ void GameBridge::QueueProcess(uintptr_t procIn, bool here) {
         if (!here || !me || !vt) return;
         auto q = Read<Quat>(pl + offRot_);
         float yaw = q ? YawFromQuat(*q) : 0.f;
-        Vec3 t = {me->x + std::cos(yaw) * 2.f, me->y + 0.2f, me->z - std::sin(yaw) * 2.f};
+        Vec3 t = {me->x + std::cos(yaw) * metres, me->y + 0.2f, me->z - std::sin(yaw) * metres};
         alignas(16) float locator[8] = {t.x, t.y, t.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
         bool ok = CallNpcTeleport(proc, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
-        Log("proc %p: teleport beside player %s", reinterpret_cast<void*>(proc), ok ? "sent" : "FAILED");
+        auto after = Read<Vec3>(proc + offPos_);
+        Log("proc %p: teleport %.0f m beside player to %.2f %.2f %.2f %s; now at %.2f %.2f %.2f", reinterpret_cast<void*>(proc), metres,
+            t.x, t.y, t.z, ok ? "sent" : "FAILED", after ? after->x : 0, after ? after->y : 0, after ? after->z : 0);
     });
 }
 
 // Spawner "already spawned" check (rva 0x650960) reads the handle at spawner+96/+104.
-void GameBridge::QueueSpawned(const std::string& spawner, bool here) {
-    RunOnGameFiber([this, spawner, here] {
+void GameBridge::QueueSpawned(const std::string& spawner, bool here, float metres) {
+    RunOnGameFiber([this, spawner, here, metres] {
         uintptr_t getSpawner = BuildRva(0xD45850);   // get-spawner native
         if (!getSpawner) { Log("spawned: exe build differs"); return; }
         uint64_t argv[8] = {Fnv1a(spawner)};
@@ -818,7 +820,7 @@ void GameBridge::QueueSpawned(const std::string& spawner, bool here) {
                 if (auto id = Read<uint32_t>(*p + 148); id && *id == *hid) proc = *p;
         if (!proc) { Log("spawned: %s has no live process", spawner.c_str()); return; }
         Log("spawned: %s -> process %p id %u", spawner.c_str(), reinterpret_cast<void*>(proc), *hid);
-        QueueProcess(proc, here);
+        QueueProcess(proc, here, metres);
     });
 }
 

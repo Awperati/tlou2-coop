@@ -49,9 +49,9 @@ public:
     // Args: "sid:<name>" (FNV-1a symbol), numbers (0x.. or decimal). Build-pinned.
     void QueueNativeCall(const std::string& line);
     // Research: describe a process pointer; with here=true teleport it beside the player.
-    void QueueProcess(uintptr_t proc, bool here);
+    void QueueProcess(uintptr_t proc, bool here, float metres = 2.f);
     // The process a spawner spawned: spawner+96 handle {node, id@+104}; process = *(node+8).
-    void QueueSpawned(const std::string& spawner, bool here);
+    void QueueSpawned(const std::string& spawner, bool here, float metres = 2.f);
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 

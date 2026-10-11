@@ -312,7 +312,8 @@ void CoopMain() {
                     else if (line.rfind("native ", 0) == 0) bridge.QueueNativeCall(line.substr(7));
                     else if (line.rfind("spawned ", 0) == 0) {
                         std::istringstream ps(line.substr(8)); std::string name, mode; ps >> name >> mode;
-                        bridge.QueueSpawned(name, mode == "here");
+                        if (mode == "far") bridge.QueueSpawned(name, true, 8.f);
+                        else bridge.QueueSpawned(name, mode == "here");
                     }
                     else if (line.rfind("proc ", 0) == 0) {
                         std::istringstream ps(line.substr(5)); std::string addr, mode; ps >> addr >> mode;
