@@ -52,6 +52,8 @@ public:
     void QueueProcess(uintptr_t proc, bool here, float metres = 2.f);
     // The process a spawner spawned: spawner+96 handle {node, id@+104}; process = *(node+8).
     void QueueSpawned(const std::string& spawner, bool here, float metres = 2.f);
+    // Which NPC the network puppet drives: the story buddy (empty) or a spawner's NPC.
+    void SetPuppetSpawner(const std::string& spawner) { puppetSpawner_ = spawner; }
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 
@@ -84,6 +86,8 @@ private:
     uint64_t teleportEvent_ = 0, npcTeleportEvent_ = 0;
     uint32_t npcTeleportSlot_ = 0;
     float puppetMaxDistance_ = 40.f;
+    std::string puppetSpawner_;
+    uintptr_t spawnedProcessOnFiber(const std::string& spawner);
     unsigned long long lastPuppet_ = 0, lastPuppetLog_ = 0;
     std::atomic<bool> puppetQueued_{false};
     bool engineTeleport_ = false, discoverForced_ = false;

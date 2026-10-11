@@ -310,6 +310,11 @@ void CoopMain() {
                     else if (line == "tasks") bridge.DumpTasks();
                     else if (line == "spawnlist") bridge.QueueSpawnListDump();
                     else if (line.rfind("native ", 0) == 0) bridge.QueueNativeCall(line.substr(7));
+                    else if (line.rfind("puppet ", 0) == 0) {
+                        std::string target = Trim(line.substr(7));
+                        bridge.SetPuppetSpawner(target == "buddy" ? std::string() : target);
+                        Log("puppet: now driving %s", target.c_str());
+                    }
                     else if (line.rfind("spawned ", 0) == 0) {
                         std::istringstream ps(line.substr(8)); std::string name, mode; ps >> name >> mode;
                         if (mode == "far") bridge.QueueSpawned(name, true, 8.f);

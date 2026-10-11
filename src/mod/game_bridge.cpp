@@ -249,16 +249,18 @@ bool GameBridge::TeleportLocalPlayer(const TeleportTo& t) {
 bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
     if (!f_.puppet) return false;
     ULONGLONG now = GetTickCount64();
-    if (now - lastPuppet_ < 100 || puppetQueued_) return true;
+    // 4 Hz, not 10: rapid teleports of a freshly spawned NPC preceded a crash in
+    // Npc::Evaluation (2026-10-11). Proper fix is a walk-to command instead of teleports.
+    if (now - lastPuppet_ < 250 || puppetQueued_) return true;
     lastPuppet_ = now;
     puppetQueued_ = true;
     Vec3 pos = s.pos; float yaw = s.yaw;
     RunOnGameFiber([this, slot, pos, yaw] {
         puppetQueued_ = false;
-        uintptr_t b = findBuddyOnFiber();
+        uintptr_t b = puppetSpawner_.empty() ? findBuddyOnFiber() : spawnedProcessOnFiber(puppetSpawner_);
         if (!b) return;
         auto cur = Read<Vec3>(b + offPos_);
-        if (cur && Distance(*cur, pos) < 0.3f) return;
+        if (cur && Distance(*cur, pos) < 1.0f) return;
         if (InCinematic()) return;   // never move actors while a cinematic owns them
         // Safety: a far jump (another area, or a bad position) crashed the game
         // during a cinematic. Only move the buddy near where the local player is.
@@ -804,22 +806,28 @@ void GameBridge::QueueProcess(uintptr_t procIn, bool here, float metres) {
     });
 }
 
+// Must run on a game fiber (calls the get-spawner native, rva 0xD45850).
+uintptr_t GameBridge::spawnedProcessOnFiber(const std::string& spawner) {
+    uintptr_t getSpawner = BuildRva(0xD45850);
+    if (!getSpawner) return 0;
+    uint64_t argv[8] = {Fnv1a(spawner)};
+    uint64_t ret[4] = {};
+    if (!SafeNative(getSpawner, 1, argv, ret) || !ret[0]) return 0;
+    auto node = Read<uintptr_t>(ret[0] + 96);
+    auto hid = Read<uint32_t>(ret[0] + 104);
+    if (!node || !*node || !hid || !*hid) return 0;
+    auto p = Read<uintptr_t>(*node + 8);
+    if (!p || !*p) return 0;
+    auto id = Read<uint32_t>(*p + 148);
+    return (id && *id == *hid) ? *p : 0;
+}
+
 // Spawner "already spawned" check (rva 0x650960) reads the handle at spawner+96/+104.
 void GameBridge::QueueSpawned(const std::string& spawner, bool here, float metres) {
     RunOnGameFiber([this, spawner, here, metres] {
-        uintptr_t getSpawner = BuildRva(0xD45850);   // get-spawner native
-        if (!getSpawner) { Log("spawned: exe build differs"); return; }
-        uint64_t argv[8] = {Fnv1a(spawner)};
-        uint64_t ret[4] = {};
-        if (!SafeNative(getSpawner, 1, argv, ret) || !ret[0]) { Log("spawned: spawner %s not found", spawner.c_str()); return; }
-        auto node = Read<uintptr_t>(ret[0] + 96);
-        auto hid = Read<uint32_t>(ret[0] + 104);
-        uintptr_t proc = 0;
-        if (node && *node && hid && *hid)
-            if (auto p = Read<uintptr_t>(*node + 8); p && *p)
-                if (auto id = Read<uint32_t>(*p + 148); id && *id == *hid) proc = *p;
+        uintptr_t proc = spawnedProcessOnFiber(spawner);
         if (!proc) { Log("spawned: %s has no live process", spawner.c_str()); return; }
-        Log("spawned: %s -> process %p id %u", spawner.c_str(), reinterpret_cast<void*>(proc), *hid);
+        Log("spawned: %s -> process %p", spawner.c_str(), reinterpret_cast<void*>(proc));
         QueueProcess(proc, here, metres);
     });
 }

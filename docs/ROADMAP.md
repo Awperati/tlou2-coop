@@ -144,6 +144,16 @@ cinematic while the mod reported `playing`).
   `Process::SpawnProcess` / `ProcessSpawnInfo`, and loading a character package via the level
   want-load lists so a spawner from another chapter's level data becomes available.
 
+### Crash 2, 2026-10-11 (puppet on a spawned Dina)
+Ten seconds after the LAN puppet started teleporting the spawned Dina at 10 Hz, the game
+crashed: write to `0x14` at rva `0x2169BB6`, inside `Npc::Evaluation` /
+`NpcManager::NpcEvaluateUpdate` (stack rvas `0x215C70E`, `0x564539`, `0x4F781D`, `0x4AE4F4`).
+No mod frames on the stack, so the game crashed later in its own NPC update. The same spawned
+Dina had lived for minutes without the puppet, and survived a single teleport. Mitigation:
+puppet now 4 Hz with a 1 m dead zone. Real fix: drive the NPC with a move-to command
+(walk/run animation) instead of teleporting it; find the buddy move-to native next.
+Dumps: `%LOCALAPPDATA%\CrashDumps	lou-ii.exe*.21364.dmp`, parser at `tools/minidump.py`.
+
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
 - Engine calls run inside `__try`, from inside a game job that called `GetPlayer()`. That job may be mid-update; so far no crash.
