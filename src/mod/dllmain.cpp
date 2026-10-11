@@ -249,7 +249,8 @@ void CoopMain() {
         }
         if (pressMode) { if (pressed && !prevPressed) toggled = !toggled; prevPressed = pressed; pressed = toggled; }
 
-        if (self && session.connected()) {
+        // No teleport prompt while a cinematic plays: it owns the characters.
+        if (self && session.connected() && !bridge.InCinematic()) {
             TeleportController::Inputs in;
             in.dt = dt;
             in.selfPos = self->pos;
@@ -306,6 +307,7 @@ void CoopMain() {
                     else if (line == "buddy") bridge.QueueBuddyReport();
                     else if (line == "levels") bridge.DumpLevels();
                     else if (line == "tasks") bridge.DumpTasks();
+                    else if (line == "cine") Log("cinematic: %s", bridge.InCinematic() ? "playing" : "not playing");
                     else if (line == "buddy here" && self) {
                         // 2 m to the player's right.
                         Vec3 p = {self->pos.x + std::cos(self->yaw) * 2.f, self->pos.y + 0.2f, self->pos.z - std::sin(self->yaw) * 2.f};
@@ -327,7 +329,7 @@ void CoopMain() {
         }
         testWasDown = testDown;
 
-        if (now - lastLevelPoll >= 500) { lastLevelPoll = now; bridge.PollLevels(); bridge.PollTasks(); }
+        if (now - lastLevelPoll >= 500) { lastLevelPoll = now; bridge.PollLevels(); bridge.PollTasks(); bridge.PollCinematic(); }
 
         if (self && now - lastPosLog >= 5000) {
             lastPosLog = now;

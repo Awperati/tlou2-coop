@@ -37,6 +37,9 @@ public:
     // Story tasks: GameTaskGraphMgr (global, rva-relative) -> graphs -> active subnode.
     void DumpTasks();
     void PollTasks();
+    // Cinematic (IGC) playing, from CinematicMgr as the cinematic-playing? native reads it.
+    bool InCinematic();
+    void PollCinematic();
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 
@@ -79,7 +82,8 @@ private:
     std::map<uint64_t, int> scores_;   // key: (childIndex+1) << 32 | fieldOffset
     int discoverTicks_ = 0;
 
-    uintptr_t componentTable_ = 0, taskMgr_ = 0;
+    uintptr_t componentTable_ = 0, taskMgr_ = 0, cinematicMgrPtr_ = 0;
+    int cineState_ = -1;
     std::vector<uintptr_t> activeSubnodes_;
     std::string taskName_, chapterWorld_;
     Vec3 taskStartPos_;

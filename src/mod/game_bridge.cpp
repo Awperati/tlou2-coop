@@ -179,6 +179,11 @@ bool GameBridge::Init(const Ini& ini) {
         taskMgr_ = th ? ResolveRip(*th, 19, 23) : 0;
         Log("bridge: [engine] task graph mgr %s", taskMgr_ ? "found" : "not found");
         f_.worldPack = f_.objective = taskMgr_ != 0;
+        // CinematicMgr getter asserts "s_pCinematicMgr"; it starts sub rsp,38h; mov rax,[global].
+        auto cine = FindFunctionByString(mod, ini.get("engine", "cinematic_mgr_fn", "s_pCinematicMgr"));
+        if (cine && *reinterpret_cast<const uint8_t*>(*cine + 4) == 0x48 && *reinterpret_cast<const uint8_t*>(*cine + 6) == 0x05)
+            cinematicMgrPtr_ = ResolveRip(*cine + 4, 3, 7);
+        Log("bridge: [engine] cinematic manager %s", cinematicMgrPtr_ ? "found" : "not found");
         // Names for level ids: FNV-1a 64 of every world pack name.
         for (auto& n : SplitList(ini.get("levels", "names"))) {
             uint64_t h = 0xcbf29ce484222325ull;
@@ -248,6 +253,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
         if (!b) return;
         auto cur = Read<Vec3>(b + offPos_);
         if (cur && Distance(*cur, pos) < 0.3f) return;
+        if (InCinematic()) return;   // never move actors while a cinematic owns them
         // Safety: a far jump (another area, or a bad position) crashed the game
         // during a cinematic. Only move the buddy near where the local player is.
         uintptr_t pl = follow(player_);
@@ -580,6 +586,32 @@ void GameBridge::PollTasks() {
     Log("task: %s (%s, %s)%s", name.c_str(), world.c_str(), day.c_str(), chapterChanged_ ? " CHAPTER CHANGE" : "");
     taskName_ = name;
     if (!world.empty()) chapterWorld_ = world;
+}
+
+// cinematic-playing? (native rva 0x1B29110): CinematicMgr+0xA8 holds a process
+// handle {ptr, id} for the current cinematic; the cinematic process keeps it alive
+// while flags +1432 or +1384 are set (otherwise the native treats it as ended).
+bool GameBridge::InCinematic() {
+    if (!cinematicMgrPtr_) return false;
+    auto mgr = Read<uintptr_t>(cinematicMgrPtr_);
+    if (!mgr || !*mgr) return false;
+    auto hp = Read<uintptr_t>(*mgr + 0xA8);
+    auto hid = Read<uint32_t>(*mgr + 0xB0);
+    if (!hp || !*hp || !hid || !*hid) return false;
+    auto proc = Read<uintptr_t>(*hp + 8);
+    if (!proc || !*proc) return false;
+    auto id = Read<uint32_t>(*proc + 148);
+    if (!id || *id != *hid) return false;
+    auto a = Read<uint8_t>(*proc + 1432), b = Read<uint8_t>(*proc + 1384);
+    return (a && *a) || (b && *b);
+}
+
+void GameBridge::PollCinematic() {
+    int now = InCinematic() ? 1 : 0;
+    if (now != cineState_) {
+        if (cineState_ != -1) Log("cinematic: %s", now ? "started" : "ended");
+        cineState_ = now;
+    }
 }
 
 void GameBridge::Shutdown() { FiberHookRemove(); }
