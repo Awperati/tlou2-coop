@@ -40,6 +40,7 @@ public:
     // Cinematic (IGC) playing, from CinematicMgr as the cinematic-playing? native reads it.
     bool InCinematic();
     void PollCinematic();
+    bool rawCinematic();
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 
@@ -86,6 +87,8 @@ private:
     std::atomic<int> igcPlaying_{0};
     std::atomic<bool> igcQueued_{false};
     std::string cineRaw_;
+    unsigned long long cineSeen_ = 0;
+    std::atomic<bool> cinePlaying_{false};
     int cineState_ = -1;
     std::vector<uintptr_t> activeSubnodes_;
     std::string taskName_, chapterWorld_;

@@ -606,8 +606,10 @@ int CallIgcQuery(uintptr_t obj, uint64_t arg) {
 }
 } // namespace
 
-bool GameBridge::InCinematic() {
-    if (igcPlaying_ == 1) return true;
+bool GameBridge::InCinematic() { return igcPlaying_ == 1 || cinePlaying_; }
+
+// Raw handle check; PollCinematic debounces it into cinePlaying_.
+bool GameBridge::rawCinematic() {
     if (!cinematicMgrPtr_) return false;
     auto mgr = Read<uintptr_t>(cinematicMgrPtr_);
     if (!mgr || !*mgr) return false;
@@ -618,8 +620,9 @@ bool GameBridge::InCinematic() {
     if (!proc || !*proc) return false;
     auto id = Read<uint32_t>(*proc + 148);
     if (!id || *id != *hid) return false;
-    auto a = Read<uint8_t>(*proc + 1432), b = Read<uint8_t>(*proc + 1384);
-    return (a && *a) || (b && *b);
+    // Verified in game 2026-10-11: during a cutscene the handle is live; the flags
+    // at +1432/+1384 and the IGC query stayed 0, so the live handle is the signal.
+    return true;
 }
 
 // Logs every change of the raw inputs too, so a missed cutscene can be diagnosed.
@@ -645,7 +648,11 @@ void GameBridge::PollCinematic() {
                  hid ? *hid : 0, pid, fa, fb, igcPlaying_.load());
     }
     if (cineRaw_ != raw) { Log("cinematic raw: %s", raw); cineRaw_ = raw; }
-    int now = InCinematic() ? 1 : 0;
+    // The handle drops for ~0.5 s between shots; hold "playing" 1.5 s after it ends.
+    ULONGLONG t = GetTickCount64();
+    if (rawCinematic() || igcPlaying_ == 1) cineSeen_ = t;
+    int now = (cineSeen_ && t - cineSeen_ < 1500) ? 1 : 0;
+    cinePlaying_ = now != 0;
     if (now != cineState_) {
         if (cineState_ != -1) Log("cinematic: %s", now ? "started" : "ended");
         cineState_ = now;
