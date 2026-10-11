@@ -184,6 +184,11 @@ bool GameBridge::Init(const Ini& ini) {
         if (cine && *reinterpret_cast<const uint8_t*>(*cine + 4) == 0x48 && *reinterpret_cast<const uint8_t*>(*cine + 6) == 0x05)
             cinematicMgrPtr_ = ResolveRip(*cine + 4, 3, 7);
         Log("bridge: [engine] cinematic manager %s", cinematicMgrPtr_ ? "found" : "not found");
+        // Second half of cinematic-playing?: igc->vfunc(+0x38)(arg) (rva 0x1B2924B).
+        auto ip = ini.get("engine", "igc_query");
+        auto ih = ip.empty() ? std::nullopt : FindPattern(mod, ip);
+        if (ih) { igcObjPtr_ = ResolveRip(*ih, 3, 7); igcArgPtr_ = ResolveRip(*ih + 10, 3, 7); }
+        Log("bridge: [engine] igc query %s", igcObjPtr_ ? "found" : "not found");
         // Names for level ids: FNV-1a 64 of every world pack name.
         for (auto& n : SplitList(ini.get("levels", "names"))) {
             uint64_t h = 0xcbf29ce484222325ull;
@@ -591,7 +596,18 @@ void GameBridge::PollTasks() {
 // cinematic-playing? (native rva 0x1B29110): CinematicMgr+0xA8 holds a process
 // handle {ptr, id} for the current cinematic; the cinematic process keeps it alive
 // while flags +1432 or +1384 are set (otherwise the native treats it as ended).
+namespace {
+using IgcQueryFn = bool (*)(uintptr_t self, uint64_t arg);
+int CallIgcQuery(uintptr_t obj, uint64_t arg) {
+    __try {
+        uintptr_t vt = *reinterpret_cast<uintptr_t*>(obj);
+        return reinterpret_cast<IgcQueryFn>(*reinterpret_cast<uintptr_t*>(vt + 0x38))(obj, arg) ? 1 : 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+}
+} // namespace
+
 bool GameBridge::InCinematic() {
+    if (igcPlaying_ == 1) return true;
     if (!cinematicMgrPtr_) return false;
     auto mgr = Read<uintptr_t>(cinematicMgrPtr_);
     if (!mgr || !*mgr) return false;
@@ -606,7 +622,29 @@ bool GameBridge::InCinematic() {
     return (a && *a) || (b && *b);
 }
 
+// Logs every change of the raw inputs too, so a missed cutscene can be diagnosed.
 void GameBridge::PollCinematic() {
+    // The IGC half must run on a game fiber.
+    if (igcObjPtr_ && FiberHookActive() && !igcQueued_) {
+        igcQueued_ = true;
+        RunOnGameFiber([this] {
+            igcQueued_ = false;
+            auto obj = Read<uintptr_t>(igcObjPtr_);
+            auto arg = Read<uint64_t>(igcArgPtr_);
+            igcPlaying_ = (obj && *obj && arg) ? CallIgcQuery(*obj, *arg) : 0;
+        });
+    }
+    char raw[160] = "no manager";
+    if (auto mgr = cinematicMgrPtr_ ? Read<uintptr_t>(cinematicMgrPtr_) : std::nullopt; mgr && *mgr) {
+        auto hp = Read<uintptr_t>(*mgr + 0xA8);
+        auto hid = Read<uint32_t>(*mgr + 0xB0);
+        uintptr_t proc = 0; uint32_t pid = 0; uint8_t fa = 0, fb = 0;
+        if (hp && *hp) if (auto p = Read<uintptr_t>(*hp + 8)) proc = *p;
+        if (proc) { if (auto v = Read<uint32_t>(proc + 148)) pid = *v; if (auto v = Read<uint8_t>(proc + 1432)) fa = *v; if (auto v = Read<uint8_t>(proc + 1384)) fb = *v; }
+        snprintf(raw, sizeof(raw), "handle %s id %u/%u flags %u,%u igc %d", proc ? "live" : "none",
+                 hid ? *hid : 0, pid, fa, fb, igcPlaying_.load());
+    }
+    if (cineRaw_ != raw) { Log("cinematic raw: %s", raw); cineRaw_ = raw; }
     int now = InCinematic() ? 1 : 0;
     if (now != cineState_) {
         if (cineState_ != -1) Log("cinematic: %s", now ? "started" : "ended");

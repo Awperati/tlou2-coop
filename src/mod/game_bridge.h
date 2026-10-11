@@ -82,7 +82,10 @@ private:
     std::map<uint64_t, int> scores_;   // key: (childIndex+1) << 32 | fieldOffset
     int discoverTicks_ = 0;
 
-    uintptr_t componentTable_ = 0, taskMgr_ = 0, cinematicMgrPtr_ = 0;
+    uintptr_t componentTable_ = 0, taskMgr_ = 0, cinematicMgrPtr_ = 0, igcObjPtr_ = 0, igcArgPtr_ = 0;
+    std::atomic<int> igcPlaying_{0};
+    std::atomic<bool> igcQueued_{false};
+    std::string cineRaw_;
     int cineState_ = -1;
     std::vector<uintptr_t> activeSubnodes_;
     std::string taskName_, chapterWorld_;
