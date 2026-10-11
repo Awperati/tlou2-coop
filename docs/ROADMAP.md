@@ -120,6 +120,8 @@ asserts `s_pCinematicMgr`, rva `0x1B2C300`) holds the playing cinematic's proces
 `+0xA8`. During the `efm-swim-flashback-end` cutscene it was live; the flags at `+1432`/`+1384`
 and the IGC query stayed 0. The handle drops for ~0.5 s between shots, so the mod holds
 "playing" for 1.5 s. Puppet moves and the teleport prompt are suppressed while it plays.
+Confirmed twice in game: the swim flashback ending, and the Ellie Day 2 opening (user saw the
+cinematic while the mod reported `playing`).
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
