@@ -81,6 +81,23 @@ for imm in [x for x in os.environ.get("PROBE_IMM", "").split(",") if x]:
             n += 1
         ea += 1
 
+# PROBE_CALLERS="0x141A4BF70" lists call sites with the 6 instructions before each.
+for a in [x for x in os.environ.get("PROBE_CALLERS", "").split(",") if x]:
+    target = int(a, 16)
+    emit("=" * 100)
+    emit("CALLERS of 0x%X" % target)
+    for i, x in enumerate(idautils.CodeRefsTo(target, 0)):
+        if i >= 8:
+            break
+        f = ida_funcs.get_func(x)
+        emit("  call at 0x%X in %s" % (x, ida_name.get_name(f.start_ea) if f else "?"))
+        ea = x
+        prev = []
+        for _ in range(6):
+            ea = idc.prev_head(ea)
+            prev.append("      0x%X  %s" % (ea, idc.generate_disasm_line(ea, 0)))
+        lines.extend(reversed(prev))
+
 # PROBE_DISASM="0x140DA8A80:40" prints that many instructions with their bytes.
 for spec in [x for x in os.environ.get("PROBE_DISASM", "").split(",") if x]:
     a, n = spec.split(":")

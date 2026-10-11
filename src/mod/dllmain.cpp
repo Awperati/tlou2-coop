@@ -206,7 +206,7 @@ void CoopMain() {
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
     uintptr_t lastPlayerObj = 1;
-    ULONGLONG lastPosLog = 0, lastCmdPoll = 0;
+    ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0;
     bool mainHooked = false, testWasDown = false;
     const int testKey = cfg.get("debug", "TestTeleportKey", "F10").empty() ? 0 : ParseKey(cfg.get("debug", "TestTeleportKey", "F10"));
     bool prevPressed = false, toggled = false;
@@ -304,6 +304,8 @@ void CoopMain() {
                     else if (line == "modules") LogInputModules();
                     else if (line == "inputstats") InputLogStats();
                     else if (line == "buddy") bridge.QueueBuddyReport();
+                    else if (line == "levels") bridge.DumpLevels();
+                    else if (line == "tasks") bridge.DumpTasks();
                     else if (line == "buddy here" && self) {
                         // 2 m to the player's right.
                         Vec3 p = {self->pos.x + std::cos(self->yaw) * 2.f, self->pos.y + 0.2f, self->pos.z - std::sin(self->yaw) * 2.f};
@@ -324,6 +326,8 @@ void CoopMain() {
             bridge.TeleportLocalPlayer(t);
         }
         testWasDown = testDown;
+
+        if (now - lastLevelPoll >= 500) { lastLevelPoll = now; bridge.PollLevels(); bridge.PollTasks(); }
 
         if (self && now - lastPosLog >= 5000) {
             lastPosLog = now;

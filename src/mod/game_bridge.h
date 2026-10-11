@@ -30,6 +30,14 @@ public:
     // Companion (M3). Both run on a game fiber and log what they find.
     void QueueBuddyReport();
     void QueueBuddyTeleport(const Vec3& pos, float yaw);
+
+    // Levels (M4): poll LevelMgr's loaded-level list and log loads/unloads.
+    void PollLevels();
+    void DumpLevels();        // detail for working out the Level layout
+    // Story tasks: GameTaskGraphMgr (global, rva-relative) -> graphs -> active subnode.
+    void DumpTasks();
+    void PollTasks();
+    size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 
     std::optional<PlayerState> ReadLocalPlayer(uint32_t tick);
@@ -60,6 +68,7 @@ private:
     uintptr_t findBuddyOnFiber();
     uint64_t teleportEvent_ = 0, npcTeleportEvent_ = 0;
     uint32_t npcTeleportSlot_ = 0;
+    float puppetMaxDistance_ = 40.f;
     unsigned long long lastPuppet_ = 0, lastPuppetLog_ = 0;
     std::atomic<bool> puppetQueued_{false};
     bool engineTeleport_ = false, discoverForced_ = false;
@@ -69,6 +78,17 @@ private:
     Snapshot last_;
     std::map<uint64_t, int> scores_;   // key: (childIndex+1) << 32 | fieldOffset
     int discoverTicks_ = 0;
+
+    uintptr_t componentTable_ = 0, taskMgr_ = 0;
+    std::vector<uintptr_t> activeSubnodes_;
+    std::string taskName_, chapterWorld_;
+    Vec3 taskStartPos_;
+    bool chapterChanged_ = false;
+    std::vector<uint64_t> levels_;
+    std::map<uint64_t, std::string> levelNames_;
+    uintptr_t levelMgr() const;
+    std::vector<std::pair<uint64_t, uintptr_t>> readLevels() const;
+    std::string levelName(uint64_t sid, uintptr_t level);
 };
 
 } // namespace coop

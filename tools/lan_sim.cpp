@@ -46,6 +46,9 @@ int main(int argc, char** argv) {
         me.pos = t.pos;
         std::printf("[client] teleported to (%.1f, %.1f)\n", t.pos.x, t.pos.z);
     };
+    cb.onObjective = [](const Objective& o) {
+        std::printf("[client] objective '%s' at (%.1f, %.1f, %.1f) transition=%u\n", o.label.c_str(), o.pos.x, o.pos.y, o.pos.z, o.isTransition);
+    };
     s.setCallbacks(cb);
 
     if (mode == "host") {
