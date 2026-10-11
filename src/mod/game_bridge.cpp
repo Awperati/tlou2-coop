@@ -780,6 +780,21 @@ void GameBridge::QueueNativeCall(const std::string& line) {
     }, true);
 }
 
+namespace {
+// Process::GetName (vtable +40), used by the engine in "Npc '%s' ..." messages.
+using NameFn = const char* (*)(uintptr_t self);
+const char* RawProcessName(uintptr_t proc) {
+    __try {
+        uintptr_t vt = *reinterpret_cast<uintptr_t*>(proc);
+        return reinterpret_cast<NameFn>(*reinterpret_cast<uintptr_t*>(vt + 40))(proc);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+}
+std::string ProcessName(uintptr_t proc) {
+    const char* n = RawProcessName(proc);
+    return n ? TextAt(reinterpret_cast<uintptr_t>(n)) : std::string("?");
+}
+} // namespace
+
 void GameBridge::QueueProcess(uintptr_t procIn, bool here, float metres) {
     RunOnGameFiber([this, procIn, here, metres] {
         static const ModuleRange mod = MainModule();
@@ -794,7 +809,7 @@ void GameBridge::QueueProcess(uintptr_t procIn, bool here, float metres) {
         auto pos = Read<Vec3>(proc + offPos_);
         uintptr_t pl = follow(player_);
         auto me = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
-        Log("proc %p: vtable +0x%llx id %u pos %.2f %.2f %.2f, %.1f m from player", reinterpret_cast<void*>(proc),
+        Log("proc %p '%s': vtable +0x%llx id %u pos %.2f %.2f %.2f, %.1f m from player", reinterpret_cast<void*>(proc), ProcessName(proc).c_str(),
             vt ? static_cast<unsigned long long>(*vt - mod.base) : 0ull, id ? *id : 0, pos ? pos->x : 0, pos ? pos->y : 0,
             pos ? pos->z : 0, (pos && me) ? Distance(*pos, *me) : -1.f);
         if (!here || !me || !vt) return;

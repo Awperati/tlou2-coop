@@ -179,6 +179,14 @@ Scripts call spawn natives from the game-logic phase, so heavy tasks now run onl
 hook on `GameTaskGraphMgr::Update` (rva `0x1B6FB00`, found by its assert name).
 Verified 2026-10-12: with the phase hook the same spawn succeeded and the game stayed up.
 
+### Move-to experiments, 2026-10-12 (no luck yet)
+- Both the story Dina and the spawned one are named `dina` (Process::GetName, vtable +40).
+- With the spawner name as the NPC argument, `npc-move-to` returns 1 but the spawned Dina
+  stays with Ellie; with `dina` it returns 0. `npc-set-script-mode` (rva `0x647210`, modes
+  0/1/2) and `npc-stop-behavior` (rva `0x648F10`) made no visible difference, and
+  `npc-get-script-mode` (rva `0x6382C0`) always returned 0. Unclear whether the NPC argument
+  resolves at all; next step is to log what `sub_1403FF7D0` (the NPC arg reader) returns.
+
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
 - Engine calls run inside `__try`, from inside a game job that called `GetPlayer()`. That job may be mid-update; so far no crash.
