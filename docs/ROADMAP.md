@@ -52,7 +52,7 @@ Each PC runs its own copy of the story. The host is authoritative.
 | M0 | Loader, LAN protocol, discovery, teleport rules, roster, accessible overlay | Unit-tested; loader + LAN join **verified in game** |
 | M1 | Player actor and transform | **Verified in game** 2026-10-09: pos `+0x130` tracks walking, yaw from quat `+0x140` turns with the player |
 | M2 | Engine teleport (dev-menu `teleport` event) run on a game job fiber | **Verified in game** 2026-10-09: moved the player to the exact target x/z, ground snapped y, no crash |
-| M3 | Companion puppet | **Partly verified in game**: `GetAnyBuddy` (rva `0x52E940`, found by its own name string) returns the buddy Npc; same layout as the player (pos `+0x130`). The `teleport` event did not move a buddy resting in a scripted couch pose. Next: retest with a following companion; NPC teleport natives (`npc-teleport`, `npc-teleport-to`) are looked up by hashed id, not string |
+| M3 | Companion puppet | **Verified in game** 2026-10-11 (young Ellie + Joel flashback): `GetAnyBuddy` finds Joel; `Npc::Teleport` (vtable +4520, what `npc-teleport` calls) moves him to the exact spot; `coop_lan_sim walk` sent a circling player over UDP and Joel tracked it. v1 snaps position at 10 Hz with no walk animation |
 | M4 | Objective + transition gate: hook world/region loads | Logic unit-tested; game hook not started |
 | M5 | Client plays the companion: model swap, loadouts | Not started |
 | M6 | World sync: enemies, damage, pickups, cutscenes | Not started |
@@ -90,6 +90,12 @@ make a byte pattern, put it in `offsets.ini`, and check `tlou2-coop.log`.
 | Event arg | 16 bytes `{u64 value; u32 pad; u32 type}` | BoundFrame arg is type 18 |
 | `BoundFrame(out, locator, binding)` | rva `0x133A1B0` | 80 bytes: 48-byte binding, then locator `{pos xyzw, quat xyzw}` |
 | Default binding | rva `0x133A130` | |
+| StringId64 | FNV-1a 64 | Offset `0xcbf29ce484222325`, prime `0x100000001b3`. `teleport-player` = `0xB805933EFC5BA6D4` |
+| `Npc::Teleport(BoundFrame*, 1, 1, 1)` | vtable +4520 | Called by natives `npc-teleport` (rva `0x649B90`) and `npc-teleport-to` (rva `0x649DE0`) |
+| Script native table | rva `0xB9080`.. | Each native: static object initialised with its function, registered by name hash |
+
+Processes move in memory (the engine relocates its process heap): Joel's `Npc*` changed
+between calls while his id stayed 29729. Never cache a process pointer; look it up each time.
 
 ### Threading rule (found the hard way)
 Engine code reads per-fiber job context from `TEB->FiberData`. On a plain thread that is

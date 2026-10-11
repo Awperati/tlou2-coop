@@ -75,9 +75,9 @@ uintptr_t GameBridge::resolveFunction(const Ini& ini, const char* key) {
     return *hit;
 }
 
-bool GameBridge::engineTeleport(uintptr_t player, const Vec3& pos, float yaw) {
+bool GameBridge::engineTeleport(uintptr_t player, const Vec3& pos, float yaw, uint64_t eventId) {
     alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
-    if (CallTeleport(player, fnEventSend_, fnBindingDefault_, fnBoundFrameCtor_, teleportEvent_, locator)) return true;
+    if (CallTeleport(player, fnEventSend_, fnBindingDefault_, fnBoundFrameCtor_, eventId ? eventId : teleportEvent_, locator)) return true;
     static const ModuleRange mod = MainModule();
     HMODULE m = nullptr; wchar_t name[MAX_PATH] = L"?";
     if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -89,6 +89,8 @@ bool GameBridge::engineTeleport(uintptr_t player, const Vec3& pos, float yaw) {
         GetCurrentThreadId());
     return false;
 }
+
+namespace { bool CallNpcTeleport(uintptr_t npc, uint32_t slot, uintptr_t fnBind, uintptr_t fnBf, const float* locator); }
 
 // Section layout in offsets.ini:
 //   pattern     = IDA byte pattern that hits an instruction referencing a global
@@ -147,6 +149,8 @@ bool GameBridge::Init(const Ini& ini) {
     fnBindingDefault_ = resolveFunction(ini, "binding_default");
     fnBoundFrameCtor_ = resolveFunction(ini, "boundframe_ctor");
     teleportEvent_ = std::stoull(ini.get("engine", "teleport_event", "0"), nullptr, 0);
+    npcTeleportEvent_ = std::stoull(ini.get("engine", "npc_teleport_event", "0"), nullptr, 0);
+    npcTeleportSlot_ = static_cast<uint32_t>(ini.getInt("engine", "npc_teleport_vslot", 0));
     engineTeleport_ = player_.root && fnEventSend_ && fnBindingDefault_ && fnBoundFrameCtor_ && teleportEvent_;
     if (engineTeleport_) {
         f_.teleport = true;
@@ -154,7 +158,6 @@ bool GameBridge::Init(const Ini& ini) {
         if (ini.getBool("engine", "fiber_hook", true)) FiberHookInstall(resolveFunction(ini, "get_player"), player_.root);
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
-    f_.puppet = resolveChain(ini, "companion", companion_) && offPos_ != 0;
     f_.worldPack = resolveChain(ini, "world", worldName_);
     if (resolveChain(ini, "objective", objective_)) {
         offObjPos_ = ini.getInt("objective", "pos", 0);
@@ -163,6 +166,7 @@ bool GameBridge::Init(const Ini& ini) {
         f_.objective = offObjPos_ != 0;
     }
     f_.combat = resolveChain(ini, "combat", combat_);
+    f_.puppet = fnGetAnyBuddy_ && npcTeleportSlot_ && fnBoundFrameCtor_ && fnBindingDefault_ && FiberHookActive();
     Log("bridge: player=%d teleport=%d puppet=%d world=%d objective=%d combat=%d",
         f_.localPlayer, f_.teleport, f_.puppet, f_.worldPack, f_.objective, f_.combat);
     return f_.localPlayer;
@@ -209,11 +213,30 @@ bool GameBridge::TeleportLocalPlayer(const TeleportTo& t) {
     return ok;
 }
 
-bool GameBridge::DrivePuppet(uint8_t /*slot*/, const PlayerState& s) {
+// Puppet v1: the story companion snaps to the remote player's position.
+// No walk animation yet (that needs the buddy's move-to API); proves the data path.
+bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
     if (!f_.puppet) return false;
-    uintptr_t p = follow(companion_);
-    if (!p) return false;
-    return SafeWrite(p + offPos_, &s.pos, sizeof(Vec3)) && (!offYaw_ || SafeWrite(p + offYaw_, &s.yaw, sizeof(float)));
+    ULONGLONG now = GetTickCount64();
+    if (now - lastPuppet_ < 100 || puppetQueued_) return true;
+    lastPuppet_ = now;
+    puppetQueued_ = true;
+    Vec3 pos = s.pos; float yaw = s.yaw;
+    RunOnGameFiber([this, slot, pos, yaw] {
+        puppetQueued_ = false;
+        uintptr_t b = findBuddyOnFiber();
+        if (!b) return;
+        auto cur = Read<Vec3>(b + offPos_);
+        if (cur && Distance(*cur, pos) < 0.3f) return;
+        alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+        bool ok = CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
+        ULONGLONG t = GetTickCount64();
+        if (!ok || t - lastPuppetLog_ > 2000) {
+            lastPuppetLog_ = t;
+            Log("puppet: slot %u -> buddy at %.2f %.2f %.2f%s", slot, pos.x, pos.y, pos.z, ok ? "" : " FAILED");
+        }
+    });
+    return true;
 }
 
 std::string GameBridge::CurrentWorldPack() {
@@ -308,6 +331,26 @@ void GameBridge::DiscoverTick() {
 }
 
 namespace {
+// Npc::Teleport(BoundFrame*, bool, bool, bool): the virtual the script natives
+// npc-teleport / npc-teleport-to call (rva 0x649B90 / 0x649DE0), slot +4520.
+using NpcTeleportFn = void (*)(uintptr_t npc, void* boundFrame, uint64_t a, uint64_t b, int c);
+bool CallNpcTeleport(uintptr_t npc, uint32_t slot, uintptr_t fnBind, uintptr_t fnBf, const float* locator) {
+    g_faultStage = 10;
+    __try {
+        alignas(16) uint8_t binding[64] = {};
+        alignas(16) uint8_t boundFrame[128] = {};
+        reinterpret_cast<BindingDefaultFn>(fnBind)(binding);
+        reinterpret_cast<BoundFrameCtorFn>(fnBf)(boundFrame, locator, binding);
+        g_faultStage = 11;
+        uintptr_t vt = *reinterpret_cast<uintptr_t*>(npc);
+        auto fn = *reinterpret_cast<NpcTeleportFn*>(vt + slot);
+        fn(npc, boundFrame, 1, 1, 1);
+        return true;
+    } __except (RecordFault(GetExceptionInformation())) {
+        return false;
+    }
+}
+
 using GetAnyBuddyFn = uintptr_t (*)();
 uintptr_t CallGetAnyBuddy(uintptr_t fn) {
     __try { return reinterpret_cast<GetAnyBuddyFn>(fn)(); }
@@ -345,7 +388,14 @@ void GameBridge::QueueBuddyTeleport(const Vec3& pos, float yaw) {
     RunOnGameFiber([this, pos, yaw] {
         uintptr_t b = findBuddyOnFiber();
         if (!b) { Log("buddy: none to move"); return; }
-        bool ok = engineTeleport(b, pos, yaw);
+        bool ok;
+        if (npcTeleportSlot_) {
+            alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+            ok = CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
+            if (!ok) Log("buddy: npc teleport fault stage %d code 0x%08lX at %p", g_faultStage, g_faultCode, reinterpret_cast<void*>(g_faultAddr));
+        } else {
+            ok = engineTeleport(b, pos, yaw, npcTeleportEvent_);
+        }
         Log("buddy: teleport to %.2f %.2f %.2f: %s", pos.x, pos.y, pos.z, ok ? "sent" : "FAILED");
     });
 }

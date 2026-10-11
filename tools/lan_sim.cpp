@@ -2,11 +2,14 @@
 //   coop_lan_sim host
 //   coop_lan_sim client            (finds the host by LAN broadcast)
 //   coop_lan_sim client 192.168.1.20
+//   coop_lan_sim walk <x> <y> <z> [addr]   client walking a 3 m circle around a
+//                                          point, to drive the in-game puppet
 // The client walks away from the host; once far enough it auto-holds teleport
 // and should land back behind the host.
 #include "core/session.h"
 #include "core/teleport.h"
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <string>
 #include <windows.h>
@@ -15,6 +18,14 @@ using namespace coop;
 
 int main(int argc, char** argv) {
     std::string mode = argc > 1 ? argv[1] : "host";
+    bool walk = mode == "walk";
+    Vec3 origin;
+    if (walk) {
+        if (argc < 5) { std::printf("walk needs x y z\n"); return 1; }
+        origin = {static_cast<float>(std::atof(argv[2])), static_cast<float>(std::atof(argv[3])), static_cast<float>(std::atof(argv[4]))};
+        mode = "client";
+    }
+    const int addrArg = walk ? 5 : 2;
     Session s;
     PlayerState me; me.character = mode == "host" ? CharacterId::Ellie : CharacterId::Dina;
     PlayerState other; bool haveOther = false;
@@ -41,7 +52,7 @@ int main(int argc, char** argv) {
         if (!s.StartHost("lan-sim", kDefaultPort, 2)) { std::printf("cannot bind UDP %u\n", kDefaultPort); return 1; }
         std::printf("hosting on UDP %u, discovery on %u\n", kDefaultPort, kDiscoveryPort);
     } else {
-        std::string addr = argc > 2 ? argv[2] : "";
+        std::string addr = argc > addrArg ? argv[addrArg] : "";
         uint16_t port = kDefaultPort;
         if (addr.empty()) {
             std::printf("searching LAN...\n");
@@ -60,10 +71,16 @@ int main(int argc, char** argv) {
         ULONGLONG now = GetTickCount64();
         float dt = (now - last) / 1000.f; last = now;
         s.Poll();
-        if (mode != "host") me.pos.x += 8.f * dt;     // client wanders off
+        if (walk) {
+            float a = (now - start) / 1000.f;          // 1 rad/s around the origin
+            me.pos = {origin.x + 3.f * std::cos(a), origin.y, origin.z + 3.f * std::sin(a)};
+            me.yaw = -a;
+        } else if (mode != "host") {
+            me.pos.x += 8.f * dt;                     // client wanders off
+        }
         s.SendPlayerState(me);
 
-        if (mode != "host" && s.connected() && haveOther) {
+        if (!walk && mode != "host" && s.connected() && haveOther) {
             TeleportController::Inputs in;
             in.dt = dt; in.selfPos = me.pos; in.anchorPos = other.pos; in.anchorValid = true;
             in.holdPressed = tp.state() != PromptState::Hidden;   // "player" holds as soon as prompted
