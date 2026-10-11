@@ -310,6 +310,10 @@ void CoopMain() {
                     else if (line == "tasks") bridge.DumpTasks();
                     else if (line == "spawnlist") bridge.QueueSpawnListDump();
                     else if (line.rfind("native ", 0) == 0) bridge.QueueNativeCall(line.substr(7));
+                    else if (line.rfind("spawned ", 0) == 0) {
+                        std::istringstream ps(line.substr(8)); std::string name, mode; ps >> name >> mode;
+                        bridge.QueueSpawned(name, mode == "here");
+                    }
                     else if (line.rfind("proc ", 0) == 0) {
                         std::istringstream ps(line.substr(5)); std::string addr, mode; ps >> addr >> mode;
                         bridge.QueueProcess(static_cast<uintptr_t>(std::stoull(addr, nullptr, 16)), mode == "here");

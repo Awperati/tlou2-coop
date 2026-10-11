@@ -802,6 +802,26 @@ void GameBridge::QueueProcess(uintptr_t procIn, bool here) {
     });
 }
 
+// Spawner "already spawned" check (rva 0x650960) reads the handle at spawner+96/+104.
+void GameBridge::QueueSpawned(const std::string& spawner, bool here) {
+    RunOnGameFiber([this, spawner, here] {
+        uintptr_t getSpawner = BuildRva(0xD45850);   // get-spawner native
+        if (!getSpawner) { Log("spawned: exe build differs"); return; }
+        uint64_t argv[8] = {Fnv1a(spawner)};
+        uint64_t ret[4] = {};
+        if (!SafeNative(getSpawner, 1, argv, ret) || !ret[0]) { Log("spawned: spawner %s not found", spawner.c_str()); return; }
+        auto node = Read<uintptr_t>(ret[0] + 96);
+        auto hid = Read<uint32_t>(ret[0] + 104);
+        uintptr_t proc = 0;
+        if (node && *node && hid && *hid)
+            if (auto p = Read<uintptr_t>(*node + 8); p && *p)
+                if (auto id = Read<uint32_t>(*p + 148); id && *id == *hid) proc = *p;
+        if (!proc) { Log("spawned: %s has no live process", spawner.c_str()); return; }
+        Log("spawned: %s -> process %p id %u", spawner.c_str(), reinterpret_cast<void*>(proc), *hid);
+        QueueProcess(proc, here);
+    });
+}
+
 void GameBridge::Shutdown() { FiberHookRemove(); }
 
 bool GameBridge::GameWindowFocused() const {

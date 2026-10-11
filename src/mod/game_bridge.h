@@ -50,6 +50,8 @@ public:
     void QueueNativeCall(const std::string& line);
     // Research: describe a process pointer; with here=true teleport it beside the player.
     void QueueProcess(uintptr_t proc, bool here);
+    // The process a spawner spawned: spawner+96 handle {node, id@+104}; process = *(node+8).
+    void QueueSpawned(const std::string& spawner, bool here);
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 
