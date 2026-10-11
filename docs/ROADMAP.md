@@ -201,6 +201,12 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
   `npc-set-script-mode` leaves `npc-get-script-mode` at 0, `npc-move-to` returns 1, and
   `npc-get-current-behavior` (rva `0x635FE0`) stays `0x91aaf91fc7515743` before and after.
   Dina does not move. Not solved; the remaining guess is wrong argument encoding.
+- Arguments checked (2026-10-12): `npc-set-script-mode npc mode bound`. With `bound = 1`
+  (ties the AI-disable to the calling script thread), run in script context, it works:
+  `npc-get-script-mode` -> 1 and Dina stops following (AI disabled; `Npc::ScriptRequestDisableAi`,
+  checks `ScriptSkill+132 & 3` and `Npc+17760 & 4`). `npc-set-script-mode dina 0 0` restores her.
+  `npc-move-to` with motion 0/1/2 and goal 0/1 still only turns her a little. Useful now:
+  with AI disabled, the teleport puppet no longer fights her follow behaviour.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.

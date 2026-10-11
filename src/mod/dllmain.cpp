@@ -317,9 +317,9 @@ void CoopMain() {
                     else if (line == "scriptctx") bridge.QueueScriptContextReport();
                     else if (line.rfind("npcarg ", 0) == 0) bridge.QueueResolveNpcArg(Trim(line.substr(7)));
                     else if (line.rfind("moveto ", 0) == 0) {
-                        std::istringstream ms(line.substr(7)); std::string name; float m = 6.f; int motion = 1;
-                        ms >> name >> m >> motion;
-                        bridge.QueueMoveTo(name, m, motion);
+                        std::istringstream ms(line.substr(7)); std::string name; float m = 6.f; int motion = 1, goal = 0;
+                        ms >> name >> m >> motion >> goal;
+                        bridge.QueueMoveTo(name, m, motion, goal);
                     }
                     else if (line.rfind("puppet ", 0) == 0) {
                         std::string target = Trim(line.substr(7));
