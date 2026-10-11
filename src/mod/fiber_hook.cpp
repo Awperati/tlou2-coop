@@ -49,10 +49,10 @@ size_t StackHeadroom() {
 
 // Heavy calls (spawning) need a deep stack. Running them on a private stack hung the
 // job system (2026-10-11), so instead wait for a GetPlayer() caller that has room.
-constexpr size_t kHeavyHeadroom = 512u << 10;
+constexpr size_t kHeavyHeadroom = 480u << 10;   // fiber stacks are ~512 KB; max seen 508 KB
 constexpr size_t kLightHeadroom = 64u << 10;
 std::atomic<size_t> g_maxRoom{0}, g_minRoom{~size_t(0)};
-std::atomic<unsigned> g_drains{0};
+std::atomic<unsigned> g_drains{0}, g_ran{0};
 
 void Drain() {
     bool expected = false;
@@ -72,6 +72,7 @@ void Drain() {
             g_queue.pop_front();
         }
         fn();
+        ++g_ran;
     }
     g_draining = false;
 }
@@ -143,8 +144,9 @@ bool FiberHookActive() { return g_installed; }
 
 void FiberLogStats() {
     std::lock_guard lk(g_mu);
-    Log("fiber: %u drains, stack headroom min %zu KB max %zu KB, %zu task(s) queued",
-        g_drains.load(), g_minRoom == ~size_t(0) ? 0 : g_minRoom.load() >> 10, g_maxRoom.load() >> 10, g_queue.size());
+    Log("fiber: %u drains, %u tasks ran, draining=%d, headroom min %zu KB max %zu KB, %zu queued (front heavy=%d)",
+        g_drains.load(), g_ran.load(), (int)g_draining.load(), g_minRoom == ~size_t(0) ? 0 : g_minRoom.load() >> 10,
+        g_maxRoom.load() >> 10, g_queue.size(), g_queue.empty() ? -1 : (int)g_queue.front().heavy);
 }
 
 void RunOnGameFiber(std::function<void()> fn, bool heavy) {

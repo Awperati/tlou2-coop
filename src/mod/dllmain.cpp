@@ -30,7 +30,9 @@ namespace {
 
 std::atomic<bool> g_run{false};
 bool g_reloaded = false;
-std::thread g_thread;
+// Heap-allocated and never destroyed: a joinable std::thread destroyed during process
+// exit calls std::terminate (seen as a second crash dump after a game crash).
+std::thread* g_thread = nullptr;
 HMODULE g_self = nullptr;
 
 std::wstring ModDir() {
@@ -394,14 +396,16 @@ extern "C" __declspec(dllexport) void CoopStart(int reloaded) {
     if (g_run) return;
     g_reloaded = reloaded != 0;
     g_run = true;
-    g_thread = std::thread(CoopMain);
+    g_thread = new std::thread(CoopMain);
 }
 
 // Called by the loader (never under the loader lock): stops and joins everything.
 extern "C" __declspec(dllexport) void CoopStop() {
     if (!g_run) return;
     g_run = false;
-    if (g_thread.joinable()) g_thread.join();
+    if (g_thread && g_thread->joinable()) g_thread->join();
+    delete g_thread;
+    g_thread = nullptr;
 }
 
 BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
@@ -410,7 +414,7 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
         g_self = mod;
     } else if (reason == DLL_PROCESS_DETACH) {
         g_run = false;
-        if (g_thread.joinable()) g_thread.detach();   // process exit: never join here
+        if (g_thread && g_thread->joinable()) g_thread->detach();   // process exit: never join here
     }
     return TRUE;
 }

@@ -54,7 +54,7 @@ Each PC runs its own copy of the story. The host is authoritative.
 | M2 | Engine teleport (dev-menu `teleport` event) run on a game job fiber | **Verified in game** 2026-10-09: moved the player to the exact target x/z, ground snapped y, no crash |
 | M3 | Companion puppet | **Verified in game** 2026-10-11 (young Ellie + Joel flashback): `GetAnyBuddy` finds Joel; `Npc::Teleport` (vtable +4520, what `npc-teleport` calls) moves him to the exact spot; `coop_lan_sim walk` sent a circling player over UDP and Joel tracked it. v1 snaps position at 10 Hz with no walk animation |
 | M4 | Objective + transition gate | **Partly verified in game** 2026-10-11: the story task (`efm-discover-museum-space` -> `efm-flashback-capsule`) and chapter (`world-ellie-flashback-museum`, `Ellie Day 1`) are read live from `GameTaskGraphMgr` and sent as the objective; a chapter change marks a transition. LevelMgr's 482 loaded packages and their load/unload diffs are logged. Not yet: holding the engine's load until stragglers arrive, and the client-side prompt with a real second player. Chapter change seen live: `world-ellie-flashback-museum` -> `world-rescue-jesse` (Ellie Day 2) flagged CHAPTER CHANGE |
-| M5 | Client plays the companion / spawned characters in solo sections | **Spawn + control verified in game** 2026-10-11: `c-spawn-npc` on `cdina-wat-explore-sb-8` made a second Dina (id 264128) that follows Ellie with buddy AI; `spawned ... far` teleported her 8 m to the exact spot. Not yet: spawning in a solo section, routing the puppet to the spawned NPC |
+| M5 | Client plays the companion / spawned characters in solo sections | **Spawn worked once, then crashed the game** (see Crash 4 and 5); earlier, 2026-10-11: `c-spawn-npc` on `cdina-wat-explore-sb-8` made a second Dina (id 264128) that follows Ellie with buddy AI; `spawned ... far` teleported her 8 m to the exact spot. Not yet: spawning in a solo section, routing the puppet to the spawned NPC |
 | M6 | World sync: enemies, damage, pickups, cutscenes | Not started |
 | M7 | Save/checkpoint sync, pause and menus | Not started |
 | M8 | Dedicated server and 3-layer movement | Later |
@@ -160,6 +160,18 @@ Our engine calls ran on whatever game fiber called `GetPlayer()`, which can be d
 own stack; spawning needs tens of KB more. Fix: every queued engine call now runs on a
 private 4 MB stack (`stack_switch.asm`), with the TEB stack bounds swapped for the call.
 `npc-move-to` (native rva `0x63F0E0`) is wired as `moveto <npc-name> <metres> <motion>`; untested.
+
+### Crash 4 and 5, 2026-10-11 (spawning, stopped here)
+- Crash 4: running engine calls on a private stack froze the game; the watchdog dumped it.
+  The stack switch is removed. Heavy calls now wait for a `GetPlayer()` caller with at least
+  480 KB of fiber stack left (fiber stacks are about 512 KB; `fiberstats` shows headroom).
+- Crash 5: with that headroom, `c-spawn-npc` on `cdina-wat-explore-sb-8` hit an engine
+  `__debugbreak` (rva `0x1243767`) in faction lookup ("Unable to find faction %s",
+  function rva `0x14B7770`), called from NPC setup (rvas `0x5C7509`, `0x50622E`). The same call
+  succeeded once earlier in the session, so some state differs between calls.
+- A second dump each time came from our `std::thread` destructor at process exit
+  (`std::terminate`); fixed by never destroying it.
+Spawning is paused until the faction requirement is understood.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
