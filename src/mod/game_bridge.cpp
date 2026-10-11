@@ -858,8 +858,10 @@ void GameBridge::QueueSpawned(const std::string& spawner, bool here, float metre
 // npc-move-to(npc-name, bound-frame*, int motion, int goal, symbol, bool, bool, symbol).
 // The worker (rva 0x640020) rejects motion >= 3 and off-navmesh targets, and only
 // "waits" inside a script context, so calling it from the mod just starts the move.
-void GameBridge::QueueMoveTo(const std::string& npcName, float metres, int motion, int goal) {
-    RunInScriptContext([this, npcName, metres, motion, goal] {
+void GameBridge::QueueMoveTo(const std::string& npcName, float metres, int motion, int goal, bool inScript) {
+    // Script context makes the command owned by the borrowed script thread (it may be
+    // cancelled when that thread moves on); without one the command has no owner.
+    std::function<void()> task = [this, npcName, metres, motion, goal] {
         uintptr_t fn = BuildRva(0x63F0E0);
         uintptr_t pl = follow(player_);
         auto me = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
@@ -877,7 +879,8 @@ void GameBridge::QueueMoveTo(const std::string& npcName, float metres, int motio
         int ok = SafeNative(fn, 8, argv, ret);
         Log("moveto: %s -> %.2f %.2f %.2f motion %d goal %d: %s ret 0x%llx", npcName.c_str(), t.x, t.y, t.z, motion, goal,
             ok ? "called" : "FAULT", static_cast<unsigned long long>(ret[0]));
-    });
+    };
+    if (inScript) RunInScriptContext(task); else RunOnGameFiber(task, true);
 }
 
 namespace {

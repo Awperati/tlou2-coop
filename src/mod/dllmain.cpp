@@ -316,10 +316,11 @@ void CoopMain() {
                     else if (line.rfind("native ", 0) == 0) bridge.QueueNativeCall(line.substr(7));
                     else if (line == "scriptctx") bridge.QueueScriptContextReport();
                     else if (line.rfind("npcarg ", 0) == 0) bridge.QueueResolveNpcArg(Trim(line.substr(7)));
-                    else if (line.rfind("moveto ", 0) == 0) {
-                        std::istringstream ms(line.substr(7)); std::string name; float m = 6.f; int motion = 1, goal = 0;
+                    else if (line.rfind("moveto ", 0) == 0 || line.rfind("movetox ", 0) == 0) {
+                        bool owned = line.rfind("moveto ", 0) == 0;   // movetox: no script owner
+                        std::istringstream ms(line.substr(owned ? 7 : 8)); std::string name; float m = 6.f; int motion = 1, goal = 0;
                         ms >> name >> m >> motion >> goal;
-                        bridge.QueueMoveTo(name, m, motion, goal);
+                        bridge.QueueMoveTo(name, m, motion, goal, owned);
                     }
                     else if (line.rfind("puppet ", 0) == 0) {
                         std::string target = Trim(line.substr(7));

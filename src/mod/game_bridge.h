@@ -55,7 +55,7 @@ public:
     // Which NPC the network puppet drives: the story buddy (empty) or a spawner's NPC.
     void SetPuppetSpawner(const std::string& spawner) { puppetSpawner_ = spawner; }
     // npc-move-to (native rva 0x63F0E0): walk/run an NPC (by name) to a point beside the player.
-    void QueueMoveTo(const std::string& npcName, float metres, int motion, int goal = 0);
+    void QueueMoveTo(const std::string& npcName, float metres, int motion, int goal = 0, bool inScript = true);
     // Which Npc* a script NPC argument resolves to (arg reader rva 0x3FF7D0).
     void QueueResolveNpcArg(const std::string& name);
     // Log the state-script context seen inside a script native call.

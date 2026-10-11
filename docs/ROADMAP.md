@@ -52,7 +52,7 @@ Each PC runs its own copy of the story. The host is authoritative.
 | M0 | Loader, LAN protocol, discovery, teleport rules, roster, accessible overlay | Unit-tested; loader + LAN join **verified in game** |
 | M1 | Player actor and transform | **Verified in game** 2026-10-09: pos `+0x130` tracks walking, yaw from quat `+0x140` turns with the player |
 | M2 | Engine teleport (dev-menu `teleport` event) run on a game job fiber | **Verified in game** 2026-10-09: moved the player to the exact target x/z, ground snapped y, no crash |
-| M3 | Companion puppet | **Verified in game** 2026-10-11 (young Ellie + Joel flashback): `GetAnyBuddy` finds Joel; `Npc::Teleport` (vtable +4520, what `npc-teleport` calls) moves him to the exact spot; `coop_lan_sim walk` sent a circling player over UDP and Joel tracked it. v1 snaps position at 10 Hz with no walk animation |
+| M3 | Companion puppet | **Verified in game** 2026-10-11 (young Ellie + Joel flashback): `GetAnyBuddy` finds Joel; `Npc::Teleport` (vtable +4520, what `npc-teleport` calls) moves him to the exact spot; `coop_lan_sim walk` sent a circling player over UDP and Joel tracked it. v1 snaps position at 10 Hz with no walk animation Walking via `npc-move-to` verified 2026-10-12 after disabling her AI (see notes) |
 | M4 | Objective + transition gate | **Partly verified in game** 2026-10-11: the story task (`efm-discover-museum-space` -> `efm-flashback-capsule`) and chapter (`world-ellie-flashback-museum`, `Ellie Day 1`) are read live from `GameTaskGraphMgr` and sent as the objective; a chapter change marks a transition. LevelMgr's 482 loaded packages and their load/unload diffs are logged. Not yet: holding the engine's load until stragglers arrive, and the client-side prompt with a real second player. Chapter change seen live: `world-ellie-flashback-museum` -> `world-rescue-jesse` (Ellie Day 2) flagged CHAPTER CHANGE |
 | M5 | Client plays the companion / spawned characters in solo sections | **Spawn verified in game without a crash** 2026-10-12 once heavy calls ran from the task-update phase: `c-spawn-npc` on `cdina-wat-explore-sb-8` made Dina id 12439, game stable. `npc-move-to` accepted (ret 1) and she walked over smoothly, but her buddy-follow AI may explain that; not yet proven. Earlier: teleporting a spawned Dina 8 m worked |
 | M6 | World sync: enemies, damage, pickups, cutscenes | Not started |
@@ -207,6 +207,13 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
   checks `ScriptSkill+132 & 3` and `Npc+17760 & 4`). `npc-set-script-mode dina 0 0` restores her.
   `npc-move-to` with motion 0/1/2 and goal 0/1 still only turns her a little. Useful now:
   with AI disabled, the teleport puppet no longer fights her follow behaviour.
+- **Walking works (verified in game 2026-10-12).** The earlier targets (10-12 m ahead, indoors)
+  were simply unreachable. With Dina's AI disabled (`npc-set-script-mode dina 1 1` in script
+  context), `moveto dina 1 0 0` walked her from (-79.6, -204.2) to (-73.12, -200.75), 0.2 m from
+  the target, and `moveto dina 4 1 0` took her to (-74.97, -198.74), 0.08 m off. The move
+  command does not need a script owner (owner is only used for "wait").
+  Recipe for the puppet: disable AI once (bound), then issue `npc-move-to` toward the remote
+  player's position, falling back to `Npc::Teleport` when the target is off the nav mesh.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
