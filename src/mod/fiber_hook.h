@@ -13,6 +13,8 @@ namespace coop {
 bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle);
 void FiberHookRemove();
 bool FiberHookActive();
-void RunOnGameFiber(std::function<void()> fn);
+// heavy = needs a deep stack (spawning, script natives); waits for a caller with room.
+void RunOnGameFiber(std::function<void()> fn, bool heavy = false);
+void FiberLogStats();
 
 } // namespace coop

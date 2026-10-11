@@ -228,7 +228,7 @@ bool GameBridge::TeleportLocalPlayer(const TeleportTo& t) {
     if (engineTeleport_) {
         // The engine's own "teleport" event, as the dev menu sends it. Main thread only.
         Vec3 pos = t.pos; float yaw = t.yaw;
-        auto run = FiberHookActive() ? RunOnGameFiber : RunOnMainThread;
+        auto run = [](std::function<void()> f) { if (FiberHookActive()) RunOnGameFiber(std::move(f)); else RunOnMainThread(std::move(f)); };
         run([this, pos, yaw] {
             uintptr_t pl = follow(player_);
             bool ok = pl && engineTeleport(pl, pos, yaw);
@@ -710,7 +710,7 @@ void GameBridge::QueueSpawnListDump() {
             }
             Log("spawnlist[%u]:%s levels[%s ] names %s", i, head.c_str(), levels.c_str(), names.c_str());
         }
-    });
+    }, true);
 }
 
 // Layout from NetGameManager::GetStartSpawnerId (rva 0x953390): Level+256 -> spawner
@@ -774,7 +774,7 @@ void GameBridge::QueueNativeCall(const std::string& line) {
         int ok = SafeNative(fn, argc, args.data(), ret);
         if (ok) Log("native %s(%s ) -> 0x%llx", rvaText.c_str(), desc.c_str(), static_cast<unsigned long long>(ret[0]));
         else Log("native %s(%s ) FAULT 0x%08lX at %p", rvaText.c_str(), desc.c_str(), g_faultCode, reinterpret_cast<void*>(g_faultAddr));
-    });
+    }, true);
 }
 
 void GameBridge::QueueProcess(uintptr_t procIn, bool here, float metres) {
@@ -829,7 +829,7 @@ void GameBridge::QueueSpawned(const std::string& spawner, bool here, float metre
         if (!proc) { Log("spawned: %s has no live process", spawner.c_str()); return; }
         Log("spawned: %s -> process %p", spawner.c_str(), reinterpret_cast<void*>(proc));
         QueueProcess(proc, here, metres);
-    });
+    }, true);
 }
 
 // npc-move-to(npc-name, bound-frame*, int motion, int goal, symbol, bool, bool, symbol).
@@ -854,7 +854,7 @@ void GameBridge::QueueMoveTo(const std::string& npcName, float metres, int motio
         int ok = SafeNative(fn, 8, argv, ret);
         Log("moveto: %s -> %.2f %.2f %.2f motion %d: %s ret 0x%llx", npcName.c_str(), t.x, t.y, t.z, motion,
             ok ? "called" : "FAULT", static_cast<unsigned long long>(ret[0]));
-    });
+    }, true);
 }
 
 void GameBridge::Shutdown() { FiberHookRemove(); }

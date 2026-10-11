@@ -17,6 +17,7 @@
 #include "core/roster.h"
 #include "core/session.h"
 #include "core/teleport.h"
+#include "mod/fiber_hook.h"
 #include "mod/game_bridge.h"
 #include "mod/log.h"
 #include "mod/main_thread.h"
@@ -305,6 +306,7 @@ void CoopMain() {
                     if (line == "teleport") cmdTeleport = true;
                     else if (line == "modules") LogInputModules();
                     else if (line == "inputstats") InputLogStats();
+                    else if (line == "fiberstats") FiberLogStats();
                     else if (line == "buddy") bridge.QueueBuddyReport();
                     else if (line == "levels") bridge.DumpLevels();
                     else if (line == "tasks") bridge.DumpTasks();

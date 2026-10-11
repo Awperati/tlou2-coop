@@ -23,7 +23,8 @@ std::atomic<bool> g_installed{false};
 std::atomic<int> g_inside{0};
 
 std::mutex g_mu;
-std::deque<std::function<void()>> g_queue;
+struct Task { std::function<void()> fn; bool heavy; };
+std::deque<Task> g_queue;
 std::atomic<bool> g_pending{false};
 std::atomic<bool> g_draining{false};
 
@@ -37,41 +38,40 @@ bool OnGameFiber() {
     return fd > 0x10000;
 }
 
-extern "C" void CallOnStack(void (*fn)(void*), void* arg, void* stackTop);
-
-// Big private stack for our engine calls. The fibers that call GetPlayer() can be
-// deep in their own stacks; c-spawn-npc then overflowed (0xC00000FD, 2026-10-11).
-constexpr size_t kStackSize = 4u << 20;
-uint8_t* g_stack = nullptr;
-
-void RunTask(void* p) { (*static_cast<std::function<void()>*>(p))(); }
-
-void RunOnBigStack(std::function<void()>& fn) {
-    if (!g_stack) g_stack = static_cast<uint8_t*>(VirtualAlloc(nullptr, kStackSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-    if (!g_stack) { fn(); return; }
-    // The TEB stack bounds must cover the new stack, or __chkstk probes fault.
-    auto* tib = reinterpret_cast<NT_TIB*>(NtCurrentTeb());
-    void* oldBase = tib->StackBase;
-    void* oldLimit = tib->StackLimit;
-    tib->StackBase = g_stack + kStackSize;
-    tib->StackLimit = g_stack;
-    CallOnStack(&RunTask, &fn, g_stack + kStackSize - 64);
-    tib->StackBase = oldBase;
-    tib->StackLimit = oldLimit;
+// Stack headroom of the calling fiber: rsp minus the reserved stack bottom
+// (TEB DeallocationStack, offset 0x1478 on x64, swapped per fiber by Windows).
+size_t StackHeadroom() {
+    volatile char marker = 0;
+    auto bottom = *reinterpret_cast<uintptr_t*>(reinterpret_cast<uint8_t*>(NtCurrentTeb()) + 0x1478);
+    auto here = reinterpret_cast<uintptr_t>(&marker);
+    return (bottom && here > bottom) ? here - bottom : 0;
 }
+
+// Heavy calls (spawning) need a deep stack. Running them on a private stack hung the
+// job system (2026-10-11), so instead wait for a GetPlayer() caller that has room.
+constexpr size_t kHeavyHeadroom = 512u << 10;
+constexpr size_t kLightHeadroom = 64u << 10;
+std::atomic<size_t> g_maxRoom{0}, g_minRoom{~size_t(0)};
+std::atomic<unsigned> g_drains{0};
 
 void Drain() {
     bool expected = false;
     if (!g_draining.compare_exchange_strong(expected, true)) return;
+    const size_t room = StackHeadroom();
+    ++g_drains;
+    if (room > g_maxRoom) g_maxRoom = room;
+    if (room < g_minRoom) g_minRoom = room;
     for (;;) {
         std::function<void()> fn;
         {
             std::lock_guard lk(g_mu);
             if (g_queue.empty()) { g_pending = false; break; }
-            fn = std::move(g_queue.front());
+            const Task& t = g_queue.front();
+            if (room < (t.heavy ? kHeavyHeadroom : kLightHeadroom)) break;   // try a later caller
+            fn = std::move(g_queue.front().fn);
             g_queue.pop_front();
         }
-        RunOnBigStack(fn);
+        fn();
     }
     g_draining = false;
 }
@@ -141,9 +141,15 @@ void FiberHookRemove() {
 
 bool FiberHookActive() { return g_installed; }
 
-void RunOnGameFiber(std::function<void()> fn) {
+void FiberLogStats() {
     std::lock_guard lk(g_mu);
-    g_queue.push_back(std::move(fn));
+    Log("fiber: %u drains, stack headroom min %zu KB max %zu KB, %zu task(s) queued",
+        g_drains.load(), g_minRoom == ~size_t(0) ? 0 : g_minRoom.load() >> 10, g_maxRoom.load() >> 10, g_queue.size());
+}
+
+void RunOnGameFiber(std::function<void()> fn, bool heavy) {
+    std::lock_guard lk(g_mu);
+    g_queue.push_back({std::move(fn), heavy});
     g_pending = true;
 }
 

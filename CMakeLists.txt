@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(tlou2_coop LANGUAGES CXX ASM_MASM)
+project(tlou2_coop LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,7 +26,6 @@ add_library(coop_mod SHARED
     src/mod/main_thread.cpp
     src/mod/fiber_hook.cpp
     src/mod/input_inject.cpp
-    src/mod/stack_switch.asm
 )
 set_target_properties(coop_mod PROPERTIES OUTPUT_NAME "coop")
 target_compile_definitions(coop_mod PRIVATE UNICODE _UNICODE NOMINMAX)
