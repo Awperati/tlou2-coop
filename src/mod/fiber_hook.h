@@ -12,6 +12,8 @@ namespace coop {
 // getPlayer: start of GetPlayer(); playerHandle: the {ptr,id} global it reads.
 bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle);
 void FiberHookRemove();
+// Heavy tasks run only from GameTaskGraphMgr::Update (game-logic phase).
+bool PhaseHookInstall(uintptr_t taskUpdate);
 bool FiberHookActive();
 // heavy = needs a deep stack (spawning, script natives); waits for a caller with room.
 void RunOnGameFiber(std::function<void()> fn, bool heavy = false);

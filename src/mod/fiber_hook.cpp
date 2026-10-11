@@ -54,7 +54,7 @@ constexpr size_t kLightHeadroom = 64u << 10;
 std::atomic<size_t> g_maxRoom{0}, g_minRoom{~size_t(0)};
 std::atomic<unsigned> g_drains{0}, g_ran{0};
 
-void Drain() {
+void Drain(bool phase) {
     bool expected = false;
     if (!g_draining.compare_exchange_strong(expected, true)) return;
     const size_t room = StackHeadroom();
@@ -67,7 +67,11 @@ void Drain() {
             std::lock_guard lk(g_mu);
             if (g_queue.empty()) { g_pending = false; break; }
             const Task& t = g_queue.front();
-            if (room < (t.heavy ? kHeavyHeadroom : kLightHeadroom)) break;   // try a later caller
+            // Heavy tasks (spawns, script natives) only run in the task-graph update phase,
+            // where scripts normally call them: from arbitrary jobs, spawning tripped an
+            // engine assert in a hash table another job was changing (crash 5).
+            if (t.heavy && (!phase || room < kHeavyHeadroom)) break;
+            if (!t.heavy && room < kLightHeadroom) break;
             fn = std::move(g_queue.front().fn);
             g_queue.pop_front();
         }
@@ -80,7 +84,7 @@ void Drain() {
 // Same behaviour as the game's GetPlayer() at rva 0xDA8A80.
 extern "C" uintptr_t HookedGetPlayer() {
     ++g_inside;
-    if (g_pending && OnGameFiber()) Drain();
+    if (g_pending && OnGameFiber()) Drain(false);
     uintptr_t result = 0;
     uint64_t v = 0;
     if (g_isDebug() && g_slotHas(14) && (g_slotGet(14, &v), v)) {
@@ -99,7 +103,52 @@ extern "C" uintptr_t HookedGetPlayer() {
     --g_inside;
     return result;
 }
+// GameTaskGraphMgr::Update (rva 0x1B6FB00): runs once per frame in game-logic order.
+// Its first 15 bytes are position-independent (mov rax,rsp; 3x mov [rax+x],reg).
+constexpr size_t kPhaseStolen = 15;
+uintptr_t g_phaseTarget = 0;
+uint8_t g_phaseSaved[kPhaseStolen];
+uint8_t* g_phaseTramp = nullptr;
+std::atomic<bool> g_phaseInstalled{false};
+using PhaseFn = bool (*)(void*);
+
+extern "C" bool HookedTaskUpdate(void* self) {
+    ++g_inside;
+    if (g_pending && OnGameFiber()) Drain(true);
+    bool r = reinterpret_cast<PhaseFn>(g_phaseTramp)(self);
+    --g_inside;
+    return r;
+}
 } // namespace
+
+bool PhaseHookInstall(uintptr_t taskUpdate) {
+    if (g_phaseInstalled || !taskUpdate) return g_phaseInstalled;
+    static const uint8_t expect[] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x10, 0x48, 0x89, 0x68, 0x18, 0x48, 0x89, 0x70, 0x20};
+    if (std::memcmp(reinterpret_cast<void*>(taskUpdate), expect, sizeof(expect)) != 0) {
+        Log("phase hook: GameTaskGraphMgr::Update prologue changed, not hooking");
+        return false;
+    }
+    g_phaseTramp = static_cast<uint8_t*>(VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+    if (!g_phaseTramp) return false;
+    std::memcpy(g_phaseTramp, reinterpret_cast<void*>(taskUpdate), kPhaseStolen);
+    uint8_t back[14] = {0xFF, 0x25, 0, 0, 0, 0};
+    uintptr_t ret = taskUpdate + kPhaseStolen;
+    std::memcpy(back + 6, &ret, 8);
+    std::memcpy(g_phaseTramp + kPhaseStolen, back, sizeof(back));
+    uint8_t jmp[12] = {0x48, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xE0};
+    auto h = reinterpret_cast<uintptr_t>(&HookedTaskUpdate);
+    std::memcpy(jmp + 2, &h, 8);
+    std::memcpy(g_phaseSaved, reinterpret_cast<void*>(taskUpdate), kPhaseStolen);
+    DWORD old;
+    VirtualProtect(reinterpret_cast<void*>(taskUpdate), sizeof(jmp), PAGE_EXECUTE_READWRITE, &old);
+    std::memcpy(reinterpret_cast<void*>(taskUpdate), jmp, sizeof(jmp));
+    VirtualProtect(reinterpret_cast<void*>(taskUpdate), sizeof(jmp), old, &old);
+    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(taskUpdate), sizeof(jmp));
+    g_phaseTarget = taskUpdate;
+    g_phaseInstalled = true;
+    Log("phase hook: GameTaskGraphMgr::Update hooked");
+    return true;
+}
 
 bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle) {
     if (g_installed || !getPlayer || !playerHandle) return g_installed;
@@ -127,6 +176,15 @@ bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle) {
 }
 
 void FiberHookRemove() {
+    if (g_phaseInstalled) {
+        DWORD old;
+        VirtualProtect(reinterpret_cast<void*>(g_phaseTarget), kPhaseStolen, PAGE_EXECUTE_READWRITE, &old);
+        std::memcpy(reinterpret_cast<void*>(g_phaseTarget), g_phaseSaved, kPhaseStolen);
+        VirtualProtect(reinterpret_cast<void*>(g_phaseTarget), kPhaseStolen, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(g_phaseTarget), kPhaseStolen);
+        g_phaseInstalled = false;   // trampoline is leaked on purpose (a caller may be in it)
+        Log("phase hook: removed");
+    }
     if (!g_installed) return;
     DWORD old;
     VirtualProtect(reinterpret_cast<void*>(g_target), sizeof(g_saved), PAGE_EXECUTE_READWRITE, &old);

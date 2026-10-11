@@ -158,6 +158,9 @@ bool GameBridge::Init(const Ini& ini) {
         f_.teleport = true;
         // Engine calls need a game fiber; run them from inside GetPlayer().
         if (ini.getBool("engine", "fiber_hook", true)) FiberHookInstall(resolveFunction(ini, "get_player"), player_.root);
+        static const ModuleRange modr = MainModule();
+        if (auto tu = FindFunctionByString(modr, ini.get("engine", "task_update_fn", "bool __cdecl GameTaskGraphMgr::Update(void)")))
+            PhaseHookInstall(*tu);
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
     f_.worldPack = false;   // set below once the task manager resolves

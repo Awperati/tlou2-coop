@@ -171,7 +171,12 @@ private 4 MB stack (`stack_switch.asm`), with the TEB stack bounds swapped for t
   succeeded once earlier in the session, so some state differs between calls.
 - A second dump each time came from our `std::thread` destructor at process exit
   (`std::terminate`); fixed by never destroying it.
-Spawning is paused until the faction requirement is understood.
+Crash 5 explained (IDA): the faction step reads the spawner's `faction` property
+(vtable +104, id `0xD75736026043571B`) and looks it up in a global hash table
+(`0x14823F8C8`, function rva `0x14B7770`); the break came from that table's iterator check.
+Most likely another job was changing the table while our spawn ran on an arbitrary fiber.
+Scripts call spawn natives from the game-logic phase, so heavy tasks now run only from a
+hook on `GameTaskGraphMgr::Update` (rva `0x1B6FB00`, found by its assert name). Untested.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
