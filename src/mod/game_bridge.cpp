@@ -875,6 +875,31 @@ void GameBridge::QueueMoveTo(const std::string& npcName, float metres, int motio
     }, true);
 }
 
+namespace {
+using ArgIterInitFn = void* (*)(void* it, int argc, uint64_t* argv, void* ctx, int minArgs);
+using NpcArgFn = uintptr_t (*)(void* it, int advance, char quiet);
+uintptr_t SafeNpcArg(uintptr_t init, uintptr_t reader, uint64_t sid) {
+    __try {
+        alignas(16) uint8_t it[128] = {};
+        uint64_t argv[4] = {sid};
+        reinterpret_cast<ArgIterInitFn>(init)(it, 1, argv, nullptr, 1);
+        return reinterpret_cast<NpcArgFn>(reader)(it, 1, 1);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return ~uintptr_t(0); }
+}
+} // namespace
+
+void GameBridge::QueueResolveNpcArg(const std::string& name) {
+    RunOnGameFiber([this, name] {
+        uintptr_t init = BuildRva(0x1C3F180), reader = BuildRva(0x3FF7D0);
+        if (!init || !reader) return;
+        uintptr_t npc = SafeNpcArg(init, reader, Fnv1a(name));
+        if (npc == ~uintptr_t(0)) { Log("npcarg: %s faulted", name.c_str()); return; }
+        auto id = npc ? Read<uint32_t>(npc + 0x94) : std::nullopt;
+        Log("npcarg: '%s' -> Npc %p id %u name '%s'", name.c_str(), reinterpret_cast<void*>(npc), id ? *id : 0,
+            npc ? ProcessName(npc).c_str() : "");
+    }, true);
+}
+
 void GameBridge::Shutdown() { FiberHookRemove(); }
 
 bool GameBridge::GameWindowFocused() const {

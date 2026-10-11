@@ -56,6 +56,8 @@ public:
     void SetPuppetSpawner(const std::string& spawner) { puppetSpawner_ = spawner; }
     // npc-move-to (native rva 0x63F0E0): walk/run an NPC (by name) to a point beside the player.
     void QueueMoveTo(const std::string& npcName, float metres, int motion);
+    // Which Npc* a script NPC argument resolves to (arg reader rva 0x3FF7D0).
+    void QueueResolveNpcArg(const std::string& name);
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 

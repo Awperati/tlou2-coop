@@ -186,6 +186,14 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
   0/1/2) and `npc-stop-behavior` (rva `0x648F10`) made no visible difference, and
   `npc-get-script-mode` (rva `0x6382C0`) always returned 0. Unclear whether the NPC argument
   resolves at all; next step is to log what `sub_1403FF7D0` (the NPC arg reader) returns.
+- `npcarg` (calls that reader directly) settled it: a spawner name resolves to nothing; `dina`
+  resolves to the story Dina only (id 2591), never the spawned one. So the earlier "ret 1"
+  orders on the spawner name did nothing.
+- On the story Dina, out of combat: `npc-move-to` returns 1 and `npc-set-script-mode 1`
+  runs, but she does not move and `npc-get-script-mode` stays 0. Likely cause: behaviour
+  natives tie their command to the calling script (they read the current script process via
+  `sub_141D919B0`/`sub_141D91FF0`); called from the mod there is none. Spawn and teleport do
+  not need that. Next: give the call a script context, or drive locomotion below scripts.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
