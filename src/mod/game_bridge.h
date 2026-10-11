@@ -43,6 +43,8 @@ public:
     bool rawCinematic();
     // M5 research: log the dev-menu spawn-character list (DC data) and its gate.
     void QueueSpawnListDump();
+    // Spawners in loaded levels (Level+256 -> {+8 EntitySpawner**, +16 count}); filter by text.
+    void DumpSpawners(const std::string& filter);
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 

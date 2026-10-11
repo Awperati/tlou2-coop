@@ -453,7 +453,7 @@ std::vector<std::pair<uint64_t, uintptr_t>> GameBridge::readLevels() const {
     if (!m) return out;
     auto n = Read<uint32_t>(m + 424);
     auto arr = Read<uintptr_t>(m + 432);
-    if (!n || !arr || !*arr || *n > 512) return out;
+    if (!n || !arr || !*arr || *n > 8192) return out;
     for (uint32_t i = 0; i < *n; ++i) {
         auto lv = Read<uintptr_t>(*arr + 8ull * i);
         if (!lv || !*lv) continue;
@@ -708,6 +708,33 @@ void GameBridge::QueueSpawnListDump() {
             Log("spawnlist[%u]:%s levels[%s ] names %s", i, head.c_str(), levels.c_str(), names.c_str());
         }
     });
+}
+
+// Layout from NetGameManager::GetStartSpawnerId (rva 0x953390): Level+256 -> spawner
+// table {+8 EntitySpawner** array, +16 int count}; spawner+88 = name id (get-spawner-name).
+void GameBridge::DumpSpawners(const std::string& filter) {
+    auto lv = readLevels();
+    size_t total = 0, shown = 0;
+    for (auto& [sid, level] : lv) {
+        auto tab = Read<uintptr_t>(level + 256);
+        if (!tab || !*tab) continue;
+        auto arr = Read<uintptr_t>(*tab + 8);
+        auto cnt = Read<int32_t>(*tab + 16);
+        if (!arr || !*arr || !cnt || *cnt <= 0 || *cnt > 20000) continue;
+        total += *cnt;
+        for (int32_t i = 0; i < *cnt; ++i) {
+            auto sp = Read<uintptr_t>(*arr + 8ull * i);
+            if (!sp || !*sp) continue;
+            auto nameId = Read<uint64_t>(*sp + 88);
+            std::string strs = StringsIn(*sp, 0x180);
+            std::string hay = Lower(strs);
+            if (!filter.empty() && hay.find(filter) == std::string::npos) continue;
+            if (shown++ >= 60) continue;
+            Log("spawner: level %s #%d %p id %016llx%s", levelName(sid, level).c_str(), i, reinterpret_cast<void*>(*sp),
+                nameId ? static_cast<unsigned long long>(*nameId) : 0ull, strs.c_str());
+        }
+    }
+    Log("spawners: %zu in %zu levels, %zu matched '%s'", total, lv.size(), shown, filter.c_str());
 }
 
 void GameBridge::Shutdown() { FiberHookRemove(); }

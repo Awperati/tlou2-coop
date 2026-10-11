@@ -308,6 +308,7 @@ void CoopMain() {
                     else if (line == "levels") bridge.DumpLevels();
                     else if (line == "tasks") bridge.DumpTasks();
                     else if (line == "spawnlist") bridge.QueueSpawnListDump();
+                    else if (line.rfind("spawners", 0) == 0) bridge.DumpSpawners(Trim(line.substr(8)));
                     else if (line == "cine") Log("cinematic: %s", bridge.InCinematic() ? "playing" : "not playing");
                     else if (line == "buddy here" && self) {
                         // 2 m to the player's right.

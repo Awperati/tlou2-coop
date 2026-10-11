@@ -129,6 +129,12 @@ cinematic while the mod reported `playing`).
 - The dev menu "Spawn Character" (`spawn-character-devmenu.cpp`, rva `0x441CE0`) spawns by
   character name from a DC list. In retail it is dead: `IsDebugMemoryAvailable()` returned 0 and
   the list (symbol `0x83B038A657C850A5`) is not loaded (checked in game with `spawnlist`).
+- Spawners are readable: `Level+256` -> `{+8 EntitySpawner**, +16 count}`; spawner `+0x30` name,
+  `+0x78` art group, `+88` name id. In the Day 2 solo section: 2623 spawners in 680 packages,
+  NPC ones named like `npc-res-store-infected-shambler-5` (art `shambler-01`); none for a companion.
+  `load-level` (native rva `0xD4D170`) = `LoadRegistry::AddWantLoad(WantLoadInfo(1, name))`.
+  Plan: in a chapter where Dina is present, `spawners dina` gives her spawner and its level;
+  later, load that level in a solo section and spawn from it.
 - Leads still open: `create-spawner`, `NetEventNpcSpawn` (multiplayer NPC spawn by spawner name),
   `Process::SpawnProcess` / `ProcessSpawnInfo`, and loading a character package via the level
   want-load lists so a spawner from another chapter's level data becomes available.
