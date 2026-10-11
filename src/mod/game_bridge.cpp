@@ -659,6 +659,57 @@ void GameBridge::PollCinematic() {
     }
 }
 
+namespace {
+// Research only, tied to this exe build (PE timestamp 0x67ED75F7); refuses otherwise.
+uintptr_t BuildRva(uint32_t rva) {
+    static const ModuleRange mod = MainModule();
+    auto nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(mod.base + reinterpret_cast<const IMAGE_DOS_HEADER*>(mod.base)->e_lfanew);
+    return nt->FileHeader.TimeDateStamp == 0x67ED75F7 ? mod.base + rva : 0;
+}
+using BoolArgFn = bool (*)(uint64_t);
+using LookupFn = uintptr_t (*)(uint64_t);
+int SafeBoolCall(uintptr_t f, uint64_t a) { __try { return reinterpret_cast<BoolArgFn>(f)(a) ? 1 : 0; } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; } }
+uintptr_t SafeLookup(uintptr_t f, uint64_t a) { __try { return reinterpret_cast<LookupFn>(f)(a); } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; } }
+} // namespace
+
+// spawn-character-devmenu.cpp (rva 0x441CE0): gate IsDebugMemoryAvailable (rva 0x122D520),
+// list = ScriptManager lookup (rva 0x1353DF0) of 0x83B038A657C850A5:
+// {u32 count; entry* (40 bytes: +8 category id, +24 required levels, +32 names)}.
+void GameBridge::QueueSpawnListDump() {
+    RunOnGameFiber([] {
+        uintptr_t gate = BuildRva(0x122D520), lookup = BuildRva(0x1353DF0);
+        if (!gate || !lookup) { Log("spawnlist: exe build differs, skipped"); return; }
+        Log("spawnlist: debug memory available = %d", SafeBoolCall(gate, 0));
+        uintptr_t list = SafeLookup(lookup, 0x83B038A657C850A5ull);
+        Log("spawnlist: list %p", reinterpret_cast<void*>(list));
+        if (!list) return;
+        auto count = Read<uint32_t>(list);
+        auto entries = Read<uintptr_t>(list + 8);
+        if (!count || !entries) return;
+        Log("spawnlist: %u categories", *count);
+        for (uint32_t i = 0; i < *count && i < 40; ++i) {
+            uintptr_t e = *entries + 40ull * i;
+            std::string head = StringsIn(e, 40);
+            std::string names;
+            if (auto nl = Read<uintptr_t>(e + 32); nl && *nl) {
+                auto nc = Read<uint32_t>(*nl);
+                auto arr = Read<uintptr_t>(*nl + 8);
+                for (uint32_t k = 0; nc && arr && k < *nc && names.size() < 500; ++k)
+                    if (auto np = Read<uintptr_t>(*arr + 16ull * k)) names += " " + TextAt(*np);
+                if (nc) names = "(" + std::to_string(*nc) + ")" + names;
+            }
+            std::string levels;
+            if (auto ll = Read<uintptr_t>(e + 24); ll && *ll) {
+                auto lc = Read<uint32_t>(*ll);
+                auto arr = Read<uintptr_t>(*ll + 8);
+                for (uint32_t k = 0; lc && arr && k < *lc && levels.size() < 200; ++k)
+                    if (auto lp = Read<uintptr_t>(*arr + 16ull * k)) levels += " " + TextAt(*lp);
+            }
+            Log("spawnlist[%u]:%s levels[%s ] names %s", i, head.c_str(), levels.c_str(), names.c_str());
+        }
+    });
+}
+
 void GameBridge::Shutdown() { FiberHookRemove(); }
 
 bool GameBridge::GameWindowFocused() const {
