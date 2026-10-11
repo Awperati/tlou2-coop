@@ -45,6 +45,11 @@ public:
     void QueueSpawnListDump();
     // Spawners in loaded levels (Level+256 -> {+8 EntitySpawner**, +16 count}); filter by text.
     void DumpSpawners(const std::string& filter);
+    // Research: call a script native at <rva> with args on a game fiber and log its result.
+    // Args: "sid:<name>" (FNV-1a symbol), numbers (0x.. or decimal). Build-pinned.
+    void QueueNativeCall(const std::string& line);
+    // Research: describe a process pointer; with here=true teleport it beside the player.
+    void QueueProcess(uintptr_t proc, bool here);
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 

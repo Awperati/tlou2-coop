@@ -54,7 +54,7 @@ Each PC runs its own copy of the story. The host is authoritative.
 | M2 | Engine teleport (dev-menu `teleport` event) run on a game job fiber | **Verified in game** 2026-10-09: moved the player to the exact target x/z, ground snapped y, no crash |
 | M3 | Companion puppet | **Verified in game** 2026-10-11 (young Ellie + Joel flashback): `GetAnyBuddy` finds Joel; `Npc::Teleport` (vtable +4520, what `npc-teleport` calls) moves him to the exact spot; `coop_lan_sim walk` sent a circling player over UDP and Joel tracked it. v1 snaps position at 10 Hz with no walk animation |
 | M4 | Objective + transition gate | **Partly verified in game** 2026-10-11: the story task (`efm-discover-museum-space` -> `efm-flashback-capsule`) and chapter (`world-ellie-flashback-museum`, `Ellie Day 1`) are read live from `GameTaskGraphMgr` and sent as the objective; a chapter change marks a transition. LevelMgr's 482 loaded packages and their load/unload diffs are logged. Not yet: holding the engine's load until stragglers arrive, and the client-side prompt with a real second player. Chapter change seen live: `world-ellie-flashback-museum` -> `world-rescue-jesse` (Ellie Day 2) flagged CHAPTER CHANGE |
-| M5 | Client plays the companion / spawned characters in solo sections | **Research**: see "Spawning" below. No spawn attempted in game yet |
+| M5 | Client plays the companion / spawned characters in solo sections | **First spawn verified in game** 2026-10-11: `native 626240 sid:cdina-wat-explore-sb-8` (c-spawn-npc on an unused Dina spawner) put a second Dina in the world; the user saw two. Not yet: a stable handle to the spawned NPC, spawning in a solo section |
 | M6 | World sync: enemies, damage, pickups, cutscenes | Not started |
 | M7 | Save/checkpoint sync, pause and menus | Not started |
 | M8 | Dedicated server and 3-layer movement | Later |
@@ -135,6 +135,11 @@ cinematic while the mod reported `playing`).
   `load-level` (native rva `0xD4D170`) = `LoadRegistry::AddWantLoad(WantLoadInfo(1, name))`.
   Plan: in a chapter where Dina is present, `spawners dina` gives her spawner and its level;
   later, load that level in a solo section and spawn from it.
+- Calling natives directly works: `fn(ret, argc, argv, ctx=null)`, symbols as FNV-1a ids.
+  Checked in game: `is-level-loaded? 'wat-const` = 1, `get-spawner` returned the same address
+  as the spawner dump, and `c-spawn-npc` spawned a Dina. Dina's spawners in Watchtower are
+  `cdina-wat-*` in level `wat-const`, art group `dina`. The value `c-spawn-npc` returns is not a
+  readable process pointer (maybe a relocated process or a handle part); still to work out.
 - Leads still open: `create-spawner`, `NetEventNpcSpawn` (multiplayer NPC spawn by spawner name),
   `Process::SpawnProcess` / `ProcessSpawnInfo`, and loading a character package via the level
   want-load lists so a spawner from another chapter's level data becomes available.

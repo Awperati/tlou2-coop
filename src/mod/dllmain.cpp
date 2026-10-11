@@ -10,6 +10,7 @@
 #include <map>
 #include <random>
 #include <string>
+#include <sstream>
 #include <thread>
 
 #include "core/config.h"
@@ -293,7 +294,7 @@ void CoopMain() {
             if (GetFileAttributesW(cmdPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
                 std::string text;
                 if (FILE* f = _wfopen(cmdPath.c_str(), L"rb")) {
-                    char b[256]{}; size_t n = fread(b, 1, sizeof(b) - 1, f); fclose(f); text.assign(b, n);
+                    static char b[16384]; size_t n = fread(b, 1, sizeof(b) - 1, f); fclose(f); text.assign(b, n);
                 }
                 DeleteFileW(cmdPath.c_str());
                 // One command per line (or ';'). Input lines queue up and play in order.
@@ -308,6 +309,11 @@ void CoopMain() {
                     else if (line == "levels") bridge.DumpLevels();
                     else if (line == "tasks") bridge.DumpTasks();
                     else if (line == "spawnlist") bridge.QueueSpawnListDump();
+                    else if (line.rfind("native ", 0) == 0) bridge.QueueNativeCall(line.substr(7));
+                    else if (line.rfind("proc ", 0) == 0) {
+                        std::istringstream ps(line.substr(5)); std::string addr, mode; ps >> addr >> mode;
+                        bridge.QueueProcess(static_cast<uintptr_t>(std::stoull(addr, nullptr, 16)), mode == "here");
+                    }
                     else if (line.rfind("spawners", 0) == 0) bridge.DumpSpawners(Trim(line.substr(8)));
                     else if (line == "cine") Log("cinematic: %s", bridge.InCinematic() ? "playing" : "not playing");
                     else if (line == "buddy here" && self) {

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <sstream>
 
 namespace coop {
 
@@ -735,6 +736,70 @@ void GameBridge::DumpSpawners(const std::string& filter) {
         }
     }
     Log("spawners: %zu in %zu levels, %zu matched '%s'", total, lv.size(), shown, filter.c_str());
+}
+
+namespace {
+using NativeFn = uint64_t* (*)(uint64_t* ret, int argc, uint64_t* argv, void* ctx);
+int SafeNative(uintptr_t f, int argc, uint64_t* argv, uint64_t* ret) {
+    __try { reinterpret_cast<NativeFn>(f)(ret, argc, argv, nullptr); return 1; }
+    __except (RecordFault(GetExceptionInformation())) { return 0; }
+}
+uint64_t Fnv1a(const std::string& s) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    for (unsigned char c : s) { h ^= c; h *= 0x100000001b3ull; }
+    return h;
+}
+} // namespace
+
+// Script natives are fn(ret, argc, argv, ctx): argv is an array of 8-byte script values,
+// symbols are FNV-1a ids (see c-spawn-npc, rva 0x626240, and its arg iterator rva 0x1C3F180).
+void GameBridge::QueueNativeCall(const std::string& line) {
+    std::istringstream in(line);
+    std::string rvaText; in >> rvaText;
+    uintptr_t fn = BuildRva(static_cast<uint32_t>(std::stoul(rvaText, nullptr, 16)));
+    if (!fn) { Log("native: exe build differs, skipped"); return; }
+    std::vector<uint64_t> args;
+    std::string a, desc;
+    while (in >> a) {
+        desc += " " + a;
+        if (a.rfind("sid:", 0) == 0) args.push_back(Fnv1a(a.substr(4)));
+        else args.push_back(std::stoull(a, nullptr, 0));
+    }
+    args.resize(args.size() + 8, 0);   // tolerate optional args read past argc
+    int argc = static_cast<int>(args.size() - 8);
+    RunOnGameFiber([fn, args, argc, desc, rvaText]() mutable {
+        uint64_t ret[4] = {};
+        int ok = SafeNative(fn, argc, args.data(), ret);
+        if (ok) Log("native %s(%s ) -> 0x%llx", rvaText.c_str(), desc.c_str(), static_cast<unsigned long long>(ret[0]));
+        else Log("native %s(%s ) FAULT 0x%08lX at %p", rvaText.c_str(), desc.c_str(), g_faultCode, reinterpret_cast<void*>(g_faultAddr));
+    });
+}
+
+void GameBridge::QueueProcess(uintptr_t procIn, bool here) {
+    RunOnGameFiber([this, procIn, here] {
+        static const ModuleRange mod = MainModule();
+        uintptr_t proc = procIn;
+        auto vt = Read<uintptr_t>(proc);
+        // c-spawn-npc returns a handle node, like the player handle: process = *(node + 8).
+        if (!vt || *vt < mod.base || *vt >= mod.base + mod.size) {
+            auto inner = Read<uintptr_t>(proc + 8);
+            if (inner && *inner) { proc = *inner; vt = Read<uintptr_t>(proc); }
+        }
+        auto id = Read<uint32_t>(proc + 0x94);
+        auto pos = Read<Vec3>(proc + offPos_);
+        uintptr_t pl = follow(player_);
+        auto me = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
+        Log("proc %p: vtable +0x%llx id %u pos %.2f %.2f %.2f, %.1f m from player", reinterpret_cast<void*>(proc),
+            vt ? static_cast<unsigned long long>(*vt - mod.base) : 0ull, id ? *id : 0, pos ? pos->x : 0, pos ? pos->y : 0,
+            pos ? pos->z : 0, (pos && me) ? Distance(*pos, *me) : -1.f);
+        if (!here || !me || !vt) return;
+        auto q = Read<Quat>(pl + offRot_);
+        float yaw = q ? YawFromQuat(*q) : 0.f;
+        Vec3 t = {me->x + std::cos(yaw) * 2.f, me->y + 0.2f, me->z - std::sin(yaw) * 2.f};
+        alignas(16) float locator[8] = {t.x, t.y, t.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+        bool ok = CallNpcTeleport(proc, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
+        Log("proc %p: teleport beside player %s", reinterpret_cast<void*>(proc), ok ? "sent" : "FAILED");
+    });
 }
 
 void GameBridge::Shutdown() { FiberHookRemove(); }
