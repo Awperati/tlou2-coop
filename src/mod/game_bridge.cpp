@@ -355,13 +355,22 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             float speed = std::sqrt(selfVel_.x * selfVel_.x + selfVel_.z * selfVel_.z);
             // npc-move-to slows her down near the goal: she settled ~1.8 m short of a moving goal
             // at every speed (log 19:24). So the goal runs a fixed distance ahead along the motion.
-            float lead = speed > 0.3f ? selfLead_ / speed : 0.f;
+            // Fixed 1.8 m lead kept her visible but she swung 0.3-3.4 m around the player,
+            // sometimes running past the player (video 19:27). Feedback on her along-track error:
+            // behind -> aim farther ahead, ahead -> aim closer (never behind the player).
+            float lead = 0.f, along = 0.f;
+            if (speed > 0.3f) {
+                float dx = selfVel_.x / speed, dz = selfVel_.z / speed;
+                along = (cur->x - pos.x) * dx + (cur->z - pos.z) * dz;   // + = she is ahead
+                float metres = std::clamp(selfLead_ - 1.2f * along, 0.4f, 4.f);
+                lead = metres / speed;
+            }
             Vec3 at = {pos.x + std::sin(yaw) * selfOffset_ + selfVel_.x * lead, pos.y,
                        pos.z + std::cos(yaw) * selfOffset_ + selfVel_.z * lead};
             float g = Distance(*cur, at);
             if (tt - lastSelfLog_ > 1000) {
                 lastSelfLog_ = tt;
-                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m", speed, g, Distance(*cur, pos));
+                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m", speed, g, Distance(*cur, pos), along);
             }
             // With offset 0 she cannot walk into the player's own collision and stalls
             // about 1 m away (seen in game). Stalled for 1 s: snap onto the spot.
