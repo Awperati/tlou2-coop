@@ -259,7 +259,8 @@ bool GameBridge::TeleportLocalPlayer(const TeleportTo& t) {
 bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
     if (!f_.puppet) return false;
     ULONGLONG now = GetTickCount64();
-    if (now - lastPuppet_ < 300 || puppetQueued_) return true;
+    // Self mode (slot 0) locks the companion onto the hidden player, so it ticks faster.
+    if (now - lastPuppet_ < (slot == 0 ? 120u : 300u) || puppetQueued_) return true;
     lastPuppet_ = now;
     puppetQueued_ = true;
     Vec3 pos = s.pos; float yaw = s.yaw;
@@ -297,6 +298,15 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             moveIssuedAt_ = 0;
             progressAt_ = 0;
             Log("puppet: slot %u teleport %s (gap %.1f m%s)", slot, ok ? "sent" : "FAILED", gap, stuck ? ", stuck" : "");
+            return;
+        }
+        // Self mode: once she is close, pin her to the exact spot and facing every tick.
+        if (slot == 0 && gap < 3.0f) {
+            if (gap < 0.05f) return;
+            alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+            CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
+            moveIssuedAt_ = 0;
+            progressAt_ = 0;
             return;
         }
         if (gap < 1.2f) { moveIssuedAt_ = 0; progressAt_ = 0; return; }
