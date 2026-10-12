@@ -91,7 +91,7 @@ bool GameBridge::engineTeleport(uintptr_t player, const Vec3& pos, float yaw, ui
     return false;
 }
 
-namespace { uintptr_t BuildRva(uint32_t rva); }
+namespace { uintptr_t BuildRva(uint32_t rva); uint64_t Fnv1a(const std::string& s); int SafeNative(uintptr_t f, int argc, uint64_t* argv, uint64_t* ret); std::string ProcessName(uintptr_t proc); }
 namespace { bool CallNpcTeleport(uintptr_t npc, uint32_t slot, uintptr_t fnBind, uintptr_t fnBf, const float* locator); }
 
 // Section layout in offsets.ini:
@@ -154,6 +154,7 @@ bool GameBridge::Init(const Ini& ini) {
     npcTeleportEvent_ = std::stoull(ini.get("engine", "npc_teleport_event", "0"), nullptr, 0);
     npcTeleportSlot_ = static_cast<uint32_t>(ini.getInt("engine", "npc_teleport_vslot", 0));
     puppetMaxDistance_ = ini.getFloat("engine", "puppet_max_distance", 40.f);
+    puppetTeleportDistance_ = ini.getFloat("engine", "puppet_teleport_distance", 15.f);
     engineTeleport_ = player_.root && fnEventSend_ && fnBindingDefault_ && fnBoundFrameCtor_ && teleportEvent_;
     if (engineTeleport_) {
         f_.teleport = true;
@@ -251,43 +252,99 @@ bool GameBridge::TeleportLocalPlayer(const TeleportTo& t) {
 
 // Puppet v1: the story companion snaps to the remote player's position.
 // No walk animation yet (that needs the buddy's move-to API); proves the data path.
+// Walking puppet (2026-10-12). The companion's AI is switched off once (bound
+// npc-set-script-mode, in script context), then npc-move-to walks or runs her toward the
+// remote player. Teleport only when she is far behind, the target is unreachable, or
+// she makes no progress. All engine calls run in the task-update phase or a script call.
 bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
     if (!f_.puppet) return false;
     ULONGLONG now = GetTickCount64();
-    // 4 Hz, not 10: rapid teleports of a freshly spawned NPC preceded a crash in
-    // Npc::Evaluation (2026-10-11). Proper fix is a walk-to command instead of teleports.
-    if (now - lastPuppet_ < 250 || puppetQueued_) return true;
+    if (now - lastPuppet_ < 300 || puppetQueued_) return true;
     lastPuppet_ = now;
     puppetQueued_ = true;
     Vec3 pos = s.pos; float yaw = s.yaw;
     RunOnGameFiber([this, slot, pos, yaw] {
         puppetQueued_ = false;
+        if (InCinematic()) return;   // never move actors while a cinematic owns them
         uintptr_t b = puppetSpawner_.empty() ? findBuddyOnFiber() : spawnedProcessOnFiber(puppetSpawner_);
         if (!b) return;
         auto cur = Read<Vec3>(b + offPos_);
-        if (cur && Distance(*cur, pos) < 1.0f) return;
-        if (InCinematic()) return;   // never move actors while a cinematic owns them
-        // Safety: a far jump (another area, or a bad position) crashed the game
-        // during a cinematic. Only move the buddy near where the local player is.
         uintptr_t pl = follow(player_);
         auto me = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
-        if (!me || Distance(*me, pos) > puppetMaxDistance_) {
+        if (!cur || !me) return;
+        if (Distance(*me, pos) > puppetMaxDistance_) {
             ULONGLONG t = GetTickCount64();
-            if (t - lastPuppetLog_ > 2000) {
-                lastPuppetLog_ = t;
-                Log("puppet: skipped, target %.1f m from the local player (limit %.0f)", me ? Distance(*me, pos) : -1.f, puppetMaxDistance_);
-            }
+            if (t - lastPuppetLog_ > 2000) { lastPuppetLog_ = t; Log("puppet: target %.1f m from the local player, skipped", Distance(*me, pos)); }
             return;
         }
-        alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
-        bool ok = CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
-        ULONGLONG t = GetTickCount64();
-        if (!ok || t - lastPuppetLog_ > 2000) {
-            lastPuppetLog_ = t;
-            Log("puppet: slot %u -> buddy at %.2f %.2f %.2f%s", slot, pos.x, pos.y, pos.z, ok ? "" : " FAILED");
+        std::string name = ProcessName(b);
+        if (name.empty() || name == "?") return;
+        if (!puppetAiOff_ || puppetName_ != name) {
+            puppetName_ = name;
+            puppetAiOff_ = true;
+            SetNpcAi(name, false);
+            Log("puppet: taking over '%s' (AI off)", name.c_str());
         }
-    });
+        float gap = Distance(*cur, pos);
+        ULONGLONG t = GetTickCount64();
+        // Progress check on her own movement (the target itself moves): if she has
+        // not moved 0.5 m in 2.5 s while 2+ m away, the path is blocked.
+        if (!progressAt_ || Distance(*cur, progressPos_) > 0.5f) { progressPos_ = *cur; progressAt_ = t; }
+        bool stuck = moveIssuedAt_ && t - progressAt_ > 2500 && gap > 2.0f;
+        if (gap > puppetTeleportDistance_ || stuck) {
+            alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+            bool ok = CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
+            moveIssuedAt_ = 0;
+            progressAt_ = 0;
+            Log("puppet: slot %u teleport %s (gap %.1f m%s)", slot, ok ? "sent" : "FAILED", gap, stuck ? ", stuck" : "");
+            return;
+        }
+        if (gap < 1.2f) { moveIssuedAt_ = 0; progressAt_ = 0; return; }
+        // Re-issue only when the target moved or the last order is old.
+        if (moveIssuedAt_ && t - moveIssuedAt_ < 1000 && Distance(lastMoveTarget_, pos) < 1.0f) return;
+        int motion = gap > 4.f ? 1 : 0;   // run when behind, walk when close
+        IssueMoveTo(name, pos, yaw, motion);
+        lastMoveTarget_ = pos;
+        moveIssuedAt_ = t;
+        if (t - lastPuppetLog_ > 2000) { lastPuppetLog_ = t; Log("puppet: slot %u %s toward %.2f %.2f (gap %.1f m)", slot, motion ? "run" : "walk", pos.x, pos.z, gap); }
+    }, true);
     return true;
+}
+
+void GameBridge::ReleasePuppet() {
+    if (!puppetAiOff_) return;
+    SetNpcAi(puppetName_, true);
+    Log("puppet: released '%s' (AI on)", puppetName_.c_str());
+    puppetAiOff_ = false;
+    moveIssuedAt_ = 0;
+    progressAt_ = 0;
+}
+
+// npc-set-script-mode (rva 0x647210) <npc> <1=AI off/0=on> <bound>, in script context.
+void GameBridge::SetNpcAi(const std::string& name, bool on) {
+    RunInScriptContext([name, on] {
+        uintptr_t fn = BuildRva(0x647210);
+        if (!fn) return;
+        uint64_t argv[8] = {Fnv1a(name), on ? 0ull : 1ull, on ? 0ull : 1ull};
+        uint64_t ret[4] = {};
+        SafeNative(fn, 3, argv, ret);
+    });
+}
+
+// npc-move-to (rva 0x63F0E0) <npc> <bound-frame*> <motion> <goal>, in script context.
+void GameBridge::IssueMoveTo(const std::string& name, const Vec3& pos, float yaw, int motion) {
+    RunInScriptContext([this, name, pos, yaw, motion] {
+        uintptr_t fn = BuildRva(0x63F0E0);
+        if (!fn) return;
+        alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+        alignas(16) uint8_t binding[64] = {};
+        alignas(16) uint8_t bf[128] = {};
+        reinterpret_cast<BindingDefaultFn>(fnBindingDefault_)(binding);
+        reinterpret_cast<BoundFrameCtorFn>(fnBoundFrameCtor_)(bf, locator, binding);
+        uint64_t argv[16] = {Fnv1a(name), reinterpret_cast<uint64_t>(bf), static_cast<uint64_t>(motion), 0, 0, 0, 0, 0};
+        uint64_t ret[4] = {};
+        SafeNative(fn, 8, argv, ret);
+    });
 }
 
 // From the story task system (see PollTasks): the active chapter's world pack.

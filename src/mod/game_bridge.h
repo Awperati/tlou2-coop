@@ -54,6 +54,8 @@ public:
     void QueueSpawned(const std::string& spawner, bool here, float metres = 2.f);
     // Which NPC the network puppet drives: the story buddy (empty) or a spawner's NPC.
     void SetPuppetSpawner(const std::string& spawner) { puppetSpawner_ = spawner; }
+    // Give the companion her AI back (partner left, session ended, mod unloading).
+    void ReleasePuppet();
     // npc-move-to (native rva 0x63F0E0): walk/run an NPC (by name) to a point beside the player.
     void QueueMoveTo(const std::string& npcName, float metres, int motion, int goal = 0, bool inScript = true);
     // Which Npc* a script NPC argument resolves to (arg reader rva 0x3FF7D0).
@@ -93,6 +95,14 @@ private:
     uint32_t npcTeleportSlot_ = 0;
     float puppetMaxDistance_ = 40.f;
     std::string puppetSpawner_;
+    float puppetTeleportDistance_ = 15.f;
+    bool puppetAiOff_ = false;
+    std::string puppetName_;
+    Vec3 lastMoveTarget_;
+    Vec3 progressPos_;
+    unsigned long long moveIssuedAt_ = 0, progressAt_ = 0;
+    void SetNpcAi(const std::string& name, bool on);
+    void IssueMoveTo(const std::string& name, const Vec3& pos, float yaw, int motion);
     uintptr_t spawnedProcessOnFiber(const std::string& spawner);
     unsigned long long lastPuppet_ = 0, lastPuppetLog_ = 0;
     std::atomic<bool> puppetQueued_{false};

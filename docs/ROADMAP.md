@@ -214,6 +214,13 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
   command does not need a script owner (owner is only used for "wait").
   Recipe for the puppet: disable AI once (bound), then issue `npc-move-to` toward the remote
   player's position, falling back to `Npc::Teleport` when the target is off the nav mesh.
+- **Walking puppet built and run in game (2026-10-12).** On partner join the buddy's AI goes off
+  (bound script mode, in script context); every 300 ms she gets `npc-move-to` toward the remote
+  player (walk under 4 m, run beyond), re-issued when the target moves 1 m or every second.
+  Teleport when the gap is over 15 m or she has not moved 0.5 m in 2.5 s while 2+ m away.
+  On partner leave or mod unload her AI comes back. `coop_lan_sim walk` (now 1.5 m/s) drove
+  Dina around a 3 m circle in a cramped Watchtower room: mostly walk/run orders with some
+  "stuck" teleports where furniture blocked the path. Game stayed up; AI restored on leave.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.

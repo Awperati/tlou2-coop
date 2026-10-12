@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
         float dt = (now - last) / 1000.f; last = now;
         s.Poll();
         if (walk) {
-            float a = (now - start) / 1000.f;          // 1 rad/s around the origin
+            float a = (now - start) / 2000.f;          // 0.5 rad/s: 1.5 m/s on a 3 m circle (a walk)
             me.pos = {origin.x + 3.f * std::cos(a), origin.y, origin.z + 3.f * std::sin(a)};
             me.yaw = -a;
         } else if (mode != "host") {

@@ -152,6 +152,7 @@ void CoopMain() {
     cb.onPeerLeft = [&](uint8_t slot) {
         Log("player %u left", slot);
         remote.erase(slot);
+        bridge.ReleasePuppet();
         gate.ForgetPlayer(slot);
         OverlayNotify(slot == 0 ? L"Host left the session" : L"Your partner left");
         OverlayCue(3);
@@ -322,6 +323,7 @@ void CoopMain() {
                         ms >> name >> m >> motion >> goal;
                         bridge.QueueMoveTo(name, m, motion, goal, owned);
                     }
+                    else if (line == "release") bridge.ReleasePuppet();
                     else if (line.rfind("puppet ", 0) == 0) {
                         std::string target = Trim(line.substr(7));
                         bridge.SetPuppetSpawner(target == "buddy" ? std::string() : target);
@@ -385,6 +387,8 @@ void CoopMain() {
         Sleep(16);
     }
     session.Stop();
+    bridge.ReleasePuppet();
+    for (int i = 0; i < 20; ++i) Sleep(50);   // let the release run in a script call
     bridge.Shutdown();
     InputInjectRemove();
     MainThreadShutdown();
