@@ -62,7 +62,7 @@ public:
     // (gate at the top of rva 0x1CE32A0). Lets the companion stand on the player's spot.
     void SetNoCameraFade(bool on) { noFade_ = on; noFadeLogged_ = false; }
     std::atomic<bool> noFade_{true};
-    bool noFadeLogged_ = false, colliderOff_ = false, playerIgnoring_ = false;
+    bool noFadeLogged_ = false, colliderOff_ = false, playerIgnoring_ = false, navIgnoreLogged_ = false;
     unsigned long long lastIgnoreAt_ = 0;
     uintptr_t noFadeOn_ = 0;
     // npc-move-to (native rva 0x63F0E0): walk/run an NPC (by name) to a point beside the player.

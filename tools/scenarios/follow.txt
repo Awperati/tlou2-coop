@@ -1,0 +1,8 @@
+# Walk, run, turn, stop: checks that the companion stays on the hidden player.
+stick l 0 20000 3000
+wait 1500
+stick l 0 32767 3000
+stick l 32767 0 2000
+wait 2500
+stick l 0 -32767 2500
+wait 3000

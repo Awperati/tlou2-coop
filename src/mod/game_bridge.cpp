@@ -312,6 +312,21 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 SafeNative(BuildRva(0xC9CC10), 1, argv, ret);
             });
             playerIgnoring_ = true;
+            // Bump hook saw 0 bumps while she still stepped aside (log 19:49): her
+            // navigation treats the player as an obstacle. npc-set-ignore-for-pathfinding
+            // <npc> <object> (rva 0x645800, writes npc+7096 -> +0xF8) and
+            // npc-flock-set-ignore-player-region-blocking <npc> #t (rva 0x6351A0).
+            std::string plName = "player";   // script name of the player ("Player" from ProcessName did not resolve)
+            RunInScriptContext([name, plName] {
+                uint64_t ret[4] = {};
+                if (!plName.empty() && plName != "?") {
+                    uint64_t a[8] = {Fnv1a(name), Fnv1a(plName)};
+                    SafeNative(BuildRva(0x645800), 2, a, ret);
+                }
+                uint64_t f[8] = {Fnv1a(name), 1};
+                SafeNative(BuildRva(0x6351A0), 2, f, ret);
+            });
+            if (!navIgnoreLogged_) { navIgnoreLogged_ = true; Log("puppet: '%s' ignores '%s' for pathfinding", name.c_str(), plName.c_str()); }
         }
         if (slot == 0) if (auto pid = Read<uint32_t>(b + 0x94)) SetNoBumpProcessId(*pid);   // see BumpHookInstall
         // Camera fade off for the companion (Character+0x9BC). Rewritten every tick:
@@ -397,7 +412,9 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 lastSelfLog_ = tt;
                 auto ign = pl ? Read<uintptr_t>(pl + 20672) : std::nullopt;
                 auto ignH = ign && *ign ? Read<uint64_t>(*ign + 0xE0) : std::nullopt;
-                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m, ignore %llx, bumps skipped %llu", speed, g, Distance(*cur, pos), along, ignH ? *ignH : 0ull, BumpsSkipped());
+                auto navs = Read<uintptr_t>(b + 7096);
+                auto navH = navs && *navs ? Read<uint64_t>(*navs + 0xF8) : std::nullopt;
+                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m, ignore %llx, nav-ignore %llx, bumps skipped %llu", speed, g, Distance(*cur, pos), along, ignH ? *ignH : 0ull, navH ? *navH : 0ull, BumpsSkipped());
             }
             // With offset 0 she cannot walk into the player's own collision and stalls
             // about 1 m away (seen in game). Stalled for 1 s: snap onto the spot.
@@ -486,6 +503,11 @@ void GameBridge::ReleasePuppet() {
             uintptr_t b = puppetSpawner_.empty() ? findBuddyOnFiber() : spawnedProcessOnFiber(puppetSpawner_);
             uint8_t v = 0;
             if (b) SafeWrite(b + 0x9BC, &v, 1);
+            // undo npc-set-ignore-for-pathfinding (handle at npc+7096 -> +0xF8)
+            if (auto navs = b ? Read<uintptr_t>(b + 7096) : std::nullopt; navs && *navs) {
+                uint8_t zero[16] = {};
+                SafeWrite(*navs + 0xF8, zero, sizeof(zero));
+            }
         });
     }
     Log("puppet: released '%s' (AI on)", puppetName_.c_str());

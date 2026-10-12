@@ -9,3 +9,5 @@ re/
 *.til
 *.log
 .vs/
+
+re/selftest/
