@@ -301,3 +301,15 @@ so she now stands on the hidden player's exact spot (`selfoffset 0`, the new def
 Seen in game: Dina fully opaque at 0.0 m, facing the player's way. `ReleasePuppet` clears it.
 Dead ends: `character-set-fade-out-distance` is an empty stub in retail;
 `camera-set-npc-fade-out-expand` (Character+0x888) only pads the radius by 0.06-0.1 m.
+
+### Reverse puppet: limits of NPC locomotion, and the look-swap route (2026-10-12)
+Driving the companion with AI locomotion (`npc-move-to`, then `npc-move-in-direction`)
+gets within ~0.3 m at a walk but swings 1.5-2 m at a run and lags on stops and turns.
+User verdict: still not good enough. Writing her position (+0x130) is overwritten by the engine.
+Better route: make the local *player* look like Dina. No Return has a playable Dina:
+look `dina-player` (also `dina-player-patrol`, `dina-player-no-jacket`) in
+`bin.psarc:dc1/look2/characters.bin`; rogue selection ids `dina`, `dina-patrol`,
+`dina-winter-no-jacket`, `dina-default-no-jacket` in `dc1/ss-rogue/player-selection-definitions.bin`.
+Its meshes are `actor97/dina-player-*.pak` inside `world-rogue.psarc`, which story levels do not load.
+Next: find how No Return loads those actor packages and sets the player look, then do the same in story.
+`tools/dsar.py` reads the archives (outer DSAR of LZ4 blocks, inner PSARC; names matched by MD5).
