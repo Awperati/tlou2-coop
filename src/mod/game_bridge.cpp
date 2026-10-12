@@ -340,9 +340,29 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
         // stand where the player does). Teleporting her every tick made her twitch ("spazzing"
         // in game), so she walks/runs with move-to and only teleports when 4 m+ behind.
         if (slot == 0) {
-            Vec3 at = {pos.x + std::sin(yaw) * selfOffset_, pos.y, pos.z + std::cos(yaw) * selfOffset_};
-            float g = Distance(*cur, at);
             ULONGLONG tt = GetTickCount64();
+            // Player velocity from successive samples (smoothed). Aiming at the bare player
+            // spot left her trailing behind the camera, out of view, whenever the player
+            // moved (video 2026-10-12 19:22). So she walks to where the player will be.
+            if (selfPrevAt_ && tt > selfPrevAt_) {
+                float dt = (tt - selfPrevAt_) / 1000.f;
+                if (dt < 1.f) {
+                    Vec3 v = {(pos.x - selfPrevPos_.x) / dt, 0.f, (pos.z - selfPrevPos_.z) / dt};
+                    selfVel_ = {selfVel_.x * 0.5f + v.x * 0.5f, 0.f, selfVel_.z * 0.5f + v.z * 0.5f};
+                } else selfVel_ = {};
+            }
+            selfPrevPos_ = pos; selfPrevAt_ = tt;
+            float speed = std::sqrt(selfVel_.x * selfVel_.x + selfVel_.z * selfVel_.z);
+            // npc-move-to slows her down near the goal: she settled ~1.8 m short of a moving goal
+            // at every speed (log 19:24). So the goal runs a fixed distance ahead along the motion.
+            float lead = speed > 0.3f ? selfLead_ / speed : 0.f;
+            Vec3 at = {pos.x + std::sin(yaw) * selfOffset_ + selfVel_.x * lead, pos.y,
+                       pos.z + std::cos(yaw) * selfOffset_ + selfVel_.z * lead};
+            float g = Distance(*cur, at);
+            if (tt - lastSelfLog_ > 1000) {
+                lastSelfLog_ = tt;
+                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m", speed, g, Distance(*cur, pos));
+            }
             // With offset 0 she cannot walk into the player's own collision and stalls
             // about 1 m away (seen in game). Stalled for 1 s: snap onto the spot.
             bool stalled = progressAt_ && tt - progressAt_ > 1000 && g > 0.35f && tt - lastFaceAt_ > 1000;
@@ -370,7 +390,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 return;
             }
             if (moveIssuedAt_ && tt - moveIssuedAt_ < 500 && Distance(lastMoveTarget_, at) < 0.3f) return;
-            IssueMoveTo(name, at, yaw, g > 1.5f ? 1 : 0);
+            IssueMoveTo(name, at, yaw, (speed > 2.5f || g > 1.5f) ? 1 : 0);
             lastMoveTarget_ = at;
             moveIssuedAt_ = tt;
             return;

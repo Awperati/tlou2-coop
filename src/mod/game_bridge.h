@@ -79,6 +79,10 @@ public:
     std::atomic<int> stance_{0};          // 0 stand, 1 crouch, 2 prone
     std::atomic<bool> aiming_{false}, stanceQueued_{false};
     int lastDemeanor_ = -1;
+    Vec3 selfPrevPos_, selfVel_;
+    unsigned long long selfPrevAt_ = 0, lastSelfLog_ = 0;
+    float selfLead_ = 1.8f;   // metres ahead of a moving player to aim (move-to arrival slowdown)
+    void SetSelfLead(float s) { selfLead_ = s; }
     float selfOffset_ = 0.f;   // 0 = exact spot, needs noFade_
     unsigned long long lastAimAt_ = 0, lastFaceAt_ = 0;
     bool aimingNow_ = false;
