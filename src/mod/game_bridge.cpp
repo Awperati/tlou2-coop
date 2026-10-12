@@ -287,7 +287,17 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             puppetName_ = name;
             puppetAiOff_ = true;
             SetNpcAi(name, false);
-            Log("puppet: taking over '%s' (AI off)", name.c_str());
+            if (slot == 0) {
+                // The hidden player's capsule blocked her about 1 m short of the spot (log
+                // 19:29). npc-disable-character-collider (rva 0x631C70, vtable +6216).
+                RunInScriptContext([name] {
+                    uint64_t argv[8] = {Fnv1a(name)};
+                    uint64_t ret[4] = {};
+                    SafeNative(BuildRva(0x631C70), 1, argv, ret);
+                });
+                colliderOff_ = true;
+            }
+            Log("puppet: taking over '%s' (AI off%s)", name.c_str(), slot == 0 ? ", collider off" : "");
         }
         // Camera fade off for the companion (Character+0x9BC). Rewritten every tick:
         // processes relocate and the game may clear it.
@@ -399,7 +409,10 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 return;
             }
             if (moveIssuedAt_ && tt - moveIssuedAt_ < 500 && Distance(lastMoveTarget_, at) < 0.3f) return;
-            IssueMoveTo(name, at, yaw, (speed > 2.5f || g > 1.5f) ? 1 : 0);
+            // Her run is faster than the player's: with any lead she ended up 1-3 m ahead
+            // (log 19:29). Ahead -> walk; behind or far -> run.
+            int motion = along > 0.3f ? 0 : (speed > 2.5f || g > 1.5f) ? 1 : 0;
+            IssueMoveTo(name, at, yaw, motion);
             lastMoveTarget_ = at;
             moveIssuedAt_ = tt;
             return;
@@ -425,6 +438,14 @@ void GameBridge::ReleasePuppet() {
         SafeNative(BuildRva(0x644620), 3, argv, ret);
     });
     SetNpcAi(puppetName_, true);
+    if (colliderOff_) {   // npc-enable-character-collider, rva 0x632E20
+        colliderOff_ = false;
+        RunInScriptContext([name] {
+            uint64_t argv[8] = {Fnv1a(name)};
+            uint64_t ret[4] = {};
+            SafeNative(BuildRva(0x632E20), 1, argv, ret);
+        });
+    }
     if (noFadeOn_) {   // let the camera fade her again
         noFadeOn_ = 0;
         RunOnGameFiber([this] {
