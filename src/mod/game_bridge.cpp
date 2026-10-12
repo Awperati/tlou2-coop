@@ -299,6 +299,19 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             }
             Log("puppet: taking over '%s' (AI off%s)", name.c_str(), slot == 0 ? ", collider off" : "");
         }
+        // Her collider off was not enough: with her inside the player, the player could
+        // not move until it pushed her out (user report). player-ignore-object-collision
+        // (rva 0xC9CC10) stores the object's handle in the player's collision state
+        // (player+20672 -> +0xE0). Re-sent every 2 s in case the game resets it.
+        if (slot == 0 && GetTickCount64() - lastIgnoreAt_ > 2000) {
+            lastIgnoreAt_ = GetTickCount64();
+            RunInScriptContext([name] {
+                uint64_t argv[8] = {Fnv1a(name)};
+                uint64_t ret[4] = {};
+                SafeNative(BuildRva(0xC9CC10), 1, argv, ret);
+            });
+            playerIgnoring_ = true;
+        }
         // Camera fade off for the companion (Character+0x9BC). Rewritten every tick:
         // processes relocate and the game may clear it.
         if (noFade_ || noFadeOn_) {
@@ -380,7 +393,9 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             float g = Distance(*cur, at);
             if (tt - lastSelfLog_ > 1000) {
                 lastSelfLog_ = tt;
-                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m", speed, g, Distance(*cur, pos), along);
+                auto ign = pl ? Read<uintptr_t>(pl + 20672) : std::nullopt;
+                auto ignH = ign && *ign ? Read<uint64_t>(*ign + 0xE0) : std::nullopt;
+                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m, ignore %llx", speed, g, Distance(*cur, pos), along, ignH ? *ignH : 0ull);
             }
             // With offset 0 she cannot walk into the player's own collision and stalls
             // about 1 m away (seen in game). Stalled for 1 s: snap onto the spot.
@@ -438,6 +453,14 @@ void GameBridge::ReleasePuppet() {
         SafeNative(BuildRva(0x644620), 3, argv, ret);
     });
     SetNpcAi(puppetName_, true);
+    if (playerIgnoring_) {   // player-ignore-object-collision with no object clears it
+        playerIgnoring_ = false;
+        RunInScriptContext([] {
+            uint64_t argv[8] = {0};
+            uint64_t ret[4] = {};
+            SafeNative(BuildRva(0xC9CC10), 1, argv, ret);
+        });
+    }
     if (colliderOff_) {   // npc-enable-character-collider, rva 0x632E20
         colliderOff_ = false;
         RunInScriptContext([name] {
