@@ -164,6 +164,7 @@ bool GameBridge::Init(const Ini& ini) {
         if (auto tu = FindFunctionByString(modr, ini.get("engine", "task_update_fn", "bool __cdecl GameTaskGraphMgr::Update(void)")))
             PhaseHookInstall(*tu);
         if (ini.getBool("engine", "script_hook", true)) ScriptHookInstall(BuildRva(0x160F950), BuildRva(0x1D91F80));
+        if (ini.getBool("engine", "bump_hook", true)) BumpHookInstall(BuildRva(0xB3C330));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
     f_.worldPack = false;   // set below once the task manager resolves
@@ -312,6 +313,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             });
             playerIgnoring_ = true;
         }
+        if (slot == 0) if (auto pid = Read<uint32_t>(b + 0x94)) SetNoBumpProcessId(*pid);   // see BumpHookInstall
         // Camera fade off for the companion (Character+0x9BC). Rewritten every tick:
         // processes relocate and the game may clear it.
         if (noFade_ || noFadeOn_) {
@@ -395,7 +397,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 lastSelfLog_ = tt;
                 auto ign = pl ? Read<uintptr_t>(pl + 20672) : std::nullopt;
                 auto ignH = ign && *ign ? Read<uint64_t>(*ign + 0xE0) : std::nullopt;
-                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m, ignore %llx", speed, g, Distance(*cur, pos), along, ignH ? *ignH : 0ull);
+                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m, ignore %llx, bumps skipped %llu", speed, g, Distance(*cur, pos), along, ignH ? *ignH : 0ull, BumpsSkipped());
             }
             // With offset 0 she cannot walk into the player's own collision and stalls
             // about 1 m away (seen in game). Stalled for 1 s: snap onto the spot.
@@ -427,7 +429,15 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             // Her run is faster than the player's: with any lead she ended up 1-3 m ahead
             // (log 19:29). Ahead -> walk; behind or far -> run.
             int motion = along > 0.3f ? 0 : (speed > 2.5f || g > 1.5f) ? 1 : 0;
-            IssueMoveTo(name, at, yaw, motion);
+            // move-to stops within ~0.7-1 m of its goal: with the player stopped she
+            // parked short for seconds even with collision off (log 19:36). Aim past
+            // the spot by that radius along her approach so she ends on it.
+            Vec3 goal = at;
+            if (speed < 0.3f && g > 0.35f) {
+                float k = std::min(0.9f, g) / g;
+                goal = {at.x + (at.x - cur->x) * k, at.y, at.z + (at.z - cur->z) * k};
+            }
+            IssueMoveTo(name, goal, yaw, motion);
             lastMoveTarget_ = at;
             moveIssuedAt_ = tt;
             return;
@@ -453,6 +463,7 @@ void GameBridge::ReleasePuppet() {
         SafeNative(BuildRva(0x644620), 3, argv, ret);
     });
     SetNpcAi(puppetName_, true);
+    SetNoBumpProcessId(0);
     if (playerIgnoring_) {   // player-ignore-object-collision with no object clears it
         playerIgnoring_ = false;
         RunInScriptContext([] {

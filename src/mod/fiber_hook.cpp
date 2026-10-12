@@ -191,6 +191,39 @@ bool ScriptHookInstall(uintptr_t nativeInvoke, uintptr_t ssContextGetter) {
     return true;
 }
 
+// Player bump sender (rva 0xB3C330): (ctrl, npc, a3, a4, a5); returns 1 when nothing
+// is bumped. It sends the "bump" event that makes the NPC step out of the player's way.
+namespace {
+using BumpFn = char (*)(void*, uintptr_t, void*, void*, void*);
+uint8_t g_bumpSaved[13];
+uint8_t* g_bumpTramp = nullptr;
+uintptr_t g_bumpTarget = 0;
+bool g_bumpInstalled = false;
+std::atomic<uint32_t> g_noBumpId{0};
+std::atomic<uint64_t> g_bumpsSkipped{0};
+char HookedBump(void* ctrl, uintptr_t npc, void* a3, void* a4, void* a5) {
+    uint32_t id = g_noBumpId.load();
+    if (id && npc && *reinterpret_cast<const uint32_t*>(npc + 0x94) == id) { ++g_bumpsSkipped; return 1; }
+    return reinterpret_cast<BumpFn>(g_bumpTramp)(ctrl, npc, a3, a4, a5);
+}
+} // namespace
+
+bool BumpHookInstall(uintptr_t target) {
+    if (g_bumpInstalled || !target) return g_bumpInstalled;
+    // mov r11,rsp; push rbp; push rdi; push r14; push r15; lea rbp,[r11-57h]
+    static const uint8_t expect[] = {0x4C, 0x8B, 0xDC, 0x55, 0x57, 0x41, 0x56, 0x41, 0x57, 0x49, 0x8D, 0x6B, 0xA9};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedBump), g_bumpSaved, g_bumpTramp)) {
+        Log("bump hook: prologue changed, not hooking");
+        return false;
+    }
+    g_bumpTarget = target;
+    g_bumpInstalled = true;
+    Log("bump hook: player bump sender hooked");
+    return true;
+}
+void SetNoBumpProcessId(uint32_t id) { g_noBumpId = id; }
+uint64_t BumpsSkipped() { return g_bumpsSkipped.load(); }
+
 void RunInScriptContext(std::function<void()> fn) {
     std::lock_guard lk(g_mu);
     g_queue.push_back({std::move(fn), true, 2});
@@ -253,6 +286,7 @@ bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle) {
 }
 
 void FiberHookRemove() {
+    if (g_bumpInstalled) { RemoveTrampoline(g_bumpTarget, g_bumpSaved, sizeof(g_bumpSaved)); g_bumpInstalled = false; Log("bump hook: removed"); }
     if (g_nativeInstalled) { RemoveTrampoline(g_nativeTarget, g_nativeSaved, sizeof(g_nativeSaved)); g_nativeInstalled = false; Log("script hook: removed"); }
     if (g_phaseInstalled) {
         DWORD old;
