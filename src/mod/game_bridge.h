@@ -68,8 +68,15 @@ public:
     void QueuePlayerVisible(bool visible, bool quiet = false);
     int WalkSubtreeSetVisible(uintptr_t root, bool visible, bool quiet = false);
     std::vector<uint32_t> playerAttachIds_;
+    std::atomic<int> stance_{0};          // 0 stand, 1 crouch, 2 prone
+    std::atomic<bool> aiming_{false}, stanceQueued_{false};
+    int lastDemeanor_ = -1;
     // Make every attachable in the world visible again (undo a bad hide).
-    void QueueShowAllAttachables();   // process ids of the player's weapons/flashlight
+    void QueueShowAllAttachables();
+    // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
+    void QueueDemeanorNames();
+    // Player stance, sampled on a game fiber (player-is-crouched?/prone?/aiming? natives).
+    void PollStance();   // process ids of the player's weapons/flashlight
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 

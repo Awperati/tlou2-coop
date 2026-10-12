@@ -255,6 +255,12 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
 - Lock: self mode teleports her onto the player's exact spot and facing every 120 ms within
   3 m (0.0-0.1 m while walking). Camera framing puts the character left of centre, as it
   does for Ellie.
+- **Stance mirroring (verified in game 2026-10-12).** Companion demeanors (Npc+7776/+7784 table)
+  for Dina: 0 ambient, 1 uneasy, 2 aggressive, 3 crouch, 4 crawl, 5 search. The mod samples
+  `player-is-crouched?` / `-prone?` / `-aiming?` (rvas `0xC9DF90`/`0xC9E260`/`0xC9DEC0`) every
+  200 ms and sets `npc-set-demeanor` (rva `0x644620`, forced) on change: crouch -> 3, prone -> 4,
+  aiming -> 2, else 0. Crouching Ellie with the virtual pad made Dina crouch (demeanor 3).
+  Stance and aim travel in `PlayerState` too, so the network puppet mirrors the partner.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.

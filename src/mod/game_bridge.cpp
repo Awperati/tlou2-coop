@@ -222,6 +222,8 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
     if (offYaw_) if (auto y = Read<float>(p + offYaw_)) s.yaw = *y;
     if (offRot_) if (auto q = Read<Quat>(p + offRot_)) s.yaw = YawFromQuat(*q);
     if (offHealth_) if (auto h = Read<float>(p + offHealth_)) s.health = static_cast<uint8_t>(*h < 0 ? 0 : (*h > 100 ? 100 : *h));
+    s.stance = static_cast<uint8_t>(stance_.load());
+    if (aiming_) s.flags |= 1;
     if (InCombat()) s.flags |= 4;
     if (s.health == 0) s.flags |= 8;
     return s;
@@ -264,7 +266,8 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
     lastPuppet_ = now;
     puppetQueued_ = true;
     Vec3 pos = s.pos; float yaw = s.yaw;
-    RunOnGameFiber([this, slot, pos, yaw] {
+    int stance = s.stance; bool aim = (s.flags & 1) != 0;
+    RunOnGameFiber([this, slot, pos, yaw, stance, aim] {
         puppetQueued_ = false;
         if (InCinematic()) return;   // never move actors while a cinematic owns them
         uintptr_t b = puppetSpawner_.empty() ? findBuddyOnFiber() : spawnedProcessOnFiber(puppetSpawner_);
@@ -285,6 +288,17 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             puppetAiOff_ = true;
             SetNpcAi(name, false);
             Log("puppet: taking over '%s' (AI off)", name.c_str());
+        }
+        // Stance: demeanors on companions are 0 ambient, 1 uneasy, 2 aggressive (weapon up),
+        // 3 crouch, 4 crawl (prone), 5 search (read from Dina's Npc+7784 table in game).
+        int demeanor = stance == 2 ? 4 : stance == 1 ? 3 : aim ? 2 : 0;
+        if (demeanor != lastDemeanor_) {
+            lastDemeanor_ = demeanor;
+            RunInScriptContext([name, demeanor] {
+                uint64_t argv[8] = {Fnv1a(name), static_cast<uint64_t>(demeanor), 1};
+                uint64_t ret[4] = {};
+                SafeNative(BuildRva(0x644620), 3, argv, ret);   // npc-set-demeanor <npc> <d> <force>
+            });
         }
         float gap = Distance(*cur, pos);
         ULONGLONG t = GetTickCount64();
@@ -323,11 +337,18 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
 
 void GameBridge::ReleasePuppet() {
     if (!puppetAiOff_) return;
+    std::string name = puppetName_;
+    RunInScriptContext([name] {   // back to ambient before her AI resumes
+        uint64_t argv[8] = {Fnv1a(name), 0, 1};
+        uint64_t ret[4] = {};
+        SafeNative(BuildRva(0x644620), 3, argv, ret);
+    });
     SetNpcAi(puppetName_, true);
     Log("puppet: released '%s' (AI on)", puppetName_.c_str());
     puppetAiOff_ = false;
     moveIssuedAt_ = 0;
     progressAt_ = 0;
+    lastDemeanor_ = -1;
 }
 
 // npc-set-script-mode (rva 0x647210) <npc> <1=AI off/0=on> <bound>, in script context.
@@ -1109,6 +1130,38 @@ void GameBridge::QueueShowAllAttachables() {
             total += a.count;
         }
         Log("visible: %d attachables shown", total);
+    }, true);
+}
+
+void GameBridge::QueueDemeanorNames() {
+    RunOnGameFiber([this] {
+        uintptr_t b = findBuddyOnFiber();
+        if (!b) return;
+        auto n = Read<uint32_t>(b + 7776);
+        std::string out;
+        for (uint32_t i = 0; n && i < *n && i < 16; ++i) {
+            auto def = Read<uintptr_t>(b + 7784 + 8ull * i);
+            auto name = def && *def ? Read<uintptr_t>(*def) : std::nullopt;
+            out += " " + std::to_string(i) + "=" + (name ? TextAt(*name) : std::string("-"));
+        }
+        Log("demeanors: %u:%s", n ? *n : 0, out.c_str());
+    });
+}
+
+// Natives: player-is-crouched? rva 0xC9DF90, player-is-prone? 0xC9E260, player-is-aiming? 0xC9DEC0.
+void GameBridge::PollStance() {
+    if (stanceQueued_) return;
+    stanceQueued_ = true;
+    RunOnGameFiber([this] {
+        stanceQueued_ = false;
+        uint64_t argv[4] = {}, ret[4] = {};
+        int st = 0;
+        if (SafeNative(BuildRva(0xC9E260), 0, argv, ret) && ret[0]) st = 2;
+        else if ((ret[0] = 0, SafeNative(BuildRva(0xC9DF90), 0, argv, ret)) && ret[0]) st = 1;
+        ret[0] = 0;
+        bool aim = SafeNative(BuildRva(0xC9DEC0), 0, argv, ret) && ret[0];
+        stance_ = st;
+        aiming_ = aim;
     }, true);
 }
 
