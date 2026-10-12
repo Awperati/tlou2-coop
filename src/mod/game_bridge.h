@@ -74,6 +74,8 @@ public:
     std::atomic<bool> aiming_{false}, stanceQueued_{false};
     int lastDemeanor_ = -1;
     float selfOffset_ = 0.8f;
+    unsigned long long lastAimAt_ = 0, lastFaceAt_ = 0;
+    bool aimingNow_ = false;
     // Make every attachable in the world visible again (undo a bad hide).
     void QueueShowAllAttachables();
     // Show every attachable within 2.5 m of the companion and her own meshes; log names.

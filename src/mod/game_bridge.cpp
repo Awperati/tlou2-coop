@@ -300,6 +300,19 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 SafeNative(BuildRva(0x644620), 3, argv, ret);   // npc-set-demeanor <npc> <d> <force>
             });
         }
+        // Aim: weapon up when the player aims (npc-weapon-up, rva 0x64BB40); demeanor 2
+        // (aggressive) is already set above. Aiming her at a point (npc-aim-at-point) turned
+        // her to face the camera in game, so it is not used.
+        if (aim && !aimingNow_) {
+            aimingNow_ = true;
+            RunInScriptContext([name] {
+                uint64_t argv[8] = {Fnv1a(name)};
+                uint64_t ret[4] = {};
+                SafeNative(BuildRva(0x64BB40), 1, argv, ret);
+            });
+        } else if (!aim) {
+            aimingNow_ = false;
+        }
         float gap = Distance(*cur, pos);
         ULONGLONG t = GetTickCount64();
         // Progress check on her own movement (the target itself moves): if she has
@@ -327,7 +340,22 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 moveIssuedAt_ = 0;
                 return;
             }
-            if (g < 0.35f) return;
+            if (g < 0.35f) {
+                // Idle: keep her facing the player's way (move-to leaves her facing her last
+                // walk direction, so she seemed to turn around at random).
+                auto q = Read<Quat>(b + offRot_);
+                float d = q ? std::fabs(std::remainder(YawFromQuat(*q) - yaw, 6.2831853f)) : 0.f;
+                if (d > 0.5f && tt - lastFaceAt_ > 1000) {
+                    lastFaceAt_ = tt;
+                    // npc-stop-and-face returned 1 but did not turn her with her AI off
+                    // (2026-10-12). One small teleport onto the spot with the player's
+                    // rotation does; once per second at most, so she does not twitch.
+                    alignas(16) float locator[8] = {at.x, cur->y, at.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+                    bool ok = CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
+                    Log("puppet: turn %s from yaw %.2f to %.2f %s", name.c_str(), YawFromQuat(*q), yaw, ok ? "sent" : "FAILED");
+                }
+                return;
+            }
             if (moveIssuedAt_ && tt - moveIssuedAt_ < 500 && Distance(lastMoveTarget_, at) < 0.3f) return;
             IssueMoveTo(name, at, yaw, g > 1.5f ? 1 : 0);
             lastMoveTarget_ = at;
