@@ -211,7 +211,7 @@ void CoopMain() {
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
     uintptr_t lastPlayerObj = 1;
-    ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0;
+    ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0, lastHide = 0;
     bool mainHooked = false, testWasDown = false, selfPuppet = false;
     const int testKey = cfg.get("debug", "TestTeleportKey", "F10").empty() ? 0 : ParseKey(cfg.get("debug", "TestTeleportKey", "F10"));
     bool prevPressed = false, toggled = false;
@@ -323,6 +323,7 @@ void CoopMain() {
                     else if (line == "selfpuppet on") { selfPuppet = true; bridge.QueuePlayerVisible(false); Log("selfpuppet: on"); }
                     else if (line == "selfpuppet off") { selfPuppet = false; bridge.ReleasePuppet(); bridge.QueuePlayerVisible(true); Log("selfpuppet: off"); }
                     else if (line == "showplayer") bridge.QueuePlayerVisible(true);
+                    else if (line == "showall") bridge.QueueShowAllAttachables();
                     else if (line.rfind("npcarg ", 0) == 0) bridge.QueueResolveNpcArg(Trim(line.substr(7)));
                     else if (line.rfind("moveto ", 0) == 0 || line.rfind("movetox ", 0) == 0) {
                         bool owned = line.rfind("moveto ", 0) == 0;   // movetox: no script owner
@@ -368,7 +369,11 @@ void CoopMain() {
         }
         testWasDown = testDown;
 
-        if (selfPuppet && self) bridge.DrivePuppet(0, *self);
+        if (selfPuppet && self) {
+            bridge.DrivePuppet(0, *self);
+            // The game re-shows weapons when they are drawn or swapped; re-hide each second.
+            if (now - lastHide >= 1000) { lastHide = now; bridge.QueuePlayerVisible(false, true); }
+        }
 
         if (now - lastLevelPoll >= 500) { lastLevelPoll = now; bridge.PollLevels(); bridge.PollTasks(); bridge.PollCinematic(); }
 

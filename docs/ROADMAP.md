@@ -247,6 +247,14 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
   player's spot; walking Ellie with the virtual pad, Dina followed and settled 0.9 m away.
   The user's screenshot shows Dina standing in front of the camera where Ellie would be.
   `selfpuppet off` / `showplayer` restore everything.
+- Leftovers fixed (2026-10-12): weapons, weapon strap and the flashlight are attachables under
+  ProcessMgr (EngineComponents[19]) `+512`/`+528`, walked with rva `0x1448C10`. They store no
+  owner handle we could find, so the mod captures their process ids (+148) while the companion
+  stands apart, then hides only those; it re-hides every second because drawing a weapon
+  re-shows it. A first distance-only version also hid Dina's gear; `showall` undoes that.
+- Lock: self mode teleports her onto the player's exact spot and facing every 120 ms within
+  3 m (0.0-0.1 m while walking). Camera framing puts the character left of centre, as it
+  does for Ellie.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.

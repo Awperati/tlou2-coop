@@ -1037,8 +1037,83 @@ uintptr_t SafePropObject(uintptr_t inv, uint32_t idx) {
 }
 } // namespace
 
-void GameBridge::QueuePlayerVisible(bool visible) {
-    RunOnGameFiber([this, visible] {
+namespace {
+using WalkCb = char (*)(uintptr_t proc, uintptr_t ctx);
+using WalkFn = void (*)(uintptr_t mgr, uintptr_t root, WalkCb cb, uintptr_t ctx, int flags);
+struct WalkState { bool visible; int count; uintptr_t root; Vec3 nearPos; float radius; int seen; std::string* names;
+                   bool capture; std::vector<uint32_t>* captured; const std::vector<uint32_t>* ids; };
+char VisibilityVisitor(uintptr_t proc, uintptr_t ctx) {
+    auto* st = reinterpret_cast<WalkState*>(ctx);
+    ++st->seen;
+    if (!proc || proc == st->root) return 1;
+    if (st->radius > 0) {   // attachables list: only objects sitting on the player
+        auto p = Read<Vec3>(proc + 0x130);
+        if (!p || Distance(*p, st->nearPos) > st->radius) return 1;
+        // ...and one of the player's: ids captured while the companion stood apart
+        // (owner handles are not stored in these objects; checked in game).
+        auto id = Read<uint32_t>(proc + 148);
+        if (!id) return 1;
+        if (st->capture) { st->captured->push_back(*id); }
+        else if (std::find(st->ids->begin(), st->ids->end(), *id) == st->ids->end()) return 1;
+    }
+    if (SafeSetObjectVisible(proc, st->visible) == 1) {
+        ++st->count;
+        if (st->names && st->names->size() < 300) *st->names += " " + ProcessName(proc);
+    }
+    return 1;
+}
+int SafeWalk(uintptr_t walk, uintptr_t mgr, uintptr_t root, WalkState* st) {
+    __try { reinterpret_cast<WalkFn>(walk)(mgr, root, &VisibilityVisitor, reinterpret_cast<uintptr_t>(st), 0); return 1; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+} // namespace
+
+int GameBridge::WalkSubtreeSetVisible(uintptr_t root, bool visible, bool quiet) {
+    uintptr_t walk = BuildRva(0x1448C10);
+    auto mgr = componentTable_ ? Read<uintptr_t>(componentTable_ + 19 * 8) : std::nullopt;
+    if (!walk || !mgr || !*mgr) return -1;
+    WalkState st{visible, 0, root, {}, 0.f, 0, nullptr, false, nullptr, nullptr};
+    if (!SafeWalk(walk, *mgr, root, &st)) return -2;
+    // Attachables (flashlight, holstered guns) hang off ProcessMgr+512/+528, not the player.
+    auto me = Read<Vec3>(root + offPos_);
+    std::string names;
+    for (uint32_t off : {512u, 528u}) {
+        auto r = Read<uintptr_t>(*mgr + off);
+        if (!r || !*r || !me) continue;
+        // Capture the player's attachments only while the companion is not on her spot.
+        uintptr_t b = findBuddyOnFiber();
+        auto bp = b ? Read<Vec3>(b + offPos_) : std::nullopt;
+        bool companionClose = bp && Distance(*bp, *me) < 3.f;
+        bool capture = !companionClose;
+        if (capture && off == 512u) playerAttachIds_.clear();
+        WalkState a{visible, 0, 0, *me, 2.0f, 0, &names, capture, &playerAttachIds_, &playerAttachIds_};
+        SafeWalk(walk, *mgr, *r, &a);
+        st.count += a.count;
+        if (!quiet) Log("visible: attachables +%u: %d seen, %d of the player's%s%s", off, a.seen, a.count, capture ? " (captured)" : "", names.c_str());
+        names.clear();
+    }
+    return st.count;
+}
+
+void GameBridge::QueueShowAllAttachables() {
+    RunOnGameFiber([this] {
+        uintptr_t walk = BuildRva(0x1448C10);
+        auto mgr = componentTable_ ? Read<uintptr_t>(componentTable_ + 19 * 8) : std::nullopt;
+        if (!walk || !mgr || !*mgr) return;
+        int total = 0;
+        for (uint32_t off : {512u, 528u}) {
+            auto r = Read<uintptr_t>(*mgr + off);
+            if (!r || !*r) continue;
+            WalkState a{true, 0, 0, {}, 0.f, 0, nullptr, false, nullptr, nullptr};
+            SafeWalk(walk, *mgr, *r, &a);
+            total += a.count;
+        }
+        Log("visible: %d attachables shown", total);
+    }, true);
+}
+
+void GameBridge::QueuePlayerVisible(bool visible, bool quiet) {
+    RunOnGameFiber([this, visible, quiet] {
         uintptr_t pl = follow(player_);
         if (!pl || !BuildRva(0x1AFD810)) return;
         int body = SafeSetObjectVisible(pl, visible);
@@ -1055,7 +1130,12 @@ void GameBridge::QueuePlayerVisible(bool visible) {
         uint64_t argv[8] = {Fnv1a("player"), visible ? 1ull : 0ull, ~1ull, ~1ull, ~1ull, ~1ull};
         uint64_t ret[4] = {};
         SafeNative(BuildRva(0x41FF10), 6, argv, ret);
-        Log("visible: player %s (body %d, %d props:%s)", visible ? "shown" : "hidden", body, props, names.c_str());
+        // Everything in the player's process subtree (flashlight, holstered weapons, other
+        // attachables): ProcessMgr (EngineComponents[19]) tree walk, rva 0x1448C10, the
+        // walker kill-all-attachables uses (rva 0xD4BA80).
+        int kids = WalkSubtreeSetVisible(pl, visible, quiet);
+        if (!quiet) Log("visible: player %s (body %d, %d props:%s; %d attachments)", visible ? "shown" : "hidden", body, props,
+            names.c_str(), kids);
     }, true);
 }
 

@@ -65,7 +65,11 @@ public:
     // Research: list process pointers stored inside the player (children, attachments).
     void QueuePlayerLinks();
     // Hide/show the player's body, weapons and every prop object (hair, hood, backpack).
-    void QueuePlayerVisible(bool visible);
+    void QueuePlayerVisible(bool visible, bool quiet = false);
+    int WalkSubtreeSetVisible(uintptr_t root, bool visible, bool quiet = false);
+    std::vector<uint32_t> playerAttachIds_;
+    // Make every attachable in the world visible again (undo a bad hide).
+    void QueueShowAllAttachables();   // process ids of the player's weapons/flashlight
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 
