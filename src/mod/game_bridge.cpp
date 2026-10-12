@@ -289,6 +289,15 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             SetNpcAi(name, false);
             Log("puppet: taking over '%s' (AI off)", name.c_str());
         }
+        // Camera fade off for the companion (Character+0x9BC). Rewritten every tick:
+        // processes relocate and the game may clear it.
+        if (noFade_ || noFadeOn_) {
+            auto was = Read<uint8_t>(b + 0x9BC);
+            uint8_t v = noFade_ ? 1 : 0;
+            if (was && *was != v) SafeWrite(b + 0x9BC, &v, 1);
+            noFadeOn_ = noFade_ ? 1 : 0;
+            if (!noFadeLogged_) { noFadeLogged_ = true; Log("nofade: '%s' +0x9BC was %d, now %d", name.c_str(), was ? *was : -1, v); }
+        }
         // Stance: demeanors on companions are 0 ambient, 1 uneasy, 2 aggressive (weapon up),
         // 3 crouch, 4 crawl (prone), 5 search (read from Dina's Npc+7784 table in game).
         int demeanor = stance == 2 ? 4 : stance == 1 ? 3 : aim ? 2 : 0;
@@ -334,7 +343,11 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             Vec3 at = {pos.x + std::sin(yaw) * selfOffset_, pos.y, pos.z + std::cos(yaw) * selfOffset_};
             float g = Distance(*cur, at);
             ULONGLONG tt = GetTickCount64();
-            if (g > 4.f) {
+            // With offset 0 she cannot walk into the player's own collision and stalls
+            // about 1 m away (seen in game). Stalled for 1 s: snap onto the spot.
+            bool stalled = progressAt_ && tt - progressAt_ > 1000 && g > 0.35f && tt - lastFaceAt_ > 1000;
+            if (stalled) lastFaceAt_ = tt;
+            if (g > 4.f || stalled) {
                 alignas(16) float locator[8] = {at.x, at.y, at.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
                 CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
                 moveIssuedAt_ = 0;
@@ -383,6 +396,14 @@ void GameBridge::ReleasePuppet() {
         SafeNative(BuildRva(0x644620), 3, argv, ret);
     });
     SetNpcAi(puppetName_, true);
+    if (noFadeOn_) {   // let the camera fade her again
+        noFadeOn_ = 0;
+        RunOnGameFiber([this] {
+            uintptr_t b = puppetSpawner_.empty() ? findBuddyOnFiber() : spawnedProcessOnFiber(puppetSpawner_);
+            uint8_t v = 0;
+            if (b) SafeWrite(b + 0x9BC, &v, 1);
+        });
+    }
     Log("puppet: released '%s' (AI on)", puppetName_.c_str());
     puppetAiOff_ = false;
     moveIssuedAt_ = 0;

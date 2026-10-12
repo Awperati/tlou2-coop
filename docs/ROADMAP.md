@@ -291,3 +291,13 @@ protocol and session code headless. Movement gets three layers:
 1. Client prediction: the local player moves at once from local input.
 2. Server reconciliation: the server's authoritative state corrects the client, replaying unacked inputs.
 3. Remote interpolation: other players render ~100 ms behind, smoothed between snapshots.
+
+### Camera fade off for the companion (verified in game 2026-10-12)
+The camera fades any character standing at the camera's near point. The check is rva
+`0x1CE32A0` (Character vtable +0xFF8 caller). It returns "no fade" when byte
+`Character+0x9BC` is set, or while the frame counter is below `Character+0x9C0`.
+The reverse puppet sets `+0x9BC = 1` on Dina every tick (`nofade on|off`, on by default),
+so she now stands on the hidden player's exact spot (`selfoffset 0`, the new default).
+Seen in game: Dina fully opaque at 0.0 m, facing the player's way. `ReleasePuppet` clears it.
+Dead ends: `character-set-fade-out-distance` is an empty stub in retail;
+`camera-set-npc-fade-out-expand` (Character+0x888) only pads the radius by 0.06-0.1 m.

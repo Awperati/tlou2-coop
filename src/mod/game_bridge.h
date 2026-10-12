@@ -58,6 +58,12 @@ public:
     void ReleasePuppet();
     // Self mode: stand this far ahead of the hidden player (out of the camera's NPC fade).
     void SetSelfOffset(float metres) { selfOffset_ = metres; }
+    // Character+0x9BC: when set, the camera's near-NPC fade skips that character
+    // (gate at the top of rva 0x1CE32A0). Lets the companion stand on the player's spot.
+    void SetNoCameraFade(bool on) { noFade_ = on; noFadeLogged_ = false; }
+    std::atomic<bool> noFade_{true};
+    bool noFadeLogged_ = false;
+    uintptr_t noFadeOn_ = 0;
     // npc-move-to (native rva 0x63F0E0): walk/run an NPC (by name) to a point beside the player.
     void QueueMoveTo(const std::string& npcName, float metres, int motion, int goal = 0, bool inScript = true);
     // Which Npc* a script NPC argument resolves to (arg reader rva 0x3FF7D0).
@@ -73,7 +79,7 @@ public:
     std::atomic<int> stance_{0};          // 0 stand, 1 crouch, 2 prone
     std::atomic<bool> aiming_{false}, stanceQueued_{false};
     int lastDemeanor_ = -1;
-    float selfOffset_ = 0.8f;
+    float selfOffset_ = 0.f;   // 0 = exact spot, needs noFade_
     unsigned long long lastAimAt_ = 0, lastFaceAt_ = 0;
     bool aimingNow_ = false;
     // Make every attachable in the world visible again (undo a bad hide).

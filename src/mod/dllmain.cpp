@@ -336,6 +336,7 @@ void CoopMain() {
                     else if (line == "showall") bridge.QueueShowAllAttachables();
                     else if (line == "showcompanion") bridge.QueueShowCompanion();
                     else if (line.rfind("selfoffset ", 0) == 0) { bridge.SetSelfOffset(std::stof(line.substr(11))); Log("selfoffset: %s m", line.substr(11).c_str()); }
+                    else if (line == "nofade on" || line == "nofade off") { bridge.SetNoCameraFade(line == "nofade on"); Log("nofade: %s", line.substr(7).c_str()); }
                     else if (line == "demeanors") bridge.QueueDemeanorNames();
                     else if (line.rfind("npcarg ", 0) == 0) bridge.QueueResolveNpcArg(Trim(line.substr(7)));
                     else if (line.rfind("moveto ", 0) == 0 || line.rfind("movetox ", 0) == 0) {
