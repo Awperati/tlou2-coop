@@ -62,6 +62,10 @@ public:
     void QueueResolveNpcArg(const std::string& name);
     // Log the state-script context seen inside a script native call.
     void QueueScriptContextReport();
+    // Research: list process pointers stored inside the player (children, attachments).
+    void QueuePlayerLinks();
+    // Hide/show the player's body, weapons and every prop object (hair, hood, backpack).
+    void QueuePlayerVisible(bool visible);
     size_t LoadedLevelCount() const { return levels_.size(); }
     const BridgeFeatures& features() const { return f_; }
 

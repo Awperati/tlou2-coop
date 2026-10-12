@@ -982,6 +982,73 @@ void GameBridge::QueueScriptContextReport() {
     });
 }
 
+void GameBridge::QueuePlayerLinks() {
+    RunOnGameFiber([this] {
+        static const ModuleRange mod = MainModule();
+        uintptr_t pl = follow(player_);
+        if (!pl) return;
+        auto isProcess = [&](uintptr_t q) {
+            auto vt = Read<uintptr_t>(q);
+            return vt && *vt >= mod.rdata && *vt < mod.rdata + mod.rdataSize && Read<uint32_t>(q + 0x94);
+        };
+        int shown = 0;
+        for (uint32_t off = 0; off < 0x400 && shown < 40; off += 8) {
+            auto q = Read<uintptr_t>(pl + off);
+            if (!q || *q < 0x10000 || *q == pl || !isProcess(*q)) continue;
+            ++shown;
+            auto vt = Read<uintptr_t>(*q);
+            Log("links: player+0x%X -> %p vt +0x%llx '%s'%s", off, reinterpret_cast<void*>(*q),
+                vt ? static_cast<unsigned long long>(*vt - mod.base) : 0ull, ProcessName(*q).c_str(), StringsIn(*q, 0x100).c_str());
+        }
+        Log("links: %d process pointers in player+0..0x400", shown);
+    });
+}
+
+namespace {
+// PropInventory at Player+11264 (player-set-prop-visible, rva 0xDBCF70):
+// def(i) rva 0x1E1D050, object(i) rva 0x1E1D2D0. DrawControl of an object: rva 0x1AFD810;
+// hide all meshes rva 0x147ECD0(dc, -1, 0), show rva 0x1484610(dc, -1, 0).
+using PropAtFn = uintptr_t (*)(uintptr_t inv, uint32_t idx);
+using DrawCtlFn = uintptr_t (*)(uintptr_t obj);
+using MeshVisFn = void (*)(uintptr_t dc, uint64_t mask, uint64_t zero);
+int SafeSetObjectVisible(uintptr_t obj, bool visible) {
+    __try {
+        uintptr_t dc = reinterpret_cast<DrawCtlFn>(BuildRva(0x1AFD810))(obj);
+        if (!dc) return 0;
+        reinterpret_cast<MeshVisFn>(BuildRva(visible ? 0x1484610 : 0x147ECD0))(dc, 0xFFFFFFFFull, 0);
+        return 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+}
+uintptr_t SafePropObject(uintptr_t inv, uint32_t idx) {
+    __try {
+        if (!reinterpret_cast<PropAtFn>(BuildRva(0x1E1D050))(inv, idx)) return 0;
+        return reinterpret_cast<PropAtFn>(BuildRva(0x1E1D2D0))(inv, idx);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return ~uintptr_t(0); }
+}
+} // namespace
+
+void GameBridge::QueuePlayerVisible(bool visible) {
+    RunOnGameFiber([this, visible] {
+        uintptr_t pl = follow(player_);
+        if (!pl || !BuildRva(0x1AFD810)) return;
+        int body = SafeSetObjectVisible(pl, visible);
+        int props = 0;
+        std::string names;
+        auto inv = Read<uintptr_t>(pl + 11264);
+        for (uint32_t i = 0; inv && *inv && i < 32; ++i) {
+            uintptr_t obj = SafePropObject(*inv, i);
+            if (obj == ~uintptr_t(0)) break;
+            if (!obj) continue;
+            if (SafeSetObjectVisible(obj, visible) == 1) { ++props; if (names.size() < 300) names += " " + ProcessName(obj); }
+        }
+        // Weapons: set-all-character-weapons-visible (rva 0x41FF10) player <bool> -2 -2 -2 -2.
+        uint64_t argv[8] = {Fnv1a("player"), visible ? 1ull : 0ull, ~1ull, ~1ull, ~1ull, ~1ull};
+        uint64_t ret[4] = {};
+        SafeNative(BuildRva(0x41FF10), 6, argv, ret);
+        Log("visible: player %s (body %d, %d props:%s)", visible ? "shown" : "hidden", body, props, names.c_str());
+    }, true);
+}
+
 void GameBridge::Shutdown() { FiberHookRemove(); }
 
 bool GameBridge::GameWindowFocused() const {

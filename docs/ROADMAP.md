@@ -240,6 +240,13 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
   `player-set-prop-visible`, backpack/hair objects), then keep the local story companion on
   the player's spot with the walking puppet ("reverse puppet"), so the partner sees Dina while
   keeping Ellie's player systems and inventory. Animation sync (aim, crouch) comes after.
+- **Reverse puppet working in game (2026-10-12).** `hideplayer` hides Ellie's body, weapons
+  (`set-all-character-weapons-visible`, rva `0x41FF10`) and all five `ProcessCharCloth (Player)`
+  props from her PropInventory (`Player+11264`; object getter rva `0x1E1D2D0`, DrawControl rva
+  `0x1AFD810`, hide rva `0x147ECD0`). `selfpuppet on` then walks the local story Dina onto the
+  player's spot; walking Ellie with the virtual pad, Dina followed and settled 0.9 m away.
+  The user's screenshot shows Dina standing in front of the camera where Ellie would be.
+  `selfpuppet off` / `showplayer` restore everything.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
