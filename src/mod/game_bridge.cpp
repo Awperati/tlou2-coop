@@ -262,7 +262,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
     if (!f_.puppet) return false;
     ULONGLONG now = GetTickCount64();
     // Self mode (slot 0) locks the companion onto the hidden player, so it ticks faster.
-    if (now - lastPuppet_ < (slot == 0 ? 120u : 300u) || puppetQueued_) return true;
+    if (now - lastPuppet_ < (slot == 0 ? 150u : 300u) || puppetQueued_) return true;
     lastPuppet_ = now;
     puppetQueued_ = true;
     Vec3 pos = s.pos; float yaw = s.yaw;
@@ -314,16 +314,24 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             Log("puppet: slot %u teleport %s (gap %.1f m%s)", slot, ok ? "sent" : "FAILED", gap, stuck ? ", stuck" : "");
             return;
         }
-        // Self mode: once she is close, pin her to the exact spot and facing every tick.
-        if (slot == 0 && gap < 3.0f) {
-            // Ahead of the player along her facing: the camera fades NPCs that stand where
-            // the player does (Dina's torso vanished at 0 m in game).
+        // Self mode: follow a point ahead of the hidden player (the camera fades NPCs that
+        // stand where the player does). Teleporting her every tick made her twitch ("spazzing"
+        // in game), so she walks/runs with move-to and only teleports when 4 m+ behind.
+        if (slot == 0) {
             Vec3 at = {pos.x + std::sin(yaw) * selfOffset_, pos.y, pos.z + std::cos(yaw) * selfOffset_};
-            if (Distance(*cur, at) < 0.05f) return;
-            alignas(16) float locator[8] = {at.x, at.y, at.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
-            CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
-            moveIssuedAt_ = 0;
-            progressAt_ = 0;
+            float g = Distance(*cur, at);
+            ULONGLONG tt = GetTickCount64();
+            if (g > 4.f) {
+                alignas(16) float locator[8] = {at.x, at.y, at.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+                CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
+                moveIssuedAt_ = 0;
+                return;
+            }
+            if (g < 0.35f) return;
+            if (moveIssuedAt_ && tt - moveIssuedAt_ < 500 && Distance(lastMoveTarget_, at) < 0.3f) return;
+            IssueMoveTo(name, at, yaw, g > 1.5f ? 1 : 0);
+            lastMoveTarget_ = at;
+            moveIssuedAt_ = tt;
             return;
         }
         if (gap < 1.2f) { moveIssuedAt_ = 0; progressAt_ = 0; return; }
