@@ -234,6 +234,12 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
 - Options: swap only the visible meshes on Ellie's player (keep her look id and systems), or
   build/borrow player data for companions. Playable looks (Abby, Joel) may swap cleanly.
 - The overlay's `std::thread` also aborted at process exit (second dump); now never destroyed.
+- Mesh route, step 1 (2026-10-12): `set-all-meshes-visible` (rva `0xD54D00`) `player 0` hides
+  Ellie's body meshes, but her hair (cloth), backpack and weapons stay visible; `player 1`
+  restores her. Plan: hide those too (`set-all-character-weapons-visible`,
+  `player-set-prop-visible`, backpack/hair objects), then keep the local story companion on
+  the player's spot with the walking puppet ("reverse puppet"), so the partner sees Dina while
+  keeping Ellie's player systems and inventory. Animation sync (aim, crouch) comes after.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
