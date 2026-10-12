@@ -20,7 +20,9 @@ struct Shared {
 
 OverlayOptions g_opt;
 std::atomic<bool> g_run{false};
-std::thread g_thread;
+// Heap-allocated and never destroyed: a joinable std::thread destroyed during process
+// exit calls std::terminate (the second dump after every game crash).
+std::thread* g_thread = nullptr;
 HWND g_wnd = nullptr;
 
 HWND FindGameWindow() {
@@ -150,13 +152,15 @@ void OverlayStart(const OverlayOptions& opt) {
     if (g_run) return;
     g_opt = opt;
     g_run = true;
-    g_thread = std::thread(ThreadMain);
+    g_thread = new std::thread(ThreadMain);
 }
 
 void OverlayStop() {
     if (!g_run) return;
     g_run = false;
-    if (g_thread.joinable()) g_thread.join();
+    if (g_thread && g_thread->joinable()) g_thread->join();
+    delete g_thread;
+    g_thread = nullptr;
 }
 
 void OverlaySetPrompt(const std::wstring& text, float progress) {

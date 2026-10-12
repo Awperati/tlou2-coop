@@ -222,6 +222,19 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
   Dina around a 3 m circle in a cramped Watchtower room: mostly walk/run orders with some
   "stuck" teleports where furniture blocked the path. Game stayed up; AI restored on leave.
 
+### Model swap, 2026-10-12 (crash 6)
+- Look natives: `get-object-look` (rva `0xD42940`, object `+384`), `player-request-set-look-id`
+  (rva `0xCA1880`, checks the look is loaded), `player-swap-look-id` (rva `0x41CB50`); both call
+  `sub_140DBB470(player, look, ...)`. In Watchtower: Dina's look `0xC9E19167573AEE93`, the
+  player's `0x712C65C6C3E102BF`.
+- Setting Dina's look on the player returned 1, then the game crashed reading `0x18` at rva
+  `0xB1B43B` in the player's breathing/animation update (rva `0xB1B290`). Player systems need
+  per-character player data (breathing, facial, gestures) that only playable characters
+  have: Ellie (all ages), Abby, Joel. Dina, Lev, Jesse, Yara, Tommy are never playable.
+- Options: swap only the visible meshes on Ellie's player (keep her look id and systems), or
+  build/borrow player data for companions. Playable looks (Abby, Joel) may swap cleanly.
+- The overlay's `std::thread` also aborted at process exit (second dump); now never destroyed.
+
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
 - Engine calls run inside `__try`, from inside a game job that called `GetPlayer()`. That job may be mid-update; so far no crash.
