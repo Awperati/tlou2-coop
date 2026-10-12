@@ -85,7 +85,9 @@ public:
     float selfLead_ = 1.8f;   // metres ahead of a moving player to aim (move-to arrival slowdown)
     void SetSelfLead(float s) { selfLead_ = s; }
     float selfNudge_ = 0.f;   // fraction of her error pulled per tick by writing Process+0x130; no effect in game (overwritten), off
-    bool selfDir_ = true;     // steer with npc-move-in-direction while the player moves
+    bool selfDir_ = true;
+    float selfDirLead_ = 0.5f;
+    bool dirActive_ = false;     // steer with npc-move-in-direction while the player moves
     void SetSelfDir(bool on) { selfDir_ = on; }
     unsigned long long nudges_ = 0;
     void SetSelfNudge(float f) { selfNudge_ = f; }

@@ -1,0 +1,6 @@
+# Long walk then run with turns, then stop.
+stick l 0 22000 4000
+stick l 0 32767 4000
+stick l 20000 25000 3000
+stick l -20000 25000 3000
+wait 3000

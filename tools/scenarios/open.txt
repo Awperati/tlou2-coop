@@ -1,0 +1,6 @@
+# Away from the camera-facing wall: back, then strafe both ways, then stop.
+stick l 0 -26000 3500
+stick l -32767 -10000 3000
+wait 2000
+stick l 32767 -10000 3500
+wait 3000

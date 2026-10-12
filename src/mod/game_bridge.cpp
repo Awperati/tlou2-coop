@@ -402,7 +402,10 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             if (speed > 0.3f) {
                 float dx = selfVel_.x / speed, dz = selfVel_.z / speed;
                 along = (cur->x - pos.x) * dx + (cur->z - pos.z) * dz;   // + = she is ahead
-                float metres = std::clamp(selfLead_ - 1.2f * along, 0.4f, 4.f);
+                // move-in-direction has no arrival slowdown, so it needs far less lead (she ran
+                // 1.2-2 m ahead with 1.8 m, selftest 20:00).
+                float base = selfDir_ ? selfDirLead_ : selfLead_;
+                float metres = std::clamp(base - 1.2f * along, 0.f, 4.f);
                 lead = metres / speed;
             }
             Vec3 at = {pos.x + std::sin(yaw) * selfOffset_ + selfVel_.x * lead, pos.y,
@@ -464,11 +467,15 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 if (dl > 0.05f && (tt - moveIssuedAt_ > 300 || !moveIssuedAt_)) {
                     int m = along > 0.3f ? 0 : speed > 2.5f || along < -0.8f ? 1 : 0;
                     IssueMoveInDir(name, {dx / dl, 0.f, dz / dl}, m);
+                    dirActive_ = true;
                     moveIssuedAt_ = tt;
                     lastMoveTarget_ = at;
                 }
                 return;
             }
+            // Player just stopped: move-in-direction keeps her walking, so she drifted
+            // 2-4 m past the player (selftest 20:01). Replace it with move-to at once.
+            if (dirActive_) { dirActive_ = false; moveIssuedAt_ = 0; }
             if (moveIssuedAt_ && tt - moveIssuedAt_ < 500 && Distance(lastMoveTarget_, at) < 0.3f) return;
             // Her run is faster than the player's: with any lead she ended up 1-3 m ahead
             // (log 19:29). Ahead -> walk; behind or far -> run.
