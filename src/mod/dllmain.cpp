@@ -95,6 +95,14 @@ void LogInputModules() {
         Log("raw input: usagePage 0x%X usage 0x%X flags 0x%X", devs[i].usUsagePage, devs[i].usUsage, devs[i].dwFlags);
 }
 
+// Self-puppet survives hot reloads and restarts through a marker file: without it, every
+// redeploy dropped the mode and the companion wandered off with her AI back.
+void SetSelfPuppetMarker(const std::wstring& dir, bool on) {
+    std::wstring path = dir + L"tlou2-coop\\selfpuppet.on";
+    if (on) { if (FILE* f = _wfopen(path.c_str(), L"wb")) fclose(f); }
+    else DeleteFileW(path.c_str());
+}
+
 void CoopMain() {
     const std::wstring dir = ModDir();
     Ini cfg, rosterIni, offsets;
@@ -212,7 +220,9 @@ void CoopMain() {
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
     uintptr_t lastPlayerObj = 1;
     ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0, lastHide = 0, lastStance = 0;
-    bool mainHooked = false, testWasDown = false, selfPuppet = false;
+    bool mainHooked = false, testWasDown = false;
+    bool selfPuppet = GetFileAttributesW((dir + L"tlou2-coop\\selfpuppet.on").c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (selfPuppet) Log("selfpuppet: on (restored)");
     const int testKey = cfg.get("debug", "TestTeleportKey", "F10").empty() ? 0 : ParseKey(cfg.get("debug", "TestTeleportKey", "F10"));
     bool prevPressed = false, toggled = false;
     PromptState prevPrompt = PromptState::Hidden;
@@ -320,10 +330,11 @@ void CoopMain() {
                     else if (line == "hideplayer") bridge.QueuePlayerVisible(false);
                     // Reverse puppet: this PC's story companion follows the (hidden) local
                     // player, so the partner sees the companion where they move.
-                    else if (line == "selfpuppet on") { selfPuppet = true; bridge.QueuePlayerVisible(false); Log("selfpuppet: on"); }
-                    else if (line == "selfpuppet off") { selfPuppet = false; bridge.ReleasePuppet(); bridge.QueuePlayerVisible(true); Log("selfpuppet: off"); }
+                    else if (line == "selfpuppet on") { selfPuppet = true; bridge.QueuePlayerVisible(false); SetSelfPuppetMarker(dir, true); Log("selfpuppet: on"); }
+                    else if (line == "selfpuppet off") { selfPuppet = false; bridge.ReleasePuppet(); bridge.QueuePlayerVisible(true); SetSelfPuppetMarker(dir, false); Log("selfpuppet: off"); }
                     else if (line == "showplayer") bridge.QueuePlayerVisible(true);
                     else if (line == "showall") bridge.QueueShowAllAttachables();
+                    else if (line == "showcompanion") bridge.QueueShowCompanion();
                     else if (line.rfind("selfoffset ", 0) == 0) { bridge.SetSelfOffset(std::stof(line.substr(11))); Log("selfoffset: %s m", line.substr(11).c_str()); }
                     else if (line == "demeanors") bridge.QueueDemeanorNames();
                     else if (line.rfind("npcarg ", 0) == 0) bridge.QueueResolveNpcArg(Trim(line.substr(7)));
@@ -404,7 +415,7 @@ void CoopMain() {
         Sleep(16);
     }
     session.Stop();
-    bridge.ReleasePuppet();
+    if (!selfPuppet) bridge.ReleasePuppet();   // a reload keeps her; the new instance retakes her
     for (int i = 0; i < 20; ++i) Sleep(50);   // let the release run in a script call
     bridge.Shutdown();
     InputInjectRemove();

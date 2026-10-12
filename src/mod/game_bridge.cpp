@@ -1086,7 +1086,7 @@ char VisibilityVisitor(uintptr_t proc, uintptr_t ctx) {
         auto id = Read<uint32_t>(proc + 148);
         if (!id) return 1;
         if (st->capture) { st->captured->push_back(*id); }
-        else if (std::find(st->ids->begin(), st->ids->end(), *id) == st->ids->end()) return 1;
+        else if (st->ids && std::find(st->ids->begin(), st->ids->end(), *id) == st->ids->end()) return 1;
     }
     if (SafeSetObjectVisible(proc, st->visible) == 1) {
         ++st->count;
@@ -1173,6 +1173,37 @@ void GameBridge::PollStance() {
         bool aim = SafeNative(BuildRva(0xC9DEC0), 0, argv, ret) && ret[0];
         stance_ = st;
         aiming_ = aim;
+    }, true);
+}
+
+void GameBridge::QueueShowCompanion() {
+    RunOnGameFiber([this] {
+        uintptr_t b = findBuddyOnFiber();
+        uintptr_t walk = BuildRva(0x1448C10);
+        auto mgr = componentTable_ ? Read<uintptr_t>(componentTable_ + 19 * 8) : std::nullopt;
+        if (!b || !walk || !mgr || !*mgr) return;
+        auto bp = Read<Vec3>(b + offPos_);
+        if (!bp) return;
+        int body = SafeSetObjectVisible(b, true);
+        std::string names;
+        int n = 0;
+        for (uint32_t off : {512u, 528u}) {
+            auto r = Read<uintptr_t>(*mgr + off);
+            if (!r || !*r) continue;
+            WalkState a{true, 0, 0, *bp, 2.5f, 0, &names, false, nullptr, nullptr};
+            a.ids = nullptr;
+            SafeWalk(walk, *mgr, *r, &a);
+            n += a.count;
+        }
+        // Her own prop inventory, if NPCs keep one at the same offset as the player.
+        auto inv = Read<uintptr_t>(b + 11264);
+        int props = 0;
+        for (uint32_t i = 0; inv && *inv && i < 32; ++i) {
+            uintptr_t obj = SafePropObject(*inv, i);
+            if (obj == ~uintptr_t(0)) break;
+            if (obj && SafeSetObjectVisible(obj, true) == 1) { ++props; names += " prop:" + ProcessName(obj); }
+        }
+        Log("showcompanion: body %d, %d nearby attachables, %d props:%s", body, n, props, names.c_str());
     }, true);
 }
 

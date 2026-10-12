@@ -76,6 +76,8 @@ public:
     float selfOffset_ = 0.8f;
     // Make every attachable in the world visible again (undo a bad hide).
     void QueueShowAllAttachables();
+    // Show every attachable within 2.5 m of the companion and her own meshes; log names.
+    void QueueShowCompanion();
     // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
     void QueueDemeanorNames();
     // Player stance, sampled on a game fiber (player-is-crouched?/prone?/aiming? natives).

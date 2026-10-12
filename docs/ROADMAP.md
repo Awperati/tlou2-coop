@@ -266,6 +266,12 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
   `character-set-fade-out-distance` is not registered in retail). Self mode now stands her
   `selfoffset` (default 0.8 m) ahead of the hidden player along her facing; from behind she
   renders whole in game. Proper fix still open: find the per-object near-camera-fade flag.
+- Correction (front view, 2026-10-12): the "missing torso" was Dina's jacket. Her four
+  `ProcessCharCloth (cdina-...-sb-5)` cloth objects were hidden by the early distance-only
+  attachable hide, and showing their meshes again does not bring cloth back. A checkpoint
+  restart restores them. The current id-capture hide never touches her objects.
+- `selfpuppet` now persists across hot reloads (`tlou2-coop\selfpuppet.on` marker); before,
+  each redeploy turned it off and gave her AI back, so she wandered away.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.
