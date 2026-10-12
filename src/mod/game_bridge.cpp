@@ -414,7 +414,21 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 auto ignH = ign && *ign ? Read<uint64_t>(*ign + 0xE0) : std::nullopt;
                 auto navs = Read<uintptr_t>(b + 7096);
                 auto navH = navs && *navs ? Read<uint64_t>(*navs + 0xF8) : std::nullopt;
-                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m, ignore %llx, nav-ignore %llx, bumps skipped %llu", speed, g, Distance(*cur, pos), along, ignH ? *ignH : 0ull, navH ? *navH : 0ull, BumpsSkipped());
+                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m, ignore %llx, nav-ignore %llx, nudges %llu", speed, g, Distance(*cur, pos), along, ignH ? *ignH : 0ull, navH ? *navH : 0ull, nudges_);
+            }
+            // move-to alone kept her 0.4-2.7 m off the player (selftest 19:54). Blend: the
+            // walk/run animation stays, and her position is pulled a fraction of the way
+            // onto the player each tick by writing Process+0x130 directly (no teleport
+            // event, which reset her locomotion and made her twitch).
+            if (selfNudge_ > 0.f) {
+                float ex = pos.x - cur->x, ez = pos.z - cur->z;
+                float e = std::sqrt(ex * ex + ez * ez);
+                if (e > 0.2f && e < 4.f) {
+                    float nx = cur->x + ex * selfNudge_, nz = cur->z + ez * selfNudge_;
+                    SafeWrite(b + offPos_, &nx, sizeof(float));
+                    SafeWrite(b + offPos_ + 8, &nz, sizeof(float));
+                    ++nudges_;
+                }
             }
             // With offset 0 she cannot walk into the player's own collision and stalls
             // about 1 m away (seen in game). Stalled for 1 s: snap onto the spot.
@@ -439,6 +453,19 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                     alignas(16) float locator[8] = {at.x, cur->y, at.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
                     bool ok = CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
                     Log("puppet: turn %s from yaw %.2f to %.2f %s", name.c_str(), YawFromQuat(*q), yaw, ok ? "sent" : "FAILED");
+                }
+                return;
+            }
+            // Player moving: steer with npc-move-in-direction toward the lead point. move-to
+            // slows down near every goal, so she never kept pace (selftest 19:54/19:56).
+            if (selfDir_ && speed > 0.3f) {
+                float dx = at.x - cur->x, dz = at.z - cur->z;
+                float dl = std::sqrt(dx * dx + dz * dz);
+                if (dl > 0.05f && (tt - moveIssuedAt_ > 300 || !moveIssuedAt_)) {
+                    int m = along > 0.3f ? 0 : speed > 2.5f || along < -0.8f ? 1 : 0;
+                    IssueMoveInDir(name, {dx / dl, 0.f, dz / dl}, m);
+                    moveIssuedAt_ = tt;
+                    lastMoveTarget_ = at;
                 }
                 return;
             }
@@ -541,6 +568,19 @@ void GameBridge::IssueMoveTo(const std::string& name, const Vec3& pos, float yaw
         uint64_t argv[16] = {Fnv1a(name), reinterpret_cast<uint64_t>(bf), static_cast<uint64_t>(motion), 0, 0, 0, 0, 0};
         uint64_t ret[4] = {};
         SafeNative(fn, 8, argv, ret);
+    });
+}
+
+// npc-move-in-direction (native rva 0x63E7F0): <npc> <vector*> <motion> [goal] [bool] [bool].
+// Keeps her walking/running along a direction with no goal to slow down for.
+void GameBridge::IssueMoveInDir(const std::string& name, const Vec3& dir, int motion) {
+    RunInScriptContext([name, dir, motion] {
+        uintptr_t fn = BuildRva(0x63E7F0);
+        if (!fn) return;
+        alignas(16) float v[4] = {dir.x, 0.f, dir.z, 0.f};
+        uint64_t argv[8] = {Fnv1a(name), reinterpret_cast<uint64_t>(v), static_cast<uint64_t>(motion), 0, 0, 0};
+        uint64_t ret[4] = {};
+        SafeNative(fn, 6, argv, ret);
     });
 }
 

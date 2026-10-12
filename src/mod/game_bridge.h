@@ -84,6 +84,11 @@ public:
     unsigned long long selfPrevAt_ = 0, lastSelfLog_ = 0;
     float selfLead_ = 1.8f;   // metres ahead of a moving player to aim (move-to arrival slowdown)
     void SetSelfLead(float s) { selfLead_ = s; }
+    float selfNudge_ = 0.f;   // fraction of her error pulled per tick by writing Process+0x130; no effect in game (overwritten), off
+    bool selfDir_ = true;     // steer with npc-move-in-direction while the player moves
+    void SetSelfDir(bool on) { selfDir_ = on; }
+    unsigned long long nudges_ = 0;
+    void SetSelfNudge(float f) { selfNudge_ = f; }
     float selfOffset_ = 0.f;   // 0 = exact spot, needs noFade_
     unsigned long long lastAimAt_ = 0, lastFaceAt_ = 0;
     bool aimingNow_ = false;
@@ -136,6 +141,7 @@ private:
     unsigned long long moveIssuedAt_ = 0, progressAt_ = 0;
     void SetNpcAi(const std::string& name, bool on);
     void IssueMoveTo(const std::string& name, const Vec3& pos, float yaw, int motion);
+    void IssueMoveInDir(const std::string& name, const Vec3& dir, int motion);
     uintptr_t spawnedProcessOnFiber(const std::string& spawner);
     unsigned long long lastPuppet_ = 0, lastPuppetLog_ = 0;
     std::atomic<bool> puppetQueued_{false};

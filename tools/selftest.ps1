@@ -22,6 +22,8 @@ public class SelfTestWin {
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
   [DllImport("user32.dll")] public static extern void keybd_event(byte k, byte s, uint f, UIntPtr e);
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  public static uint FgPid() { uint p; GetWindowThreadProcessId(GetForegroundWindow(), out p); return p; }
 }
 "@
 [SelfTestWin]::SetProcessDPIAware() | Out-Null
@@ -37,10 +39,13 @@ $dir = Join-Path $Out "$stamp-$Scenario"
 New-Item -ItemType Directory -Force $dir | Out-Null
 
 # Focus (Alt tap lets SetForegroundWindow through the foreground lock).
-[SelfTestWin]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [SelfTestWin]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-[SelfTestWin]::SetForegroundWindow($h) | Out-Null
-Start-Sleep -Milliseconds 1500
-if ([SelfTestWin]::GetForegroundWindow() -ne $h) { throw "could not focus the game window" }
+for ($i = 0; $i -lt 5 -and [SelfTestWin]::FgPid() -ne $proc.Id; $i++) {
+    [SelfTestWin]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [SelfTestWin]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+    [SelfTestWin]::SetForegroundWindow($h) | Out-Null
+    Start-Sleep -Milliseconds 700
+}
+if ([SelfTestWin]::FgPid() -ne $proc.Id) { throw "could not focus the game window (foreground pid $([SelfTestWin]::FgPid()))" }
+Start-Sleep -Milliseconds 800   # let the game unpause
 
 # Client area in screen pixels, even sizes for the encoder.
 $r = New-Object SelfTestWin+RECT; [SelfTestWin]::GetClientRect($h, [ref]$r) | Out-Null
