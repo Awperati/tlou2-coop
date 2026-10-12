@@ -261,6 +261,11 @@ Verified 2026-10-12: with the phase hook the same spawn succeeded and the game s
   200 ms and sets `npc-set-demeanor` (rva `0x644620`, forced) on change: crouch -> 3, prone -> 4,
   aiming -> 2, else 0. Crouching Ellie with the virtual pad made Dina crouch (demeanor 3).
   Stance and aim travel in `PlayerState` too, so the network puppet mirrors the partner.
+- Torso fade: locked at exactly the player's spot, Dina's chest disappeared (the camera fades
+  NPCs in its path; `camera-set-npc-fade-out-expand/f` only applies to camera-type objects, and
+  `character-set-fade-out-distance` is not registered in retail). Self mode now stands her
+  `selfoffset` (default 0.8 m) ahead of the hidden player along her facing; from behind she
+  renders whole in game. Proper fix still open: find the per-object near-camera-fade flag.
 
 ### Risks
 - Every address comes from byte patterns. A game patch can break them; the log then says `pattern not found` and that feature switches off rather than crashing.

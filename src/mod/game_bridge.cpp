@@ -316,8 +316,11 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
         }
         // Self mode: once she is close, pin her to the exact spot and facing every tick.
         if (slot == 0 && gap < 3.0f) {
-            if (gap < 0.05f) return;
-            alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
+            // Ahead of the player along her facing: the camera fades NPCs that stand where
+            // the player does (Dina's torso vanished at 0 m in game).
+            Vec3 at = {pos.x + std::sin(yaw) * selfOffset_, pos.y, pos.z + std::cos(yaw) * selfOffset_};
+            if (Distance(*cur, at) < 0.05f) return;
+            alignas(16) float locator[8] = {at.x, at.y, at.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
             CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
             moveIssuedAt_ = 0;
             progressAt_ = 0;

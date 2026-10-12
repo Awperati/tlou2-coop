@@ -324,6 +324,7 @@ void CoopMain() {
                     else if (line == "selfpuppet off") { selfPuppet = false; bridge.ReleasePuppet(); bridge.QueuePlayerVisible(true); Log("selfpuppet: off"); }
                     else if (line == "showplayer") bridge.QueuePlayerVisible(true);
                     else if (line == "showall") bridge.QueueShowAllAttachables();
+                    else if (line.rfind("selfoffset ", 0) == 0) { bridge.SetSelfOffset(std::stof(line.substr(11))); Log("selfoffset: %s m", line.substr(11).c_str()); }
                     else if (line == "demeanors") bridge.QueueDemeanorNames();
                     else if (line.rfind("npcarg ", 0) == 0) bridge.QueueResolveNpcArg(Trim(line.substr(7)));
                     else if (line.rfind("moveto ", 0) == 0 || line.rfind("movetox ", 0) == 0) {

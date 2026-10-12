@@ -56,6 +56,8 @@ public:
     void SetPuppetSpawner(const std::string& spawner) { puppetSpawner_ = spawner; }
     // Give the companion her AI back (partner left, session ended, mod unloading).
     void ReleasePuppet();
+    // Self mode: stand this far ahead of the hidden player (out of the camera's NPC fade).
+    void SetSelfOffset(float metres) { selfOffset_ = metres; }
     // npc-move-to (native rva 0x63F0E0): walk/run an NPC (by name) to a point beside the player.
     void QueueMoveTo(const std::string& npcName, float metres, int motion, int goal = 0, bool inScript = true);
     // Which Npc* a script NPC argument resolves to (arg reader rva 0x3FF7D0).
@@ -71,6 +73,7 @@ public:
     std::atomic<int> stance_{0};          // 0 stand, 1 crouch, 2 prone
     std::atomic<bool> aiming_{false}, stanceQueued_{false};
     int lastDemeanor_ = -1;
+    float selfOffset_ = 0.8f;
     // Make every attachable in the world visible again (undo a bad hide).
     void QueueShowAllAttachables();
     // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
