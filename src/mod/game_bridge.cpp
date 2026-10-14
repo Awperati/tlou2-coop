@@ -1534,13 +1534,41 @@ void GameBridge::StartLookSwap(const std::string& look) {
     };
     auto it = kLooks.find(look);
     if (it == kLooks.end()) { Log("look: no package list for '%s'", look.c_str()); return; }
-    QueueLoadActor("dina-player-skel");
-    QueueLoadActor("backpack-rogue-ellie-base");
-    for (const char* p : it->second) QueueLoadActor(p);
+    lookPackages_ = {"dina-player-skel", "backpack-rogue-ellie-base"};
+    for (const char* p : it->second) lookPackages_.push_back(p);
+    for (const auto& p : lookPackages_) QueueLoadActor(p);
+    lookStable_ = 0;
     lookSwap_ = look;
     lookSwapStart_ = GetTickCount64();
     lookSwapLast_ = 0;
     Log("look: wanting %zu packages for '%s', polling the look request", it->second.size() + 2, look.c_str());
+}
+
+// Player look state (RE 2026-10-14, sub_140DBB470/sub_140DBB490/sub_140DAB290):
+//   +384   current look id
+//   +21032 requested base look (player-request-set-look-id writes it)
+//   +21040 pending look; applied by sub_140DAB290 once sub_140DB1950 says its packages are
+//          ready, then cleared. A request whose packages never load stays pending forever.
+//   +21048 keep-state flag, +21049 look locked by a player state (sub_140DBB680, set from
+//          the controller at rva 0xB71D70)
+void GameBridge::QueueLookState() {
+    RunOnGameFiber([this] {
+        uintptr_t pl = follow(player_);
+        if (!pl) return;
+        auto u64 = [&](uint32_t o) { auto v = Read<uint64_t>(pl + o); return v ? static_cast<unsigned long long>(*v) : 0ull; };
+        auto u8 = [&](uint32_t o) { auto v = Read<uint8_t>(pl + o); return v ? *v : 0; };
+        Log("lookstate: current %016llx base %016llx pending %016llx keep %d locked %d", u64(384), u64(21032), u64(21040), u8(21048), u8(21049));
+    }, true);
+}
+
+// True once every package wanted for the look reports loaded (is-level-loaded?).
+bool GameBridge::LookPackagesLoaded() {
+    for (const auto& p : lookPackages_) {
+        uint64_t argv[8] = {Fnv1a(p)};
+        uint64_t ret[4] = {};
+        if (!SafeNative(BuildRva(0xD48660), 1, argv, ret) || !ret[0]) return false;
+    }
+    return true;
 }
 
 void GameBridge::PollLookSwap() {
@@ -1561,7 +1589,16 @@ void GameBridge::PollLookSwap() {
     lookSwapLast_ = now;
     if (now - lookSwapStart_ > 60000) { Log("look: '%s' still refused after 60 s, giving up", lookSwap_.c_str()); lookSwap_.clear(); return; }
     std::string look = lookSwap_;
-    RunInScriptContext([this, look] {
+    uintptr_t pl = follow(player_);
+    RunInScriptContext([this, look, pl] {
+        // Only ask once every package has reported loaded on 3 polls in a row (about 3 s)
+        // and no earlier request is still pending (player+21040). After the 2026-10-14 look
+        // tests the player froze, most likely waiting on a request whose packages later
+        // unloaded. Restart Checkpoint cleared it.
+        auto pending = pl ? Read<uint64_t>(pl + 21040) : std::nullopt;
+        if (pending && *pending) { lookStable_ = 0; return; }
+        if (!LookPackagesLoaded()) { lookStable_ = 0; return; }
+        if (++lookStable_ < 3) return;
         uint64_t argv[8] = {Fnv1a(look)};
         uint64_t ret[4] = {};
         bool ok = SafeNative(BuildRva(0xCA1880), 1, argv, ret);

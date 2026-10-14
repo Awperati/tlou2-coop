@@ -381,3 +381,9 @@ Next: find how No Return loads those actor packages and sets the player look, th
   request leaves the player waiting on loads. The swaps asked for packages that later unloaded
   (dina-player-seattle-body, both bandages, the jacket cloth). Not proven. Print and dialog hooks are off in
   offsets.ini until it's clear they're not involved.
+- Look state (static RE, 2026-10-14): player+384 is the current look, +21032 the requested base look and +21040 the
+  pending look. sub_140DAB290 applies the pending look only when sub_140DB1950 says its packages are ready, then
+  clears it, so a request whose packages never load stays pending forever. +21048 is a keep-state flag; +21049 is a
+  lock set from a player state (controller at rva 0xB71D70). `look` now waits for 3 straight polls (about 3 s) where
+  every package reports loaded and nothing is pending before it asks. `lookstate` prints the fields. Built, not run.
+  The freeze itself is still unexplained.

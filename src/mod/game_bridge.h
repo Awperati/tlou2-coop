@@ -119,6 +119,10 @@ public:
     void PollLookSwap();
     std::string lookSwap_;
     unsigned long long lookSwapStart_ = 0, lookSwapLast_ = 0, lookShowAt_ = 0;
+    std::vector<std::string> lookPackages_;
+    int lookStable_ = 0;
+    bool LookPackagesLoaded();
+    void QueueLookState();
     // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
     void QueueDemeanorNames();
     // Player stance, sampled on a game fiber (player-is-crouched?/prone?/aiming? natives).

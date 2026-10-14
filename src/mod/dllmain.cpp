@@ -444,6 +444,7 @@ void CoopMain() {
                         bridge.QueueCompanionHidden(companionOff);
                     }
                     else if (line == "voxnames") bridge.QueueVoxNames();
+                    else if (line == "lookstate") bridge.QueueLookState();
                     else if (line.rfind("speakermap", 0) == 0) {   // speakermap <from> <to> | speakermap clear
                         std::istringstream ss(line.substr(10)); std::string a, b; ss >> a >> b;
                         auto fnv = [](const std::string& s) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char ch : s) { h ^= ch; h *= 0x100000001b3ull; } return h; };
