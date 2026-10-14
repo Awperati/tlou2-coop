@@ -1419,14 +1419,17 @@ void GameBridge::PollStance() {
     }, true);
 }
 
-// load-level (native rva 0xD4D170) takes a pointer to one level/package id; it queues
-// a load request on the level manager. is-level-loaded? (rva 0xD48660) takes the id.
+// load-level (native rva 0xD4D170) takes a C string (the package name): it builds a
+// WantLoadInfo (sub_141AAED90 caches the string, hashes it) and calls
+// LoadRegistry::AddWantLoad. Passing a pointer to the hash instead (2026-10-12) read
+// garbage as the name and most likely crashed the game. is-level-loaded? (rva 0xD48660)
+// takes the id. All .psarc archives, world-rogue included, are open from start-up.
 void GameBridge::QueueLoadPackage(const std::string& name, bool load) {
     RunInScriptContext([name, load] {
         uint64_t sid = Fnv1a(name);
         uint64_t ret[4] = {};
         if (load) {
-            uint64_t argv[8] = {reinterpret_cast<uint64_t>(&sid)};
+            uint64_t argv[8] = {reinterpret_cast<uint64_t>(name.c_str())};
             bool ok = SafeNative(BuildRva(0xD4D170), 1, argv, ret);
             Log("loadpkg: request '%s' ok=%d ret=%llx", name.c_str(), ok, ret[0]);
         }

@@ -313,3 +313,11 @@ look `dina-player` (also `dina-player-patrol`, `dina-player-no-jacket`) in
 Its meshes are `actor97/dina-player-*.pak` inside `world-rogue.psarc`, which story levels do not load.
 Next: find how No Return loads those actor packages and sets the player look, then do the same in story.
 `tools/dsar.py` reads the archives (outer DSAR of LZ4 blocks, inner PSARC; names matched by MD5).
+- 2026-10-14: the `dina-player` look needs 12 packages: `dina-player-skel`, `-head`, `-hair`, `-seattle-body`,
+  `-backpack`, `-backpack-gas-can`, `-r-forearm-bandage`, `-l-bicep-bandage`, `-leg-holster-r` (only in
+  `world-rogue.psarc`) and three cloth packages (in `sp-common.psarc`). All 43 archives, `world-rogue.psarc`
+  included, are open from start-up (`openfiles psarc`). `player-request-set-look-id` (rva 0xCA1880) returns 0 and
+  changes nothing until every package is loaded, so it is safe to poll. `load-level` (rva 0xD4D170) takes a C
+  string: it builds a WantLoadInfo and calls `LoadRegistry::AddWantLoad`. Called with "dina-player-skel" it
+  returns 1 and the game stays up, but the package never loads (566 packages before and after). Not yet known:
+  which want list keeps a load alive, or how No Return asks for its actor packages.

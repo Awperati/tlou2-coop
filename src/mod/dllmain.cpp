@@ -335,6 +335,24 @@ void CoopMain() {
                     else if (line == "showplayer") bridge.QueuePlayerVisible(true);
                     else if (line == "showall") bridge.QueueShowAllAttachables();
                     else if (line == "showcompanion") bridge.QueueShowCompanion();
+                    else if (line.rfind("openfiles", 0) == 0) {
+                        // Read-only: which files this process has open (e.g. mounted .psarc archives).
+                        std::string flt = line.size() > 10 ? Trim(line.substr(10)) : std::string();
+                        int n = 0;
+                        for (uintptr_t hv = 4; hv < 0x20000; hv += 4) {
+                            HANDLE fh = reinterpret_cast<HANDLE>(hv);
+                            if (GetFileType(fh) != FILE_TYPE_DISK) continue;
+                            wchar_t wp[1024];
+                            DWORD len = GetFinalPathNameByHandleW(fh, wp, 1024, 0);
+                            if (!len || len >= 1024) continue;
+                            char p[2048]; WideCharToMultiByte(CP_UTF8, 0, wp, -1, p, sizeof(p), nullptr, nullptr);
+                            std::string s = p, low = s;
+                            for (auto& ch : low) ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+                            if (!flt.empty() && low.find(flt) == std::string::npos) continue;
+                            Log("openfile %llx %s", static_cast<unsigned long long>(hv), s.c_str()); ++n;
+                        }
+                        Log("openfiles: %d matching '%s'", n, flt.c_str());
+                    }
                     else if (line.rfind("loadpkg ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(8)), true);
                     else if (line.rfind("pkgloaded ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(10)), false);
                     else if (line.rfind("selfoffset ", 0) == 0) { bridge.SetSelfOffset(std::stof(line.substr(11))); Log("selfoffset: %s m", line.substr(11).c_str()); }
