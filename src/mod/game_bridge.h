@@ -8,6 +8,7 @@
 #include <atomic>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -124,6 +125,13 @@ public:
     bool MoveSpawnerTo(const std::string& spawner, const Vec3& at);   // script context
     // Spawn a plain NPC wearing a player look, make it friendly and drive it as the remote body.
     void QueueRemoteBody(const std::string& spawner, const std::string& look);
+    std::string PickBodySpawner();   // script context
+    void QueueAutoBody(const std::string& look);   // keep a live remote body wearing `look`
+    void RunPickBody();   // pickbody: dry run of PickBodySpawner
+    std::set<std::string> badBodySpawners_;
+    bool autoBodyBusy_ = false;
+    int autoBodyTries_ = 0;
+    unsigned long long autoBodyAt_ = 0;
     void QueueNpcState(const std::string& name, int faction);   // npcstate <npc> [faction]
     bool companionHidden_ = false, companionLogged_ = false;
     // Make the local player wear a No Return look (e.g. dina-player): load its packages, poll the request.

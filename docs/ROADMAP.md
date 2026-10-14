@@ -615,3 +615,11 @@ Next: find how No Return loads those actor packages and sets the player look, th
     heading. Walk 1.5 m/s: gap median 1.9 vs 2.3 m, and the 3-5 m spikes after reversals are gone (steady 1.6-2.0 m).
     Run 3.5 m/s: gap median 3.0 vs 3.3 m, max 5.1 vs 7.0 m.
   - The steady ~1.8 m walk lag is her ~1 s start-up at a walk that caps at the remote's 1.5 m/s. Not fixed.
+- **Automatic remote body (2026-10-15 07:53):** `[body] Auto = client|always|off`, `HostLook = ellie-seattle` in
+  coop.ini. On the partner's PC, the host's state packets keep a live body. Every 3 s `QueueAutoBody` checks the
+  current body: process present and `npc-alive?`. If it's missing or dead, it picks a new spawner. `PickBodySpawner`
+  wants a human archetype (militia/wlf/scar/...) and skips infected, dogs, bosses, buddies and story characters. It
+  also needs no birth error and never spawned before, and takes the nearest. Then `body` (spawn beside the player,
+  faction 7). Up to 4 spawns, and bad spawners are remembered. Commands: `bodyauto <mode>`, `bodylook <look>`,
+  `pickbody` (dry run). Tested with `bodyauto always` on the host with the sim: picked npc-wat-bank-militia-2
+  (20 m away), spawned it at the player, took it over 0.3 s later. Alive and following after 48 s, no respawns.

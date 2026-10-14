@@ -1814,6 +1814,73 @@ void GameBridge::QueueRemoteBody(const std::string& spawner, const std::string& 
     Log("body: '%s' wearing '%s' is now the remote body", spawner.c_str(), look.c_str());
 }
 
+// Pick a spawner for the remote body: a plain human enemy (militia and the like walk on
+// move orders; the theater boss Ellie and Buddy-class spawners did not, and Buddy + player
+// look crashed), not spawned yet, no birth error (+128 bit 3), nearest to the player.
+// Spawner +0x30 = name, +0x78 = archetype name (strings read as in DumpSpawners).
+std::string GameBridge::PickBodySpawner() {
+    static const char* kWant[] = {"militia", "wlf", "scar", "seraphite", "rattler", "soldier", "human"};
+    static const char* kSkip[] = {"infected", "runner", "clicker", "stalker", "shambler", "bloater", "dog", "boss",
+                                  "buddy", "ellie", "dina", "jesse", "tommy", "abby", "lev", "yara", "joel", "owen",
+                                  "manny", "mel", "camera", "dummy", "vox-", "horse"};
+    uintptr_t pl = follow(player_);
+    auto me = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
+    std::string best;
+    float bestD = 1e9f;
+    for (auto& [sid, level] : readLevels()) {
+        auto tab = Read<uintptr_t>(level + 256);
+        if (!tab || !*tab) continue;
+        auto arr = Read<uintptr_t>(*tab + 8);
+        auto cnt = Read<int32_t>(*tab + 16);
+        if (!arr || !*arr || !cnt || *cnt <= 0 || *cnt > 20000) continue;
+        for (int32_t i = 0; i < *cnt; ++i) {
+            auto sp = Read<uintptr_t>(*arr + 8ull * i);
+            if (!sp || !*sp) continue;
+            auto np = Read<uintptr_t>(*sp + 0x30);
+            std::string name = np && *np ? TextAt(*np) : std::string();
+            if (name.rfind("npc-", 0) != 0 || badBodySpawners_.count(name)) continue;
+            std::string hay = Lower(StringsIn(*sp, 0x180));
+            bool want = false, skip = false;
+            for (auto w : kWant) if (hay.find(w) != std::string::npos) want = true;
+            for (auto k : kSkip) if (hay.find(k) != std::string::npos) skip = true;
+            if (!want || skip) continue;
+            if (auto f = Read<uint8_t>(*sp + 128); !f || (*f & 8)) continue;
+            if (auto hid = Read<uint32_t>(*sp + 104); hid && *hid) continue;   // spawned before
+            alignas(32) float w[8] = {};
+            float d = me && SafeSpawnerLocator(*sp, w) ? Distance(Vec3{w[0], w[1], w[2]}, *me) : 1e8f;
+            if (d < bestD) { bestD = d; best = name; }
+        }
+    }
+    Log("autobody: picked '%s' (%.0f m away)", best.c_str(), best.empty() ? 0.f : bestD);
+    return best;
+}
+
+void GameBridge::RunPickBody() { RunInScriptContext([this] { PickBodySpawner(); }); }
+
+// Keep a live remote body: if the current one is missing or dead, spawn a new one beside
+// the player wearing `look`. Spawners that gave a dead or missing body are not used again.
+void GameBridge::QueueAutoBody(const std::string& look) {
+    if (autoBodyBusy_) return;
+    autoBodyBusy_ = true;
+    RunInScriptContext([this, look] {
+        autoBodyBusy_ = false;
+        if (!puppetSpawner_.empty()) {
+            uint64_t argv[8] = {Fnv1a(puppetSpawner_)};
+            uint64_t ret[4] = {};
+            bool alive = spawnedProcessOnFiber(puppetSpawner_) && SafeNative(BuildRva(0x62D110), 1, argv, ret) && (ret[0] & 0xFF);
+            if (alive) return;
+            if (GetTickCount64() - autoBodyAt_ < 5000) return;   // a fresh spawn may not report alive yet
+            Log("autobody: '%s' is gone or dead", puppetSpawner_.c_str());
+            badBodySpawners_.insert(puppetSpawner_);
+        }
+        if (++autoBodyTries_ > 4) { if (autoBodyTries_ == 5) Log("autobody: giving up after 4 spawns"); return; }
+        std::string sp = PickBodySpawner();
+        if (sp.empty()) return;
+        autoBodyAt_ = GetTickCount64();
+        QueueRemoteBody(sp, look);
+    });
+}
+
 // npcstate: why one body walks and another doesn't. Logs faction (get-object-faction,
 // rva 0x40F700), script mode (0x6382C0), current behavior (0x635FE0), demeanor (0x636130),
 // position. A faction >= 0 is set first (set-object-faction, rva 0x422FB0).

@@ -144,6 +144,11 @@ void CoopMain() {
     const uint16_t port = static_cast<uint16_t>(cfg.getInt("session", "Port", kDefaultPort));
     CharacterId wanted = CharacterFromName(cfg.get("character", "Character", "random"));
     CharacterId myCharacter = CharacterId::None;
+    // Remote body: an NPC wearing the other player's look, driven by their positions.
+    // [body] Auto = client (the partner's PC shows the host this way), always, or off.
+    std::string bodyAuto = Lower(cfg.get("body", "Auto", "client"));
+    std::string bodyLook = cfg.get("body", "HostLook", "ellie-seattle");
+    ULONGLONG bodyCheckAt = 0;
 
     std::map<uint8_t, PlayerState> remote;
     std::optional<Objective> objective;
@@ -176,6 +181,10 @@ void CoopMain() {
     cb.onPlayerState = [&](uint8_t slot, const PlayerState& s) {
         remote[slot] = s;
         if (isHost) gate.ReportPosition(slot, s.pos);
+        if ((bodyAuto == "always" || (bodyAuto == "client" && !isHost && slot == 0)) && GetTickCount64() - bodyCheckAt > 3000) {
+            bodyCheckAt = GetTickCount64();
+            bridge.QueueAutoBody(bodyLook);
+        }
         bridge.DrivePuppet(slot, s);
     };
     cb.onObjective = [&](const Objective& o) { objective = o; };
@@ -500,6 +509,9 @@ void CoopMain() {
                     else if (line.rfind("remotescale ", 0) == 0) { bridge.remoteScale_ = std::stof(line.substr(12)); Log("remotescale: %.2f", bridge.remoteScale_); }
                     else if (line == "remotecatch on" || line == "remotecatch off") { bridge.remoteCatch_ = line == "remotecatch on"; Log("remotecatch: %s", line.substr(12).c_str()); }
                     else if (line == "remotesnap on" || line == "remotesnap off") { bridge.remoteSnap_ = line == "remotesnap on"; Log("remotesnap: %s", line.substr(11).c_str()); }
+                    else if (line.rfind("bodyauto ", 0) == 0) { bodyAuto = Lower(Trim(line.substr(9))); Log("bodyauto: %s", bodyAuto.c_str()); }
+                    else if (line.rfind("bodylook ", 0) == 0) { bodyLook = Trim(line.substr(9)); Log("bodylook: %s", bodyLook.c_str()); }
+                    else if (line == "pickbody") bridge.RunPickBody();
                     else if (line == "remotedir on" || line == "remotedir off") { bridge.remoteDir_ = line == "remotedir on"; Log("remotedir: %s", line.substr(10).c_str()); }
                     else if (line == "selfdir on" || line == "selfdir off") { bridge.SetSelfDir(line == "selfdir on"); Log("selfdir: %s", line.substr(8).c_str()); }
                     else if (line.rfind("selfnudge ", 0) == 0) { bridge.SetSelfNudge(std::stof(line.substr(10))); Log("selfnudge: %s", line.substr(10).c_str()); }
