@@ -569,10 +569,17 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
         if (speed > 0.3f) {
             float dx = at.x - cur->x, dz = at.z - cur->z;
             float dl = std::sqrt(dx * dx + dz * dz);
-            // A catch-up run when 1.5 m+ behind was tried and dropped: her pace did not rise
-            // and the gait flipped every few seconds (LAN sim 07:04).
             if (speed > 2.4f) runGait_ = true; else if (speed < 1.9f) runGait_ = false;
-            int m = runGait_ ? 1 : 0;
+            // Her walk caps near 1.5 m/s whatever the speed scale (LAN sim 07:20), so a walking
+            // remote 1.5 m+ ahead stays ahead. Catch up at a run cut down to the remote's speed
+            // + 0.5 m/s; back to a walk within 0.5 m, and hold either for 1 s at least. A plain
+            // full-speed run (07:04) overshot and flipped gait every few seconds.
+            if (remoteCatch_ && !runGait_ && t - catchSince_ > 1000) {
+                bool want = catchUp_ ? along < -0.5f : along < -1.5f;
+                if (want != catchUp_) { catchUp_ = want; catchSince_ = t; }
+            }
+            if (runGait_ || !remoteCatch_) catchUp_ = false;
+            int m = runGait_ || catchUp_ ? 1 : 0;
             // Re-send on a 12+ degree heading change, a gait change, or every 2 s.
             Vec3 nd = dl > 0.05f ? Vec3{dx / dl, 0.f, dz / dl} : lastDir_;
             float dot = nd.x * lastDir_.x + nd.z * lastDir_.z;
@@ -586,7 +593,8 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             }
             float nominal = m ? selfRunSpeed_ : selfWalkSpeed_;
             float want = std::max(0.f, speed - selfSpeedGain_ * along);
-            SetSpeedScale(name, remoteScale_ > 0.f ? remoteScale_ : std::clamp(want / nominal, 0.5f, 1.6f));   // remotescale <s> pins it for tests
+            float scale = catchUp_ ? std::clamp((speed + 0.5f) / selfRunSpeed_, 0.3f, 1.f) : std::clamp(want / nominal, 0.5f, 1.6f);
+            SetSpeedScale(name, remoteScale_ > 0.f ? remoteScale_ : scale);   // remotescale <s> pins it for tests
             return;
         }
         SetSpeedScale(name, 1.f);

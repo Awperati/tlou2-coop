@@ -87,6 +87,8 @@ public:
     float selfNudge_ = 0.f;   // fraction of her error pulled per tick by writing Process+0x130; no effect in game (overwritten), off
     bool selfDir_ = true;
     float remoteScale_ = 0.f;   // remotescale <s>: fixed speed scale for the remote body (0 = auto)
+    bool remoteCatch_ = true, catchUp_ = false;   // remotecatch on|off: slowed run to close a walk lag
+    unsigned long long catchSince_ = 0;
     bool remoteDir_ = true;   // remote body: move-in-direction steering (off = move-to only)
     float selfDirLead_ = 1.5f;   // loop selftest 2026-10-14: 0.5 -> 1.6 m mean at a run, 2.0 -> 1.5 m
     bool dirActive_ = false, runGait_ = false;
