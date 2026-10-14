@@ -446,3 +446,11 @@ Next: find how No Return loads those actor packages and sets the player look, th
   get-object-faction is rva 0x40F700. Game stable throughout. She stands in a combat stance (theater fight demeanor);
   her look is the theater outfit. Screenshot re\npc-ellie-2026-10-14.png. Next: give her the player's look
   (spawnlook on her own Ellie-archetype spawner should be safe), demeanor 0, and drive her as the remote host's body.
+- 2026-10-14 22:04: `spawnlook npc-enemy-ellie-pistol-1 ellie-seattle` works with no crash, since that spawner's
+  archetype is Ellie, so a player look is fine on an Ellie NPC. She wears the Seattle hoodie (re\shot.png at
+  22:04). Demeanor set to 0 (npc-set-demeanor returned and reads 0). **But both NPC Ellies are frozen:** same pose in
+  every frame. npc-move-to returns 1 and they don't move. Turning AI back on (script mode 0) does nothing; current
+  behavior = 0. Teleports do move them. Most likely cause: they belong to level `aef-script`, which is loaded but
+  not an active region of the world, so its NPCs don't update. Not confirmed. Next (static): find what gates NPC
+  updates per level (level active / visible / region flags in LevelMgr or Level), then either activate aef-script or
+  move the NPC to an active level (e.g. the level owning Dina's spawner).
