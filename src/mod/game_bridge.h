@@ -107,6 +107,8 @@ public:
     void QueueShowCompanion();
     // load-level / is-level-loaded? on a package name (e.g. dina-player-skel), logged.
     void QueueLoadPackage(const std::string& name, bool load, bool log = true);
+    // Want an actor package (WantLoadInfo type 2), as level-dependent actors are loaded.
+    void QueueLoadActor(const std::string& name);
     // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
     void QueueDemeanorNames();
     // Player stance, sampled on a game fiber (player-is-crouched?/prone?/aiming? natives).

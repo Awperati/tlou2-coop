@@ -1440,6 +1440,31 @@ void GameBridge::QueueLoadPackage(const std::string& name, bool load, bool log) 
     });
 }
 
+// Actor packages (actor97/*.pak, e.g. dina-player-skel) are wanted with WantLoadInfo
+// type 2, as LoadRegistry::AddLevelDependentActors does (sub_141AEDDB0). load-level only
+// makes type 1 (level) wants, which never loaded an actor package (2026-10-14).
+//   name = StringCache::Cache(g_cache 0x3603798, str)          rva 0x28F2010
+//   WantLoadInfo(info, type, name, sid)                          rva 0x1AAEE20
+//   LoadRegistry::AddWantLoad(g_registry 0x3603788, info, true)  rva 0x1AEDF40
+// Runs in the task-update phase like the other heavy engine calls.
+void GameBridge::QueueLoadActor(const std::string& name) {
+    RunOnGameFiber([name] {
+        using CacheFn = const char* (*)(uintptr_t, const char*);
+        using InfoFn = void* (*)(void*, int16_t, const char*, uint64_t);
+        using AddFn = void (*)(uintptr_t, void*, uint8_t);
+        uintptr_t cache = BuildRva(0x3603798), reg = BuildRva(0x3603788);
+        auto cachePtr = cache ? Read<uintptr_t>(cache) : std::nullopt;
+        auto regPtr = reg ? Read<uintptr_t>(reg) : std::nullopt;
+        if (!cachePtr || !*cachePtr || !regPtr || !*regPtr) { Log("loadactor: registry or string cache not found"); return; }
+        const char* cached = reinterpret_cast<CacheFn>(BuildRva(0x28F2010))(*cachePtr, name.c_str());
+        alignas(16) uint8_t info[64] = {};
+        reinterpret_cast<InfoFn>(BuildRva(0x1AAEE20))(info, 2, cached, Fnv1a(name));
+        reinterpret_cast<AddFn>(BuildRva(0x1AEDF40))(*regPtr, info, 1);
+        Log("loadactor: wanted '%s' (type 2, flags %02x, def %llx)", name.c_str(), info[34],
+            static_cast<unsigned long long>(*reinterpret_cast<uint64_t*>(info + 16)));
+    }, true);
+}
+
 void GameBridge::QueueShowCompanion() {
     RunOnGameFiber([this] {
         uintptr_t b = findBuddyOnFiber();

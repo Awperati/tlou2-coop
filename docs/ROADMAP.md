@@ -321,3 +321,8 @@ Next: find how No Return loads those actor packages and sets the player look, th
   string: it builds a WantLoadInfo and calls `LoadRegistry::AddWantLoad`. Called with "dina-player-skel" it
   returns 1 and the game stays up, but the package never loads (566 packages before and after). Not yet known:
   which want list keeps a load alive, or how No Return asks for its actor packages.
+- 2026-10-14 (static): `LoadRegistry::Update` (rva 0x1AF2690) walks both want lists (a1+168 and a1); entries persist
+  until `RemoveWantLoad`/`ClearWantLoads`. Want type 1 = level/package (load-level, particle packs), type 2 = actor
+  (`AddLevelDependentActors`, sub_141AEDDB0 -> `WantLoadInfo(info, 2, cachedName, sid)` rva 0x1AAEE20). Actor
+  packages need type 2. New `loadactor <name>` builds that want on a game fiber: name via StringCache
+  (rva 0x28F2010, global 0x3603798), `AddWantLoad(*0x3603788, info, true)`. Not yet run live.

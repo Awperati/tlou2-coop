@@ -357,6 +357,7 @@ void CoopMain() {
                     }
                     else if (line.rfind("keepload ", 0) == 0) { keepLoad = Trim(line.substr(9)); Log("keepload: %s", keepLoad.c_str()); }
                     else if (line == "keepload") { keepLoad.clear(); Log("keepload: off"); }
+                    else if (line.rfind("loadactor ", 0) == 0) bridge.QueueLoadActor(Trim(line.substr(10)));
                     else if (line.rfind("loadpkg ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(8)), true);
                     else if (line.rfind("pkgloaded ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(10)), false);
                     else if (line.rfind("selfoffset ", 0) == 0) { bridge.SetSelfOffset(std::stof(line.substr(11))); Log("selfoffset: %s m", line.substr(11).c_str()); }
