@@ -369,6 +369,37 @@ void CoopMain() {
                             Log("peek %llx: %s", static_cast<unsigned long long>(addr + o), hex);
                         }
                     }
+                    else if (line == "mounts") {
+                        // Dearchiver mount list (head at rva 0x36A8658), as the game's own dump (sub_141271220)
+                        // prints it: node+0 next, +64 file handle id, +184 char* mount point, +256 u16 order.
+                        // Archive name: sub_14220DA60(*rva 0x383ED70, fh) -> entry; name at +104 (inline or pointer).
+                        uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+                        SIZE_T got = 0; uintptr_t node = 0;
+                        ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(base + 0x36A8658), &node, 8, &got);
+                        int n = 0;
+                        for (; node && n < 200; ++n) {
+                            uint8_t m[272] = {};
+                            if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(node), m, sizeof(m), &got)) break;
+                            uintptr_t mp = *reinterpret_cast<uintptr_t*>(m + 184);
+                            char point[128] = {};
+                            if (mp) ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(mp), point, 127, &got);
+                            Log("mount %d: at '%s' order %u fh %u", n, point, *reinterpret_cast<uint16_t*>(m + 256), *reinterpret_cast<uint32_t*>(m + 64));
+                            node = *reinterpret_cast<uintptr_t*>(m);
+                        }
+                        Log("mounts: %d (dearchiver list)", n);
+                        // GameLoading's mounted archives (game-loading.cpp): count at rva 0x9363E60, 16-byte
+                        // entries at rva 0x9363E70 = {mount object*, flags}; object+8 = inline archive path.
+                        uint64_t cnt = 0;
+                        ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(base + 0x9363E60), &cnt, 8, &got);
+                        for (uint64_t k = 0; k < cnt && k < 100; ++k) {
+                            uintptr_t obj = 0;
+                            ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(base + 0x9363E70 + 16 * k), &obj, 8, &got);
+                            char path[200] = {};
+                            if (obj) ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(obj + 8), path, 199, &got);
+                            const char* tail = std::strstr(path, "main/");
+                            Log("archive %llu: %s", static_cast<unsigned long long>(k), obj ? (tail ? tail + 5 : path) : "(empty)");
+                        }
+                    }
                     else if (line.rfind("findwant ", 0) == 0) {
                         // LoadRegistry (*rva 0x3603788): want lists at +0 and +168, each {u32 count; ...; WantLoadInfo** at +8}.
                         // WantLoadInfo: +8 sid, +32 u16 type, +34 flags. Read-only.

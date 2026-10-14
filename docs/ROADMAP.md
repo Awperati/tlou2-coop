@@ -332,3 +332,7 @@ Next: find how No Return loads those actor packages and sets the player look, th
   `dina-player*` mesh, and every other Dina player outfit, is only in world-rogue.psarc. So that archive's contents
   look unreachable outside No Return, even though the file is open. Next: find how a world archive is enabled for
   package lookups (file system / "Dynamic PSARC"), or the per-world gate on package paths.
+- 2026-10-14: `mounts` lists GameLoading's mounted archives (count rva 0x9363E60, entries rva 0x9363E70,
+  object+8 = path): 41 mounted, world-rogue.psarc included (slot 27). So the file system can reach it, and the
+  block is in package resolution or loading (PackageMgr::PreparePackageForLoading, rva 0x12DC610, builds
+  "actor%i/%s.pak"), not mounting. Next: hook or trace why no package load starts for dina-player-skel.
