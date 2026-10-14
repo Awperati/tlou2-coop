@@ -623,3 +623,13 @@ Next: find how No Return loads those actor packages and sets the player look, th
   faction 7). Up to 4 spawns, and bad spawners are remembered. Commands: `bodyauto <mode>`, `bodylook <look>`,
   `pickbody` (dry run). Tested with `bodyauto always` on the host with the sim: picked npc-wat-bank-militia-2
   (20 m away), spawned it at the player, took it over 0.3 s later. Alive and following after 48 s, no respawns.
+- **Partner auto setup (2026-10-15 07:57, untested end to end):** roster.ini characters take `look =` (ellie ->
+  ellie-seattle, dina -> dina-player). `[character] AutoLook = true`: on Welcome the partner swaps to their
+  character's look. If they play the chapter's story companion, the companion is hidden (`companion.off`).
+  world-watchtower now lists `companions = dina` (the buddy there is Dina). Client test: the game was switched to
+  Mode=client against `coop_lan_sim host`. It joined as slot 1 (dina), logged `autolook: look 'dina-player', story
+  companion off` and started the look request. Then the game died with a display-driver error ("DXGI_ERROR_DEVICE_RESET",
+  AMD RX 9070 XT, driver 26.7.1). The mod had stalled 26 s before the main-thread hook came back (07:57:04 -> 07:57:30),
+  so the reset may predate the look swap. Cause unknown. The auto body never ran because the game stopped ticking.
+  coop.ini was put back to Mode=host and companion.off removed. Closing the crashed game was refused by the
+  permission classifier, so it still needs a manual restart.

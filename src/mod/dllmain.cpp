@@ -149,6 +149,11 @@ void CoopMain() {
     std::string bodyAuto = Lower(cfg.get("body", "Auto", "client"));
     std::string bodyLook = cfg.get("body", "HostLook", "ellie-seattle");
     ULONGLONG bodyCheckAt = 0;
+    // Partner's own setup on joining ([character] AutoLook): wear their character's look,
+    // and hide the story companion when they are playing that companion. Applied in the loop.
+    const bool autoLook = cfg.getBool("character", "AutoLook", true);
+    std::string pendingLook;
+    bool pendingCompanionOff = false;
 
     std::map<uint8_t, PlayerState> remote;
     std::optional<Objective> objective;
@@ -175,6 +180,14 @@ void CoopMain() {
         myCharacter = roster.AssignForSlot(pack, w.slot, wanted, rng);
         Log("joined as slot %u, character %s (chapter '%s')", w.slot, CharacterName(myCharacter), pack.c_str());
         session.SendCharacterSelect(myCharacter);
+        if (autoLook) {
+            const ChapterRule* rule = roster.chapter(pack);
+            bool companion = rule && w.slot >= 1 && w.slot <= rule->companions.size();
+            const CharacterInfo* info = roster.character(myCharacter);
+            pendingLook = info ? info->look : std::string();
+            pendingCompanionOff = companion;
+            Log("autolook: look '%s'%s", pendingLook.c_str(), companion ? ", story companion off" : "");
+        }
         OverlayNotify(L"Connected. You are " + Wide(CharacterName(myCharacter)));
     };
     cb.onRejected = [&](const std::string& why) { Log("rejected: %s", why.c_str()); OverlayNotify(L"Could not join: " + Wide(why)); };
@@ -565,6 +578,14 @@ void CoopMain() {
 
         if (now - lastStance >= 200) {
             lastStance = now; bridge.PollStance(); bridge.PollLookSwap();
+            if (!pendingLook.empty()) { bridge.StartLookSwap(pendingLook); pendingLook.clear(); }
+            if (pendingCompanionOff) {
+                pendingCompanionOff = false;
+                companionOff = true;
+                std::wstring mk = dir + L"tlou2-coop\\companion.off";
+                if (HANDLE fh = CreateFileW(mk.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr); fh != INVALID_HANDLE_VALUE) CloseHandle(fh);
+                bridge.QueueCompanionHidden(true);
+            }
             if (companionOff && now - companionAt > 2000) { companionAt = now; bridge.QueueCompanionHidden(true); }
             if (!keepLoad.empty()) {
                 bool logIt = now - keepLoadLog > 3000;

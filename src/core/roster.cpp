@@ -31,6 +31,7 @@ void Roster::Load(const Ini& ini) {
             c.weapons = SplitList(ini.get(sec, "weapons"));
             c.craftables = SplitList(ini.get(sec, "craftables"));
             c.modelHint = ini.get(sec, "model");
+            c.look = ini.get(sec, "look");
             chars_.push_back(std::move(c));
         } else if (sec.rfind("chapter.", 0) == 0) {
             ChapterRule r;

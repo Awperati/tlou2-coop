@@ -18,6 +18,7 @@ struct CharacterInfo {
     std::vector<std::string> weapons;     // item tokens, resolved by [items] after RE
     std::vector<std::string> craftables;
     std::string modelHint;                // actor/skin name in game data, filled by RE
+    std::string look;                     // player look id (dc1/look2/characters.bin), e.g. dina-player
 };
 
 struct ChapterRule {
