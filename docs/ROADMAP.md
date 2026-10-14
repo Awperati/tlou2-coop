@@ -478,3 +478,12 @@ Next: find how No Return loads those actor packages and sets the player look, th
   and binding point at the theater's navmesh/space (not loaded here), so AI and locomotion can't run. Next (static):
   find what Npc update checks about its level or nav (e.g. `set-nav-mesh-enable-by-level` rva 0x21086F0 hints
   navmeshes are enabled per level).
+- 2026-10-15 06:28-06:31: **correction:** spawner+0x88 *is* the owning Level (Dina spawner -> wat-const Level
+  0x..14356E0, Ellie spawner -> aef-script Level 0x..13876A0; Level+256 is that level's spawner list). So crash 9
+  re-homed a Watchtower spawner into the aef-script level. `set-nav-mesh-enable-by-level aef-script #t` returns 0
+  (no navmesh enabled). Diff of the wat-const vs aef-script Level objects: same status word (+0x50 = 0x0c), only
+  pointers, counts and flag byte +0x12 differ (0x29 vs 0x2b). A spawn from npc-enemy-ellie-1 with Dina's spawner
+  flags (+0x80) copied in still gives a frozen NPC (walk and run orders return 1; position unchanged; behavior 0).
+  Not yet tried: animating her at all (is the anim controller ticking?), or spawning an Ellie NPC from a level
+  whose region is Watchtower. Also worth testing: does a Dina NPC spawned from her own Watchtower spawner, then
+  teleported, walk? (On 2026-10-12 one did.) That would isolate "theater NPC" from "spawned NPC".
