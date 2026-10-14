@@ -374,3 +374,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
   request fired in a short scripted walk, so the remap is not yet seen working. Other request paths
   (sub_140313E40/0x140313FB0/0x140314250/0x1403159C0, conversations) also resolve speakers through sub_141B05470
   and may need the same treatment.
+- **Freeze, 2026-10-14 21:2x:** after the look tests (dina-player, then dina-player-no-jacket, then back to
+  ellie-seattle) the player could not move: keyboard and virtual pad both failed, camera still turned. Swapping back
+  to Ellie's look, unloading the hooks (print, dialog), `companion on` and removing every Dina package want did not
+  help. **Restart Checkpoint** (pause menu, driven by the virtual pad) fixed it at once. Likely cause: the look
+  request leaves the player waiting on loads. The swaps asked for packages that later unloaded
+  (dina-player-seattle-body, both bandages, the jacket cloth). Not proven. Print and dialog hooks are off in
+  offsets.ini until it's clear they're not involved.
