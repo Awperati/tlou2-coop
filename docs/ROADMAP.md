@@ -493,3 +493,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
   level. NPC Ellie npc-enemy-ellie-1 did move once (0.8 m along x toward a run target, which may be a teleport
   settle), then nothing more on a new walk order. Next per branch: Level+0x12 bit 0x02 (aef-script 0x2b vs wat
   0x29) and the aef spawner's +0x98 properties (e.g. a "birth"/dormant property checked in the spawn function).
+- NPC level ownership (static, 2026-10-15): at the end of a successful spawn (sub_141BBFD50) the game calls
+  process->vtable[+280](level), with level = the level named by spawner property 0x474CA443B8FFDEF7 if set, else
+  spawner+0x88 (owning Level). Npc slot +280 = sub_141AF7190 -> sub_14133B990: unregister from the old Level
+  (Process+168, sub_141E950C0) and register as a dependent process of the new one (sub_141E94B60). So every NPC is a
+  dependent of one Level, and aef-script's dependents stay frozen in Watchtower. New `rehome <spawner> <level>`
+  calls that same setter to move a spawned NPC to another loaded level (e.g. `rehome npc-enemy-ellie-1 wat-const`).
+  Built, not deployed or run. Level+0x12 bit 0x02 not traced yet; the rehome test will show whether it matters.

@@ -1708,6 +1708,37 @@ void GameBridge::QueueTreeOf(const std::string& spawner, int moveToOff) {
     }, true);
 }
 
+// Re-home a spawned NPC to another loaded Level. The spawn function ends with
+// process->vtable[+280](level) (spawner+0x88 = owning Level, or a level named by the
+// spawner property 0x474CA443B8FFDEF7). That setter (Npc: sub_141AF7190 ->
+// sub_14133B990) unregisters the process from its old Level (Process+168) and registers
+// it as a dependent of the new one. NPCs owned by aef-script stay frozen in Watchtower
+// while a Watchtower-spawned Dina walks, so moving NPC Ellie to wat-const should wake
+// her. Static RE 2026-10-15; not run yet.
+void GameBridge::QueueRehome(const std::string& spawner, const std::string& levelName) {
+    RunOnGameFiber([this, spawner, levelName] {
+        uintptr_t p = spawnedProcessOnFiber(spawner);
+        if (!p) { Log("rehome: no process for '%s'", spawner.c_str()); return; }
+        uintptr_t level = 0;
+        for (auto& [sid, lv] : readLevels()) {
+            char name[96] = {};
+            auto np = Read<uintptr_t>(lv + 0x48);
+            for (int i = 0; np && *np && i < 95; ++i) { auto c = Read<char>(*np + i); if (!c || !*c) break; name[i] = *c; }
+            if (levelName == name) { level = lv; break; }
+        }
+        if (!level) { Log("rehome: level '%s' not loaded", levelName.c_str()); return; }
+        auto oldLevel = Read<uintptr_t>(p + 168);
+        auto vt = Read<uintptr_t>(p);
+        auto fn = vt ? Read<uintptr_t>(*vt + 280) : std::nullopt;
+        if (!fn || !*fn) return;
+        using SetLevelFn = void (*)(uintptr_t, uintptr_t);
+        reinterpret_cast<SetLevelFn>(*fn)(p, level);
+        auto newLevel = Read<uintptr_t>(p + 168);
+        Log("rehome: '%s' level %llx -> %llx (%s)", spawner.c_str(), static_cast<unsigned long long>(oldLevel ? *oldLevel : 0),
+            static_cast<unsigned long long>(newLevel ? *newLevel : 0), levelName.c_str());
+    }, true);
+}
+
 void GameBridge::QueueVoxNames() {
     RunOnGameFiber([this] {
         auto name = [](uintptr_t p) -> std::string {
