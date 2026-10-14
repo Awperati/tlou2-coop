@@ -112,6 +112,7 @@ public:
     void QueueUnwant(const std::string& name, int times = 1);
     // Hide the story companion (meshes off, no collision, AI kept) or show her again.
     void QueueCompanionHidden(bool hidden);
+    void QueueVoxNames();
     bool companionHidden_ = false, companionLogged_ = false;
     // Make the local player wear a No Return look (e.g. dina-player): load its packages, poll the request.
     void StartLookSwap(const std::string& look);

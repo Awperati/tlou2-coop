@@ -363,3 +363,7 @@ Next: find how No Return loads those actor packages and sets the player look, th
   companion on this PC: body, nearby cloth and weapons hidden, collider off, player ignores her. AI is kept for
   story scripts, and it's re-applied every 2 s and remembered across reloads (`tlou2-coop\companion.off`).
   Note: hidden cloth may not come back with `companion on` (seen before with her jacket).
+- Dialogue speaker (started 2026-10-14): `character-get-vox-name` (rva 0x626CF0, Character+2128) returns null for
+  both the player and Dina, so it's not the speaker key. Leads: `request-dialog` (rva 0x319F90),
+  `get-vox-process-id` (rva 0x319AD0, finds a vox process per object), `vox-override-character-id`,
+  `vox-mesh-to-character-map-node`, `subtitle-remap-character/f` (rva 0xD5FF90).

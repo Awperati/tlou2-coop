@@ -443,6 +443,7 @@ void CoopMain() {
                         if (companionOff && selfPuppet) { selfPuppet = false; bridge.ReleasePuppet(); SetSelfPuppetMarker(dir, false); Log("selfpuppet: off (companion off)"); }
                         bridge.QueueCompanionHidden(companionOff);
                     }
+                    else if (line == "voxnames") bridge.QueueVoxNames();
                     else if (line.rfind("look ", 0) == 0) bridge.StartLookSwap(Trim(line.substr(5)));
                     else if (line.rfind("unwant ", 0) == 0) {   // unwant <name> [times]
                         std::istringstream ss(line.substr(7)); std::string nm; int times = 1; ss >> nm >> times;

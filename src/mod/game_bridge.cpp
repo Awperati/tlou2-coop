@@ -1601,6 +1601,23 @@ void GameBridge::QueueCompanionHidden(bool hidden) {
     }, true);
 }
 
+// character-get-vox-name (native rva 0x626CF0) returns Character+2128 (char*), the name the
+// dialogue system uses for that character's lines. Read-only report for player and buddy.
+void GameBridge::QueueVoxNames() {
+    RunOnGameFiber([this] {
+        auto name = [](uintptr_t p) -> std::string {
+            auto s = p ? Read<uintptr_t>(p + 2128) : std::nullopt;
+            if (!s || !*s) return "(none)";
+            char buf[64] = {};
+            for (int i = 0; i < 63; ++i) { auto c = Read<char>(*s + i); if (!c || !*c) break; buf[i] = *c; }
+            return buf;
+        };
+        uintptr_t pl = follow(player_), b = findBuddyOnFiber();
+        Log("vox: player '%s' (%s), buddy '%s' (%s)", name(pl).c_str(), pl ? ProcessName(pl).c_str() : "-",
+            name(b).c_str(), b ? ProcessName(b).c_str() : "-");
+    }, true);
+}
+
 void GameBridge::QueueShowCompanion(bool visible, float radius, bool quiet) {
     RunOnGameFiber([this, visible, radius, quiet]() mutable {
         uintptr_t b = findBuddyOnFiber();
