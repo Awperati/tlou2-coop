@@ -393,3 +393,14 @@ Next: find how No Return loads those actor packages and sets the player look, th
   Restart Checkpoint (virtual pad) restored Ellie (look 712c65c6c3e102bf) and movement. Next suspect: the player's
   locomotion/anim set or controllers rebuilt by the apply (sub_140D99F90, sub_140DCC670, sub_140DAC710, the anim
   controller at player+12120), versus what No Return's own player setup does.
+- Static RE of the freeze (2026-10-14): the pending look is applied by `Player::ChangeLookId` (sub_140D99F90,
+  player.cpp). It tears down and rebuilds the player's animation setup: the anim instance at player+0x1C0 (a1[56]) is
+  deleted and recreated for the look's skeleton (player+0x1A8 = skeleton id). It also resets mesh/joint buffers
+  (a1[2595], 0x80000 bytes), re-registers controllers and reinitialises the anim controller at player+12120
+  (a1[1516]). `dina-player` looks use `dina-player-skel`, Ellie uses `ellie-skel`. A retarget ellie-skel ->
+  dina-player-skel exists in bin.psarc dc1/skel-retargets.bin (also dina-skel, abby-skel, jesse-skel and others ->
+  dina-player-skel), so animations can be retargeted. Most likely cause: the swap is designed for spawn time (No
+  Return picks the character before the player spawns), and rebuilding the anim instance mid-gameplay leaves the
+  locomotion state machine dead until a respawn (Restart Checkpoint). Next ideas: (1) after the swap, force a
+  respawn-like reset, e.g. the dev-menu teleport event (M2) to the same spot, or a checkpoint reload with the look
+  kept; (2) set the look before the player spawns (find where the spawn picks the player's look and hook it).
