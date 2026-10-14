@@ -3,7 +3,10 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <atomic>
+#include <cstdarg>
+#include <cstdio>
 #include <cstring>
+#include <string>
 #include <deque>
 #include <mutex>
 
@@ -208,6 +211,77 @@ char HookedBump(void* ctrl, uintptr_t npc, void* a3, void* a4, void* a5) {
 }
 } // namespace
 
+// Engine print functions (variadic, args spilled to home space):
+//   rva 0x156B280  script/error print ("Request queue is full. Can't load '%s'.")
+//   rva 0x1240C70  debug TTY print
+// The hook formats the message into the mod log when enabled, then calls the original.
+// MSVC x64 va_list is a char* to 8-byte slots, so the 7 register/stack args are copied
+// into an array and handed to vsnprintf (floats are duplicated in GPRs for varargs).
+namespace {
+using PrintFn = void (*)(const char*, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+struct PrintHook { uintptr_t target = 0; uint8_t saved[15] = {}; uint8_t* tramp = nullptr; bool on = false; const char* tag = ""; };
+PrintHook g_print[2];
+std::atomic<int> g_printMode{0};   // 0 off, 1 filtered, 2 all
+std::string g_printFilter;
+std::mutex g_printMu;
+thread_local bool t_inPrint = false;
+void FormatSafe(char* buf, size_t n, const char* fmt, const uint64_t* args) {
+    __try { _vsnprintf_s(buf, n, _TRUNCATE, fmt, reinterpret_cast<va_list>(const_cast<uint64_t*>(args))); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { strncpy_s(buf, n, fmt, _TRUNCATE); }
+}
+void EmitPrint(int which, const char* fmt, const uint64_t* args) {
+    if (!g_printMode.load() || t_inPrint || !fmt) return;
+    t_inPrint = true;
+    char buf[1024];
+    FormatSafe(buf, sizeof(buf), fmt, args);
+    bool show = g_printMode.load() == 2;
+    if (!show) { std::lock_guard lk(g_printMu); show = g_printFilter.empty() || std::strstr(buf, g_printFilter.c_str()); }
+    if (show) {
+        size_t n = std::strlen(buf);
+        while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = 0;
+        if (n) Log("engine[%s]: %s", g_print[which].tag, buf);
+    }
+    t_inPrint = false;
+}
+void HookedPrint0(const char* fmt, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g) {
+    uint64_t args[7] = {a, b, c, d, e, f, g};
+    EmitPrint(0, fmt, args);
+    reinterpret_cast<PrintFn>(g_print[0].tramp)(fmt, a, b, c, d, e, f, g);
+}
+void HookedPrint1(const char* fmt, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g) {
+    uint64_t args[7] = {a, b, c, d, e, f, g};
+    EmitPrint(1, fmt, args);
+    reinterpret_cast<PrintFn>(g_print[1].tramp)(fmt, a, b, c, d, e, f, g);
+}
+} // namespace
+
+bool PrintHookInstall(uintptr_t scriptPrint, uintptr_t ttyPrint) {
+    // mov r11,rsp; mov [r11+8],rcx; mov [r11+10h],rdx; mov [r11+18h],r8
+    static const uint8_t e0[15] = {0x4C, 0x8B, 0xDC, 0x49, 0x89, 0x4B, 0x08, 0x49, 0x89, 0x53, 0x10, 0x4D, 0x89, 0x43, 0x18};
+    // mov [rsp+8],rcx; mov [rsp+10h],rdx; mov [rsp+18h],r8
+    static const uint8_t e1[15] = {0x48, 0x89, 0x4C, 0x24, 0x08, 0x48, 0x89, 0x54, 0x24, 0x10, 0x4C, 0x89, 0x44, 0x24, 0x18};
+    const uint8_t* ex[2] = {e0, e1};
+    uintptr_t tg[2] = {scriptPrint, ttyPrint};
+    void* hk[2] = {reinterpret_cast<void*>(&HookedPrint0), reinterpret_cast<void*>(&HookedPrint1)};
+    const char* tags[2] = {"script", "tty"};
+    int ok = 0;
+    for (int i = 0; i < 2; ++i) {
+        if (g_print[i].on || !tg[i]) continue;
+        g_print[i].tag = tags[i];
+        if (InstallTrampoline(tg[i], ex[i], 15, hk[i], g_print[i].saved, g_print[i].tramp)) {
+            g_print[i].target = tg[i]; g_print[i].on = true; ++ok;
+        } else {
+            Log("print hook: %s prologue changed, not hooking", tags[i]);
+        }
+    }
+    Log("print hook: %d of 2 engine print functions hooked", ok);
+    return ok > 0;
+}
+void SetEngineLog(int mode, const std::string& filter) {
+    { std::lock_guard lk(g_printMu); g_printFilter = filter; }
+    g_printMode = mode;
+}
+
 bool BumpHookInstall(uintptr_t target) {
     if (g_bumpInstalled || !target) return g_bumpInstalled;
     // mov r11,rsp; push rbp; push rdi; push r14; push r15; lea rbp,[r11-57h]
@@ -287,6 +361,8 @@ bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle) {
 
 void FiberHookRemove() {
     if (g_bumpInstalled) { RemoveTrampoline(g_bumpTarget, g_bumpSaved, sizeof(g_bumpSaved)); g_bumpInstalled = false; Log("bump hook: removed"); }
+    g_printMode = 0;
+    for (auto& p : g_print) if (p.on) { RemoveTrampoline(p.target, p.saved, sizeof(p.saved)); p.on = false; }
     if (g_nativeInstalled) { RemoveTrampoline(g_nativeTarget, g_nativeSaved, sizeof(g_nativeSaved)); g_nativeInstalled = false; Log("script hook: removed"); }
     if (g_phaseInstalled) {
         DWORD old;

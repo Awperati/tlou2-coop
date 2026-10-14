@@ -369,6 +369,11 @@ void CoopMain() {
                             Log("peek %llx: %s", static_cast<unsigned long long>(addr + o), hex);
                         }
                     }
+                    else if (line.rfind("enginelog", 0) == 0) {   // enginelog off | all | <text filter>
+                        std::string a = line.size() > 10 ? Trim(line.substr(10)) : std::string();
+                        if (a.empty() || a == "off") SetEngineLog(0, ""); else if (a == "all") SetEngineLog(2, ""); else SetEngineLog(1, a);
+                        Log("enginelog: %s", a.empty() ? "off" : a.c_str());
+                    }
                     else if (line == "mounts") {
                         // Dearchiver mount list (head at rva 0x36A8658), as the game's own dump (sub_141271220)
                         // prints it: node+0 next, +64 file handle id, +184 char* mount point, +256 u16 order.

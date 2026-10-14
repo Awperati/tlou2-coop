@@ -165,6 +165,7 @@ bool GameBridge::Init(const Ini& ini) {
             PhaseHookInstall(*tu);
         if (ini.getBool("engine", "script_hook", true)) ScriptHookInstall(BuildRva(0x160F950), BuildRva(0x1D91F80));
         if (ini.getBool("engine", "bump_hook", true)) BumpHookInstall(BuildRva(0xB3C330));
+        if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
     f_.worldPack = false;   // set below once the task manager resolves

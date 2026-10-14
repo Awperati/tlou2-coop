@@ -6,6 +6,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <string>
 
 namespace coop {
 
@@ -23,6 +24,10 @@ void RunInScriptContext(std::function<void()> fn);
 bool BumpHookInstall(uintptr_t target);
 void SetNoBumpProcessId(uint32_t id);
 uint64_t BumpsSkipped();
+// Engine print functions (script error print rva 0x156B280, TTY print rva 0x1240C70) copied
+// into the mod log. mode 0 off, 1 only lines containing filter, 2 everything.
+bool PrintHookInstall(uintptr_t scriptPrint, uintptr_t ttyPrint);
+void SetEngineLog(int mode, const std::string& filter);
 bool FiberHookActive();
 // heavy = needs a deep stack (spawning, script natives); waits for a caller with room.
 void RunOnGameFiber(std::function<void()> fn, bool heavy = false);
