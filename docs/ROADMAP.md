@@ -514,3 +514,13 @@ Next: find how No Return loads those actor packages and sets the player look, th
   the assert strings their vtables use): Dina's vtable 0x2B91580 is a Buddy (Npc subclass); Ellie's 0x2BA7B90 is a
   plain Npc/Human (enemy). Her AI brain runs no behavior at all, which points at encounter/brain setup (an enemy
   NPC with no encounter, or a brain never started), not navigation. Level+0x12 bit 0x02 still untraced.
+- Control test 2026-10-15 06:40 (user idle): a plain Watchtower enemy, `npc-wat-laundry-militia-4` (archetype
+  militia-male-04, **same Npc vtable 0x2BA7B90 as NPC Ellie**), spawned with c-spawn-npc, AI off (script mode 1 1),
+  faction 7, teleported beside the player, then move-to: it **walked to the target** (-64.99,-201.91 vs -65.00,-201.99).
+  So neither the Npc class nor the spawn/teleport/move-to method is at fault. The freeze is tied to the theater Ellie
+  NPC itself: her archetype "ellie" and its brain or animation set. All shared NPC locomotion packages
+  (anim-npc-m, -shared, -crouch...) are loaded, plus anim-ellie-boss, anim-melee-ellie-* and anim-ellie-facial-idles.
+  Leading suspect: the "ellie" NPC archetype (theater boss) has a boss/scripted anim set or brain with no normal
+  locomotion, so move-to never starts a behavior. Option that avoids it: spawn the host's body from a plain
+  Watchtower NPC spawner (militia or Dina) and dress it with an Ellie look. That needs a look the archetype's
+  skeleton can take (Dina's NPC look already lists ellie-skel among its dependencies).
