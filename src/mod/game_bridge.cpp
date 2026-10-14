@@ -301,6 +301,14 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 colliderOff_ = true;
             }
             Log("puppet: taking over '%s' (AI off%s)", name.c_str(), slot == 0 ? ", collider off" : "");
+            // A dead NPC takes move orders (ret 1) and never moves: `body` spawns made at the
+            // spawner's far-off spot came out dead (npc-alive? rva 0x62D110 = 0, 2026-10-15).
+            RunInScriptContext([name] {
+                uint64_t argv[8] = {Fnv1a(name)};
+                uint64_t ret[4] = {};
+                if (SafeNative(BuildRva(0x62D110), 1, argv, ret) && (ret[0] & 0xFF) == 0)
+                    Log("puppet: WARNING '%s' is dead (npc-alive? = 0); it will not move", name.c_str());
+            });
         }
         // Her collider off was not enough: with her inside the player, the player could
         // not move until it pushed her out (user report). player-ignore-object-collision
@@ -1745,6 +1753,31 @@ void GameBridge::QueueRemoteBody(const std::string& spawner, const std::string& 
     SetPuppetSpawner(spawner);
     puppetAiOff_ = false;   // force a fresh takeover (AI off) on the next DrivePuppet tick
     Log("body: '%s' wearing '%s' is now the remote body", spawner.c_str(), look.c_str());
+}
+
+// npcstate: why one body walks and another doesn't. Logs faction (get-object-faction,
+// rva 0x40F700), script mode (0x6382C0), current behavior (0x635FE0), demeanor (0x636130),
+// position. A faction >= 0 is set first (set-object-faction, rva 0x422FB0).
+void GameBridge::QueueNpcState(const std::string& name, int faction) {
+    RunInScriptContext([this, name, faction] {
+        uint64_t ret[4] = {};
+        if (faction >= 0) {
+            uint64_t a[8] = {Fnv1a(name), static_cast<uint64_t>(faction)};
+            SafeNative(BuildRva(0x422FB0), 2, a, ret);
+        }
+        uint64_t r[5][4] = {};
+        const uint32_t rvas[5] = {0x40F700, 0x6382C0, 0x635FE0, 0x636130, 0x62D110};   // last: npc-alive?
+        for (int i = 0; i < 5; ++i) {
+            uint64_t a[8] = {Fnv1a(name)};
+            SafeNative(BuildRva(rvas[i]), 1, a, r[i]);
+        }
+        uintptr_t p = spawnedProcessOnFiber(name);
+        auto pos = p ? Read<Vec3>(p + offPos_) : std::nullopt;
+        Log("npcstate: %s faction %lld, script mode %lld, behavior %llx, demeanor %lld, alive %lld, process %p pos %.2f %.2f %.2f%s",
+            name.c_str(), static_cast<long long>(r[0][0]), static_cast<long long>(r[1][0]),
+            static_cast<unsigned long long>(r[2][0]), static_cast<long long>(r[3][0]), static_cast<long long>(r[4][0] & 0xFF), reinterpret_cast<void*>(p),
+            pos ? pos->x : 0.f, pos ? pos->y : 0.f, pos ? pos->z : 0.f, faction >= 0 ? " (faction set)" : "");
+    });
 }
 
 // Process trees (ProcessMgr = EngineComponents[19]): root at mgr+416, top-level trees at

@@ -466,6 +466,10 @@ void CoopMain() {
                         std::istringstream ss(line.substr(5)); std::string sp, lk; ss >> sp >> lk;
                         if (!sp.empty() && !lk.empty()) bridge.QueueRemoteBody(sp, lk);
                     }
+                    else if (line.rfind("npcstate ", 0) == 0) {   // npcstate <npc> [faction to set]
+                        std::istringstream ss(line.substr(9)); std::string sp; int f = -1; ss >> sp >> f;
+                        if (!sp.empty()) bridge.QueueNpcState(sp, f);
+                    }
                     else if (line.rfind("spawnlook ", 0) == 0) {   // spawnlook <spawner> <look>
                         std::istringstream ss(line.substr(10)); std::string sp, lk; ss >> sp >> lk;
                         if (!sp.empty() && !lk.empty()) bridge.QueueSpawnWithLook(sp, lk);

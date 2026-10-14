@@ -580,3 +580,16 @@ Next: find how No Return loads those actor packages and sets the player look, th
     0.1-0.3 m/s and the gap reaches 5 m. The sim circle crosses an obstacle there; a real player can't walk through it.
   - `remotedir off` (old move-to every 1 s / 1 m): her speed 0.0 for the whole run. The re-issue restarts her each time.
   - A catch-up run when 1.5 m+ behind did not raise her pace and flipped gait every few s; dropped.
+- **Why the `body` spawn can't move (2026-10-15 07:07-07:14, game in front, user idle 9-12 min):** it is DEAD.
+  New `npcstate <npc> [faction]` logs faction, script mode, behavior, demeanor, `npc-alive?` (rva 0x62D110) and position.
+  militia-2: faction 7, behavior 0, alive 0, hovering 0.7 m above the ground. militia-3: faction 7, alive 1, walks.
+  So faction 7 is not the cause. A fresh `body npc-wat-laundry-militia-1 ellie-seattle` spawned at the spawner's own
+  spot (0.86, -79.07, -348.92), 225 m away, and was already dead 4 s later, before any teleport. Likely it spawns in
+  an area with no loaded collision, falls, and dies. DrivePuppet now logs a WARNING when it takes over a dead body.
+  Fix to try: spawn at the remote's position (c-spawn-npc-with-look's 2nd arg may be a location; or move the
+  spawner's locator first).
+- **Straight-line sim on militia-3** (`coop_lan_sim line x y z heading len speed`: 8 m legs, 2 s stop at each end):
+  - 1.5 m/s: steady 1.2-1.8 m behind at her 1.4-1.6 m/s. Each leg starts slow (0.2-0.6 m/s for ~1 s), so the gap
+    peaks at 2.4-4.2 m early in a leg, then closes during the stop. Speed scale sits at 1.6 and her walk never goes
+    past ~1.6 m/s: npc-set-movement-speed-scale may have no effect on her. Not yet checked.
+  - 3.5 m/s: legs are only 2.3 s, so she never settles. Gap 2-5.6 m, back to ~1 m in each stop.

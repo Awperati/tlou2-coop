@@ -8,6 +8,7 @@
 // and should land back behind the host.
 #include "core/session.h"
 #include "core/teleport.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -18,14 +19,19 @@ using namespace coop;
 
 int main(int argc, char** argv) {
     std::string mode = argc > 1 ? argv[1] : "host";
-    bool walk = mode == "walk";
+    // walk x y z [addr]: a 3 m circle at 1.5 m/s. line x y z heading len speed [addr]: back
+    // and forth along a straight line (heading in radians, x += sin, z += cos), 2 s stop at each end.
+    bool line = mode == "line";
+    bool walk = mode == "walk" || line;
     Vec3 origin;
+    float heading = 0.f, lineLen = 8.f, lineSpeed = 1.5f;
     if (walk) {
-        if (argc < 5) { std::printf("walk needs x y z\n"); return 1; }
+        if (argc < (line ? 8 : 5)) { std::printf(line ? "line needs x y z heading len speed\n" : "walk needs x y z\n"); return 1; }
         origin = {static_cast<float>(std::atof(argv[2])), static_cast<float>(std::atof(argv[3])), static_cast<float>(std::atof(argv[4]))};
+        if (line) { heading = static_cast<float>(std::atof(argv[5])); lineLen = static_cast<float>(std::atof(argv[6])); lineSpeed = static_cast<float>(std::atof(argv[7])); }
         mode = "client";
     }
-    const int addrArg = walk ? 5 : 2;
+    const int addrArg = line ? 8 : walk ? 5 : 2;
     Session s;
     PlayerState me; me.character = mode == "host" ? CharacterId::Ellie : CharacterId::Dina;
     PlayerState other; bool haveOther = false;
@@ -70,11 +76,20 @@ int main(int argc, char** argv) {
 
     ULONGLONG start = GetTickCount64(), last = start;
     int teleports = 0;
-    while (GetTickCount64() - start < 30000) {
+    while (GetTickCount64() - start < (line ? 45000u : 30000u)) {
         ULONGLONG now = GetTickCount64();
         float dt = (now - last) / 1000.f; last = now;
         s.Poll();
-        if (walk) {
+        if (line) {
+            float leg = lineLen / lineSpeed, cycle = 2.f * (leg + 2.f);
+            float u = std::fmod((now - start) / 1000.f, cycle);
+            bool back = u >= leg + 2.f;
+            if (back) u -= leg + 2.f;
+            float d = u < 2.f ? 0.f : (std::min)(lineLen, (u - 2.f) * lineSpeed);   // 2 s stop, then the leg
+            if (back) d = lineLen - d;
+            me.pos = {origin.x + std::sin(heading) * d, origin.y, origin.z + std::cos(heading) * d};
+            me.yaw = back ? heading + 3.14159265f : heading;
+        } else if (walk) {
             float a = (now - start) / 2000.f;          // 0.5 rad/s: 1.5 m/s on a 3 m circle (a walk)
             me.pos = {origin.x + 3.f * std::cos(a), origin.y, origin.z + 3.f * std::sin(a)};
             me.yaw = -a;
