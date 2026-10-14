@@ -534,3 +534,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
   base-male/base-female skeletons, so an Ellie look on them is untested and risky. Options: (a) give the
   enemy-ellie NPC a standard archetype at runtime (find npc-get-archetype's field and the archetype table), keeping
   her Ellie anims; (b) find what crash 8 actually was before retrying an Ellie look on a plain archetype.
+- Archetype storage (2026-10-15): Npc+15768 (0x3D98) = archetype id (npc-get-archetype-id, rva 0x635B10), Npc+15776
+  (0x3DA0) = archetype record pointer (npc-get-archetype, rva 0x635A60; the default archetype is a DC symbol lookup).
+  NPC Ellie's id 0x75c11b36a1b3dd23 = `enemy-ellie`. Live (user idle): copying the walking militia NPC's 16 bytes
+  (id + record, militia id 0xa552351ca5ad9b3d) into NPC Ellie makes npc-get-archetype-id read militia's. But move-to
+  still starts no behavior and she doesn't move. Skills and brain are evidently built from the archetype at spawn,
+  so swapping the fields afterwards changes nothing. Crash-8 path (player look on a plain archetype) not decompiled
+  yet.
