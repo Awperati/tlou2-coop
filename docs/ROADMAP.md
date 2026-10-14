@@ -487,3 +487,9 @@ Next: find how No Return loads those actor packages and sets the player look, th
   Not yet tried: animating her at all (is the anim controller ticking?), or spawning an Ellie NPC from a level
   whose region is Watchtower. Also worth testing: does a Dina NPC spawned from her own Watchtower spawner, then
   teleported, walk? (On 2026-10-12 one did.) That would isolate "theater NPC" from "spawned NPC".
+- Isolation test 2026-10-15 06:31 (game already in front, no focus tricks): a Dina spawned from her own Watchtower
+  spawner (cdina-wat-horse-explore-freeway-1), then teleported beside the player, **moves on her own**: about 2 m in
+  8 s with her AI on. So spawn-then-teleport isn't the problem; the freeze is specific to NPCs from the aef-script
+  level. NPC Ellie npc-enemy-ellie-1 did move once (0.8 m along x toward a run target, which may be a teleport
+  settle), then nothing more on a new walk order. Next per branch: Level+0x12 bit 0x02 (aef-script 0x2b vs wat
+  0x29) and the aef spawner's +0x98 properties (e.g. a "birth"/dormant property checked in the spawn function).
