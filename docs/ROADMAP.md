@@ -367,3 +367,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
   both the player and Dina, so it's not the speaker key. Leads: `request-dialog` (rva 0x319F90),
   `get-vox-process-id` (rva 0x319AD0, finds a vox process per object), `vox-override-character-id`,
   `vox-mesh-to-character-map-node`, `subtitle-remap-character/f` (rva 0xD5FF90).
+- Dialogue (2026-10-14): `request-dialog` (rva 0x319F90) takes a dialog id plus up to 4 speaker names (process names
+  such as "dina"). It hands them to `DialogManager::RequestDialog` (rva 0x316C50), which stores them as speaker facts;
+  those pick the actor each line plays from. The new dialog hook logs every request ("dialog: <id> speakers ...") and
+  remaps speakers (`speakermap dina player`, `speakermap clear`, `dialoglog on|off`). Installed and running; no
+  request fired in a short scripted walk, so the remap is not yet seen working. Other request paths
+  (sub_140313E40/0x140313FB0/0x140314250/0x1403159C0, conversations) also resolve speakers through sub_141B05470
+  and may need the same treatment.

@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 #include <deque>
 #include <mutex>
 
@@ -282,6 +283,72 @@ void SetEngineLog(int mode, const std::string& filter) {
     g_printMode = mode;
 }
 
+// DialogManager::RequestDialog (rva 0x316C50):
+//   (mgr, StringId64 dialog, int count, const StringId64 speakers[], FactDictionary*, ConversationHandle*, ctx, u8)
+// Speakers are process names (e.g. "dina"); they become facts and pick the actor each
+// line plays from. The hook logs requests and rewrites speakers through a remap table, so
+// on the partner's PC "dina" can be voiced by their own player and the host's character
+// by the body that represents the host.
+namespace {
+using DialogFn = uint64_t (*)(void*, uint64_t, int, const uint64_t*, void*, void*, void*, uint8_t);
+uint8_t g_dlgSaved[15];
+uint8_t* g_dlgTramp = nullptr;
+uintptr_t g_dlgTarget = 0;
+bool g_dlgInstalled = false;
+std::mutex g_dlgMu;
+std::vector<std::pair<uint64_t, uint64_t>> g_speakerMap;   // from -> to
+std::atomic<bool> g_dlgLog{true};
+std::string SidName(uint64_t sid) {
+    static const char* known[] = {"player", "ellie", "dina", "jesse", "joel", "tommy", "lev", "yara", "abby", "manny",
+                                  "mel", "owen", "nora", "jordan", "isaac", "maria", "jj", "dina-npc", "ellie-npc", "buddy"};
+    for (const char* k : known) {
+        uint64_t h = 0xcbf29ce484222325ull;
+        for (const char* c = k; *c; ++c) { h ^= static_cast<uint8_t>(*c); h *= 0x100000001b3ull; }
+        if (h == sid) return k;
+    }
+    char b[24]; snprintf(b, sizeof(b), "%016llx", static_cast<unsigned long long>(sid)); return b;
+}
+uint64_t HookedRequestDialog(void* mgr, uint64_t dialog, int count, const uint64_t* speakers, void* facts, void* conv, void* ctx, uint8_t flag) {
+    uint64_t local[8] = {};
+    int n = count < 0 ? 0 : count > 7 ? 7 : count;
+    std::string before, after;
+    {
+        std::lock_guard lk(g_dlgMu);
+        for (int i = 0; i < n; ++i) {
+            uint64_t s = speakers ? speakers[i] : 0;
+            uint64_t t = s;
+            for (auto& [from, to] : g_speakerMap) if (from == s) { t = to; break; }
+            local[i] = t;
+            before += " " + SidName(s);
+            after += " " + SidName(t);
+        }
+    }
+    if (g_dlgLog) Log("dialog: %s speakers%s%s%s", SidName(dialog).c_str(), before.c_str(), before == after ? "" : " ->", before == after ? "" : after.c_str());
+    return reinterpret_cast<DialogFn>(g_dlgTramp)(mgr, dialog, count, n ? local : speakers, facts, conv, ctx, flag);
+}
+} // namespace
+
+bool DialogHookInstall(uintptr_t target) {
+    if (g_dlgInstalled || !target) return g_dlgInstalled;
+    // mov [rsp+10h],rbx; mov [rsp+18h],rsi; mov [rsp+20h],rdi
+    static const uint8_t expect[15] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48, 0x89, 0x7C, 0x24, 0x20};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedRequestDialog), g_dlgSaved, g_dlgTramp)) {
+        Log("dialog hook: prologue changed, not hooking");
+        return false;
+    }
+    g_dlgTarget = target;
+    g_dlgInstalled = true;
+    Log("dialog hook: DialogManager::RequestDialog hooked");
+    return true;
+}
+void SetSpeakerMap(uint64_t from, uint64_t to) {
+    std::lock_guard lk(g_dlgMu);
+    for (auto& e : g_speakerMap) if (e.first == from) { e.second = to; return; }
+    g_speakerMap.push_back({from, to});
+}
+void ClearSpeakerMap() { std::lock_guard lk(g_dlgMu); g_speakerMap.clear(); }
+void SetDialogLog(bool on) { g_dlgLog = on; }
+
 bool BumpHookInstall(uintptr_t target) {
     if (g_bumpInstalled || !target) return g_bumpInstalled;
     // mov r11,rsp; push rbp; push rdi; push r14; push r15; lea rbp,[r11-57h]
@@ -361,6 +428,7 @@ bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle) {
 
 void FiberHookRemove() {
     if (g_bumpInstalled) { RemoveTrampoline(g_bumpTarget, g_bumpSaved, sizeof(g_bumpSaved)); g_bumpInstalled = false; Log("bump hook: removed"); }
+    if (g_dlgInstalled) { RemoveTrampoline(g_dlgTarget, g_dlgSaved, sizeof(g_dlgSaved)); g_dlgInstalled = false; Log("dialog hook: removed"); }
     g_printMode = 0;
     for (auto& p : g_print) if (p.on) { RemoveTrampoline(p.target, p.saved, sizeof(p.saved)); p.on = false; }
     if (g_nativeInstalled) { RemoveTrampoline(g_nativeTarget, g_nativeSaved, sizeof(g_nativeSaved)); g_nativeInstalled = false; Log("script hook: removed"); }

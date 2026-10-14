@@ -28,6 +28,11 @@ uint64_t BumpsSkipped();
 // into the mod log. mode 0 off, 1 only lines containing filter, 2 everything.
 bool PrintHookInstall(uintptr_t scriptPrint, uintptr_t ttyPrint);
 void SetEngineLog(int mode, const std::string& filter);
+// DialogManager::RequestDialog (rva 0x316C50): log requests, remap speaker names.
+bool DialogHookInstall(uintptr_t target);
+void SetSpeakerMap(uint64_t from, uint64_t to);
+void ClearSpeakerMap();
+void SetDialogLog(bool on);
 bool FiberHookActive();
 // heavy = needs a deep stack (spawning, script natives); waits for a caller with room.
 void RunOnGameFiber(std::function<void()> fn, bool heavy = false);
