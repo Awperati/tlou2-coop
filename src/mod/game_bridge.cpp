@@ -366,10 +366,25 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
         }
         float gap = Distance(*cur, pos);
         ULONGLONG t = GetTickCount64();
+        // Target velocity from successive samples (smoothed), for both slots: the hidden
+        // local player (slot 0) or the remote player's network position.
+        if (selfPrevAt_ && t > selfPrevAt_) {
+            float dt = (t - selfPrevAt_) / 1000.f;
+            if (dt < 1.f) {
+                Vec3 v = {(pos.x - selfPrevPos_.x) / dt, 0.f, (pos.z - selfPrevPos_.z) / dt};
+                selfVel_ = {selfVel_.x * 0.5f + v.x * 0.5f, 0.f, selfVel_.z * 0.5f + v.z * 0.5f};
+            } else selfVel_ = {};
+        }
+        selfPrevPos_ = pos; selfPrevAt_ = t;
+        float speed = std::sqrt(selfVel_.x * selfVel_.x + selfVel_.z * selfVel_.z);
         // Progress check on her own movement (the target itself moves): if she has
         // not moved 0.5 m in 2.5 s while 2+ m away, the path is blocked.
         if (!progressAt_ || Distance(*cur, progressPos_) > 0.5f) { progressPos_ = *cur; progressAt_ = t; }
         bool stuck = moveIssuedAt_ && t - progressAt_ > 2500 && gap > 2.0f;
+        // Remote body: with move-to re-issued every 1 s she "stuck"-teleported about every
+        // 3 s while the remote walked (LAN sim 2026-10-14). While the remote moves, only a
+        // gap over 6 m counts as stuck.
+        if (slot != 0 && speed > 0.3f && gap < 6.f) stuck = false;
         if (gap > puppetTeleportDistance_ || stuck) {
             alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
             bool ok = CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
@@ -382,25 +397,16 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
         // stand where the player does). Teleporting her every tick made her twitch ("spazzing"
         // in game), so she walks/runs with move-to and only teleports when 4 m+ behind.
         if (slot == 0) {
-            ULONGLONG tt = GetTickCount64();
-            // Player velocity from successive samples (smoothed). Aiming at the bare player
-            // spot left her trailing behind the camera, out of view, whenever the player
-            // moved (video 2026-10-12 19:22). So she walks to where the player will be.
-            if (selfPrevAt_ && tt > selfPrevAt_) {
-                float dt = (tt - selfPrevAt_) / 1000.f;
-                if (dt < 1.f) {
-                    Vec3 v = {(pos.x - selfPrevPos_.x) / dt, 0.f, (pos.z - selfPrevPos_.z) / dt};
-                    selfVel_ = {selfVel_.x * 0.5f + v.x * 0.5f, 0.f, selfVel_.z * 0.5f + v.z * 0.5f};
-                } else selfVel_ = {};
-            }
-            selfPrevPos_ = pos; selfPrevAt_ = tt;
+            ULONGLONG tt = t;
+            // Player velocity (selfVel_, above): aiming at the bare player spot left her
+            // trailing behind the camera, out of view, whenever the player moved (video
+            // 2026-10-12 19:22). So she walks to where the player will be.
             if (herPrevAt_ && tt > herPrevAt_ && tt - herPrevAt_ < 1000) {
                 float hd = (tt - herPrevAt_) / 1000.f;
                 Vec3 hv = {(cur->x - herPrevPos_.x) / hd, 0.f, (cur->z - herPrevPos_.z) / hd};
                 herVel_ = {herVel_.x * 0.5f + hv.x * 0.5f, 0.f, herVel_.z * 0.5f + hv.z * 0.5f};
             }
             herPrevPos_ = *cur; herPrevAt_ = tt;
-            float speed = std::sqrt(selfVel_.x * selfVel_.x + selfVel_.z * selfVel_.z);
             // npc-move-to slows her down near the goal: she settled ~1.8 m short of a moving goal
             // at every speed (log 19:24). So the goal runs a fixed distance ahead along the motion.
             // Fixed 1.8 m lead kept her visible but she swung 0.3-3.4 m around the player,
@@ -522,14 +528,69 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             moveIssuedAt_ = tt;
             return;
         }
-        if (gap < 1.2f) { moveIssuedAt_ = 0; progressAt_ = 0; return; }
-        // Re-issue only when the target moved or the last order is old.
-        if (moveIssuedAt_ && t - moveIssuedAt_ < 1000 && Distance(lastMoveTarget_, pos) < 1.0f) return;
+        // Remote body: same steering as the self puppet. move-to re-issued every 1 s
+        // slowed her near each goal, so she fell behind a walking remote (LAN sim
+        // 2026-10-14). She steers with move-in-direction toward a lead point instead.
+        float along = 0.f;
+        Vec3 at = pos;
+        if (speed > 0.3f) {
+            float dx = selfVel_.x / speed, dz = selfVel_.z / speed;
+            along = (cur->x - pos.x) * dx + (cur->z - pos.z) * dz;   // + = she is ahead
+            float lead = std::clamp(selfDirLead_ - 1.2f * along, 0.f, 2.5f) / speed;
+            at = {pos.x + selfVel_.x * lead, pos.y, pos.z + selfVel_.z * lead};
+        }
+        float g = Distance(*cur, at);
+        if (herPrevAt_ && t > herPrevAt_ && t - herPrevAt_ < 1000) {
+            float hd = (t - herPrevAt_) / 1000.f;
+            Vec3 hv = {(cur->x - herPrevPos_.x) / hd, 0.f, (cur->z - herPrevPos_.z) / hd};
+            herVel_ = {herVel_.x * 0.5f + hv.x * 0.5f, 0.f, herVel_.z * 0.5f + hv.z * 0.5f};
+        }
+        herPrevPos_ = *cur; herPrevAt_ = t;
+        if (t - lastPuppetLog_ > 1000) {
+            lastPuppetLog_ = t;
+            Log("remote: slot %u speed %.1f m/s, her speed %.1f, gap %.1f m, to lead %.1f m, ahead %.1f m, gait %d, scale %.2f, %s", slot, speed, std::sqrt(herVel_.x * herVel_.x + herVel_.z * herVel_.z), gap, g, along, lastGait_, lastScale_, dirActive_ ? "dir" : "move-to");
+        }
+        if (!remoteDir_) {   // 2026-10-14 behaviour: move-to re-issued every 1 s or 1 m
+            if (gap < 1.2f) { moveIssuedAt_ = 0; progressAt_ = 0; return; }
+            if (moveIssuedAt_ && t - moveIssuedAt_ < 1000 && Distance(lastMoveTarget_, pos) < 1.0f) return;
+            IssueMoveTo(name, pos, yaw, gap > 4.f ? 1 : 0);
+            lastMoveTarget_ = pos;
+            moveIssuedAt_ = t;
+            return;
+        }
+        if (speed > 0.3f) {
+            float dx = at.x - cur->x, dz = at.z - cur->z;
+            float dl = std::sqrt(dx * dx + dz * dz);
+            if (speed > 2.4f) runGait_ = true; else if (speed < 1.9f) runGait_ = false;
+            int m = runGait_ ? 1 : 0;
+            // Re-send on a 12+ degree heading change, a gait change, or every 2 s.
+            Vec3 nd = dl > 0.05f ? Vec3{dx / dl, 0.f, dz / dl} : lastDir_;
+            float dot = nd.x * lastDir_.x + nd.z * lastDir_.z;
+            if (dl > 0.05f && (!moveIssuedAt_ || !dirActive_ || m != lastGait_ || dot < 0.978f || t - moveIssuedAt_ > 2000)) {
+                lastDir_ = nd;
+                IssueMoveInDir(name, nd, m);
+                dirActive_ = true;
+                moveIssuedAt_ = t;
+                lastMoveTarget_ = at;
+                lastGait_ = m;
+            }
+            float nominal = m ? selfRunSpeed_ : selfWalkSpeed_;
+            float want = std::max(0.f, speed - selfSpeedGain_ * along);
+            SetSpeedScale(name, std::clamp(want / nominal, 0.5f, 1.6f));
+            return;
+        }
+        SetSpeedScale(name, 1.f);
+        // Remote stopped: move-in-direction keeps her walking, so switch to move-to at once.
+        if (dirActive_) { dirActive_ = false; moveIssuedAt_ = 0; }
+        if (gap < 0.5f) { moveIssuedAt_ = 0; progressAt_ = 0; return; }
+        if (moveIssuedAt_ && t - moveIssuedAt_ < 1000 && Distance(lastMoveTarget_, pos) < 0.3f) return;
         int motion = gap > 4.f ? 1 : 0;   // run when behind, walk when close
-        IssueMoveTo(name, pos, yaw, motion);
+        // move-to stops ~0.7-1 m short of its goal: aim past the spot along her approach.
+        float k = std::min(0.9f, gap) / gap;
+        Vec3 goal = {pos.x + (pos.x - cur->x) * k, pos.y, pos.z + (pos.z - cur->z) * k};
+        IssueMoveTo(name, goal, yaw, motion);
         lastMoveTarget_ = pos;
         moveIssuedAt_ = t;
-        if (t - lastPuppetLog_ > 2000) { lastPuppetLog_ = t; Log("puppet: slot %u %s toward %.2f %.2f (gap %.1f m)", slot, motion ? "run" : "walk", pos.x, pos.z, gap); }
     }, true);
     return true;
 }

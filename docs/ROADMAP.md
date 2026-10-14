@@ -564,3 +564,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
   poor: every ~3 s "stuck" -> teleport (her own progress < 0.5 m in 2.5 s while 2+ m away). Likely the same lesson
   as the companion: remote mode re-issues move-to every 1 s or 1 m and restarts her stride. Next: give the remote mode
   the direction steering + speed scale used for the self puppet, and relax the stuck check for a moving target.
+- **Remote steering port (2026-10-15 06:57, game in background):** DrivePuppet's remote branch now uses the self
+  puppet's steering: target velocity from network samples, lead point, npc-move-in-direction with a 12 degree / 2 s
+  re-send, walk/run hysteresis and npc-set-movement-speed-scale; move-to with a 0.9 m overshoot when the remote stops.
+  Stuck only counts while the remote is still or the gap is over 6 m. `remotedir off` restores the old move-to path.
+  The sim result is not a verdict: her own speed read 0 in BOTH modes, and a plain `moveto ... 6 1` left her
+  Process+0x130 unchanged for 4 s. The 3 s "stuck" teleports in the 06:49 run were the same thing: she never moved.
+  SumatraPDF had the foreground, so the game is most likely paused on focus loss. Re-run with tlou-ii in front.
