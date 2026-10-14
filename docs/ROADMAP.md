@@ -326,3 +326,9 @@ Next: find how No Return loads those actor packages and sets the player look, th
   (`AddLevelDependentActors`, sub_141AEDDB0 -> `WantLoadInfo(info, 2, cachedName, sid)` rva 0x1AAEE20). Actor
   packages need type 2. New `loadactor <name>` builds that want on a game fiber: name via StringCache
   (rva 0x28F2010, global 0x3603798), `AddWantLoad(*0x3603788, info, true)`. Not yet run live.
+- 2026-10-14 (live): `loadactor` works for actor packages in always-available archives: `dina-player-hair-cloth`
+  (sp-common.psarc) loaded in under 12 s (LevelMgr 566 -> 567, is-level-loaded? = 1). `dina-player-skel` gets an
+  identical want (list +0, type 2, flags 0x29, def state 6, seen with `findwant`) but never loads. Every core
+  `dina-player*` mesh, and every other Dina player outfit, is only in world-rogue.psarc. So that archive's contents
+  look unreachable outside No Return, even though the file is open. Next: find how a world archive is enabled for
+  package lookups (file system / "Dynamic PSARC"), or the per-world gate on package paths.

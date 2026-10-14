@@ -357,6 +357,46 @@ void CoopMain() {
                     }
                     else if (line.rfind("keepload ", 0) == 0) { keepLoad = Trim(line.substr(9)); Log("keepload: %s", keepLoad.c_str()); }
                     else if (line == "keepload") { keepLoad.clear(); Log("keepload: off"); }
+                    else if (line.rfind("peek ", 0) == 0) {   // peek <hex addr> [bytes]: read-only memory dump
+                        std::istringstream ss(line.substr(5)); std::string a; size_t n = 64; ss >> a >> n;
+                        uintptr_t addr = std::stoull(a, nullptr, 16); n = std::min<size_t>(n, 512);
+                        std::vector<uint8_t> buf(n);
+                        SIZE_T got = 0;
+                        if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(addr), buf.data(), n, &got)) { Log("peek %llx: unreadable", static_cast<unsigned long long>(addr)); }
+                        for (size_t o = 0; o < got; o += 16) {
+                            char hex[64] = {}; int p = 0;
+                            for (size_t k = 0; k < 16 && o + k < got; ++k) p += snprintf(hex + p, sizeof(hex) - p, "%02x ", buf[o + k]);
+                            Log("peek %llx: %s", static_cast<unsigned long long>(addr + o), hex);
+                        }
+                    }
+                    else if (line.rfind("findwant ", 0) == 0) {
+                        // LoadRegistry (*rva 0x3603788): want lists at +0 and +168, each {u32 count; ...; WantLoadInfo** at +8}.
+                        // WantLoadInfo: +8 sid, +32 u16 type, +34 flags. Read-only.
+                        std::string nm = Trim(line.substr(9));
+                        uint64_t sid = 0xcbf29ce484222325ull; for (unsigned char ch : nm) { sid ^= ch; sid *= 0x100000001b3ull; }
+                        uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+                        uintptr_t reg = 0; SIZE_T got = 0;
+                        ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(base + 0x3603788), &reg, 8, &got);
+                        int hits = 0;
+                        for (int li = 0; li < 2 && reg; ++li) {
+                            uintptr_t lst = reg + (li == 0 ? 168 : 0);
+                            uint32_t cnt = 0; uintptr_t arr = 0;
+                            ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(lst), &cnt, 4, &got);
+                            ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(lst + 8), &arr, 8, &got);
+                            for (uint32_t k = 0; k < cnt && k < 4096; ++k) {
+                                uintptr_t e = 0; uint8_t w[40] = {};
+                                if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(arr + 8 * k), &e, 8, &got) || !e) continue;
+                                if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(e), w, 40, &got)) continue;
+                                if (*reinterpret_cast<uint64_t*>(w + 8) != sid) continue;
+                                ++hits;
+                                Log("findwant: '%s' in list %s entry %llx type %u flags %02x def %llx", nm.c_str(), li == 0 ? "+168" : "+0",
+                                    static_cast<unsigned long long>(e), *reinterpret_cast<uint16_t*>(w + 32), w[34],
+                                    static_cast<unsigned long long>(*reinterpret_cast<uint64_t*>(w + 16)));
+                            }
+                            Log("findwant: list %s has %u wants", li == 0 ? "+168" : "+0", cnt);
+                        }
+                        if (!hits) Log("findwant: '%s' not wanted", nm.c_str());
+                    }
                     else if (line.rfind("loadactor ", 0) == 0) bridge.QueueLoadActor(Trim(line.substr(10)));
                     else if (line.rfind("loadpkg ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(8)), true);
                     else if (line.rfind("pkgloaded ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(10)), false);
