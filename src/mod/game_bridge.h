@@ -86,8 +86,15 @@ public:
     void SetSelfLead(float s) { selfLead_ = s; }
     float selfNudge_ = 0.f;   // fraction of her error pulled per tick by writing Process+0x130; no effect in game (overwritten), off
     bool selfDir_ = true;
-    float selfDirLead_ = 0.5f;
-    bool dirActive_ = false;     // steer with npc-move-in-direction while the player moves
+    float selfDirLead_ = 1.5f;   // loop selftest 2026-10-14: 0.5 -> 1.6 m mean at a run, 2.0 -> 1.5 m
+    bool dirActive_ = false, runGait_ = false;
+    int lastGait_ = -1;
+    float selfWalkSpeed_ = 1.4f, selfRunSpeed_ = 3.3f;   // her nominal pace per gait (m/s), see self log
+    float selfSpeedGain_ = 1.0f;
+    Vec3 lastDir_;   // heading of the last move-in-direction order
+    int selfStyle_ = 1;   // 0: gait from her error, re-send every 300 ms; 1: gait from player speed + speed scale                          // m/s of pace change per metre ahead/behind
+    float lastScale_ = 1.f; unsigned long long lastScaleAt_ = 0;
+    Vec3 herPrevPos_, herVel_; unsigned long long herPrevAt_ = 0;     // steer with npc-move-in-direction while the player moves
     void SetSelfDir(bool on) { selfDir_ = on; }
     unsigned long long nudges_ = 0;
     void SetSelfNudge(float f) { selfNudge_ = f; }
@@ -98,6 +105,8 @@ public:
     void QueueShowAllAttachables();
     // Show every attachable within 2.5 m of the companion and her own meshes; log names.
     void QueueShowCompanion();
+    // load-level / is-level-loaded? on a package name (e.g. dina-player-skel), logged.
+    void QueueLoadPackage(const std::string& name, bool load);
     // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
     void QueueDemeanorNames();
     // Player stance, sampled on a game fiber (player-is-crouched?/prone?/aiming? natives).
@@ -144,6 +153,7 @@ private:
     void SetNpcAi(const std::string& name, bool on);
     void IssueMoveTo(const std::string& name, const Vec3& pos, float yaw, int motion);
     void IssueMoveInDir(const std::string& name, const Vec3& dir, int motion);
+    void SetSpeedScale(const std::string& name, float s);
     uintptr_t spawnedProcessOnFiber(const std::string& spawner);
     unsigned long long lastPuppet_ = 0, lastPuppetLog_ = 0;
     std::atomic<bool> puppetQueued_{false};

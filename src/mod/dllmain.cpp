@@ -335,8 +335,15 @@ void CoopMain() {
                     else if (line == "showplayer") bridge.QueuePlayerVisible(true);
                     else if (line == "showall") bridge.QueueShowAllAttachables();
                     else if (line == "showcompanion") bridge.QueueShowCompanion();
+                    else if (line.rfind("loadpkg ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(8)), true);
+                    else if (line.rfind("pkgloaded ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(10)), false);
                     else if (line.rfind("selfoffset ", 0) == 0) { bridge.SetSelfOffset(std::stof(line.substr(11))); Log("selfoffset: %s m", line.substr(11).c_str()); }
                     else if (line.rfind("selfdirlead ", 0) == 0) { bridge.selfDirLead_ = std::stof(line.substr(12)); Log("selfdirlead: %s m", line.substr(12).c_str()); }
+                    else if (line.rfind("selfspeed ", 0) == 0) {   // selfspeed <walk m/s> <run m/s> <gain>
+                        std::istringstream ss(line.substr(10)); ss >> bridge.selfWalkSpeed_ >> bridge.selfRunSpeed_ >> bridge.selfSpeedGain_;
+                        Log("selfspeed: walk %.2f run %.2f gain %.2f", bridge.selfWalkSpeed_, bridge.selfRunSpeed_, bridge.selfSpeedGain_);
+                    }
+                    else if (line.rfind("selfstyle ", 0) == 0) { bridge.selfStyle_ = std::stoi(line.substr(10)); Log("selfstyle: %d", bridge.selfStyle_); }
                     else if (line == "selfdir on" || line == "selfdir off") { bridge.SetSelfDir(line == "selfdir on"); Log("selfdir: %s", line.substr(8).c_str()); }
                     else if (line.rfind("selfnudge ", 0) == 0) { bridge.SetSelfNudge(std::stof(line.substr(10))); Log("selfnudge: %s", line.substr(10).c_str()); }
                     else if (line.rfind("selflead ", 0) == 0) { bridge.SetSelfLead(std::stof(line.substr(9))); Log("selflead: %s m", line.substr(9).c_str()); }

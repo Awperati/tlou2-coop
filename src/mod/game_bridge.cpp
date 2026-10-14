@@ -392,6 +392,12 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 } else selfVel_ = {};
             }
             selfPrevPos_ = pos; selfPrevAt_ = tt;
+            if (herPrevAt_ && tt > herPrevAt_ && tt - herPrevAt_ < 1000) {
+                float hd = (tt - herPrevAt_) / 1000.f;
+                Vec3 hv = {(cur->x - herPrevPos_.x) / hd, 0.f, (cur->z - herPrevPos_.z) / hd};
+                herVel_ = {herVel_.x * 0.5f + hv.x * 0.5f, 0.f, herVel_.z * 0.5f + hv.z * 0.5f};
+            }
+            herPrevPos_ = *cur; herPrevAt_ = tt;
             float speed = std::sqrt(selfVel_.x * selfVel_.x + selfVel_.z * selfVel_.z);
             // npc-move-to slows her down near the goal: she settled ~1.8 m short of a moving goal
             // at every speed (log 19:24). So the goal runs a fixed distance ahead along the motion.
@@ -405,7 +411,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 // move-in-direction has no arrival slowdown, so it needs far less lead (she ran
                 // 1.2-2 m ahead with 1.8 m, selftest 20:00).
                 float base = selfDir_ ? selfDirLead_ : selfLead_;
-                float metres = std::clamp(base - 1.2f * along, 0.f, 4.f);
+                float metres = std::clamp(base - 1.2f * along, 0.f, 2.5f);
                 lead = metres / speed;
             }
             Vec3 at = {pos.x + std::sin(yaw) * selfOffset_ + selfVel_.x * lead, pos.y,
@@ -417,7 +423,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 auto ignH = ign && *ign ? Read<uint64_t>(*ign + 0xE0) : std::nullopt;
                 auto navs = Read<uintptr_t>(b + 7096);
                 auto navH = navs && *navs ? Read<uint64_t>(*navs + 0xF8) : std::nullopt;
-                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m, ignore %llx, nav-ignore %llx, nudges %llu", speed, g, Distance(*cur, pos), along, ignH ? *ignH : 0ull, navH ? *navH : 0ull, nudges_);
+                Log("self: speed %.1f m/s, her gap to target %.1f m, to player %.1f m, ahead %.1f m, ignore %llx, nav-ignore %llx, her speed %.1f, gait %d, scale %.2f", speed, g, Distance(*cur, pos), along, ignH ? *ignH : 0ull, navH ? *navH : 0ull, std::sqrt(herVel_.x * herVel_.x + herVel_.z * herVel_.z), lastGait_, lastScale_);
             }
             // move-to alone kept her 0.4-2.7 m off the player (selftest 19:54). Blend: the
             // walk/run animation stays, and her position is pulled a fraction of the way
@@ -437,7 +443,9 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             // about 1 m away (seen in game). Stalled for 1 s: snap onto the spot.
             bool stalled = progressAt_ && tt - progressAt_ > 1000 && g > 0.35f && tt - lastFaceAt_ > 1000;
             if (stalled) lastFaceAt_ = tt;
-            if (g > 4.f || stalled) {
+            // Teleport on her distance to the player, not to the lead point: the lead can be
+            // metres ahead, and "g > 4" snapped her forward mid-run (log 18:48, her speed 13 m/s).
+            if (Distance(*cur, pos) > 4.f || stalled) {
                 alignas(16) float locator[8] = {at.x, at.y, at.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
                 CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
                 moveIssuedAt_ = 0;
@@ -464,15 +472,34 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             if (selfDir_ && speed > 0.3f) {
                 float dx = at.x - cur->x, dz = at.z - cur->z;
                 float dl = std::sqrt(dx * dx + dz * dz);
-                if (dl > 0.05f && (tt - moveIssuedAt_ > 300 || !moveIssuedAt_)) {
-                    int m = along > 0.3f ? 0 : speed > 2.5f || along < -0.8f ? 1 : 0;
-                    IssueMoveInDir(name, {dx / dl, 0.f, dz / dl}, m);
+                // Gait from the player's speed only, with hysteresis. Switching walk/run on
+                // her along-track error made her surge and fall back, swinging -1.5..+2.3 m
+                // every ~2 s at a run (log 2026-10-14 18:46). Her pace is trimmed instead
+                // with npc-set-movement-speed-scale.
+                if (speed > 2.4f) runGait_ = true; else if (speed < 1.9f) runGait_ = false;
+                int m = runGait_ ? 1 : 0;
+                if (selfStyle_ == 0) m = along > 0.3f ? 0 : speed > 2.5f || along < -0.8f ? 1 : 0;   // 2026-10-12 behaviour
+
+                // Re-send only when the heading turns 12+ degrees, the gait changes, or every
+                // 2 s: each new order restarted her stride (her pace jumped 1-4 m/s at a steady
+                // 3 m/s player, selftest 18:49-18:50).
+                Vec3 nd = {dx / dl, 0.f, dz / dl};
+                float dot = nd.x * lastDir_.x + nd.z * lastDir_.z;
+                bool resend = selfStyle_ == 0 ? tt - moveIssuedAt_ > 300 : (dot < 0.978f || tt - moveIssuedAt_ > 2000);
+                if (dl > 0.05f && (!moveIssuedAt_ || m != lastGait_ || resend)) {
+                    lastDir_ = nd;
+                    IssueMoveInDir(name, nd, m);
                     dirActive_ = true;
                     moveIssuedAt_ = tt;
                     lastMoveTarget_ = at;
+                    lastGait_ = m;
                 }
+                float nominal = m ? selfRunSpeed_ : selfWalkSpeed_;
+                float want = std::max(0.f, speed - selfSpeedGain_ * along);
+                if (selfStyle_ == 1) SetSpeedScale(name, std::clamp(want / nominal, 0.5f, 1.6f));
                 return;
             }
+            SetSpeedScale(name, 1.f);
             // Player just stopped: move-in-direction keeps her walking, so she drifted
             // 2-4 m past the player (selftest 20:01). Replace it with move-to at once.
             if (dirActive_) { dirActive_ = false; moveIssuedAt_ = 0; }
@@ -515,6 +542,7 @@ void GameBridge::ReleasePuppet() {
     });
     SetNpcAi(puppetName_, true);
     SetNoBumpProcessId(0);
+    SetSpeedScale(name, 1.f);
     if (playerIgnoring_) {   // player-ignore-object-collision with no object clears it
         playerIgnoring_ = false;
         RunInScriptContext([] {
@@ -575,6 +603,19 @@ void GameBridge::IssueMoveTo(const std::string& name, const Vec3& pos, float yaw
         uint64_t argv[16] = {Fnv1a(name), reinterpret_cast<uint64_t>(bf), static_cast<uint64_t>(motion), 0, 0, 0, 0, 0};
         uint64_t ret[4] = {};
         SafeNative(fn, 8, argv, ret);
+    });
+}
+
+// npc-set-movement-speed-scale (native rva 0x646740): <npc> <float>. Sent when it changes.
+void GameBridge::SetSpeedScale(const std::string& name, float s) {
+    ULONGLONG t = GetTickCount64();
+    if (std::fabs(s - lastScale_) < 0.03f && t - lastScaleAt_ < 1000) return;
+    lastScale_ = s; lastScaleAt_ = t;
+    RunInScriptContext([name, s] {
+        uint32_t bits; std::memcpy(&bits, &s, 4);
+        uint64_t argv[8] = {Fnv1a(name), bits};
+        uint64_t ret[4] = {};
+        SafeNative(BuildRva(0x646740), 2, argv, ret);
     });
 }
 
@@ -1376,6 +1417,24 @@ void GameBridge::PollStance() {
         stance_ = st;
         aiming_ = aim;
     }, true);
+}
+
+// load-level (native rva 0xD4D170) takes a pointer to one level/package id; it queues
+// a load request on the level manager. is-level-loaded? (rva 0xD48660) takes the id.
+void GameBridge::QueueLoadPackage(const std::string& name, bool load) {
+    RunInScriptContext([name, load] {
+        uint64_t sid = Fnv1a(name);
+        uint64_t ret[4] = {};
+        if (load) {
+            uint64_t argv[8] = {reinterpret_cast<uint64_t>(&sid)};
+            bool ok = SafeNative(BuildRva(0xD4D170), 1, argv, ret);
+            Log("loadpkg: request '%s' ok=%d ret=%llx", name.c_str(), ok, ret[0]);
+        }
+        uint64_t q[8] = {sid};
+        uint64_t r2[4] = {};
+        bool ok2 = SafeNative(BuildRva(0xD48660), 1, q, r2);
+        Log("loadpkg: '%s' loaded? ok=%d ret=%llx", name.c_str(), ok2, r2[0]);
+    });
 }
 
 void GameBridge::QueueShowCompanion() {

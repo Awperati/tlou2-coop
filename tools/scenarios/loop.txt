@@ -1,0 +1,6 @@
+# Sustained run in a loop (camera-relative), then stop.
+stick l 0 -32767 3000
+stick l -32767 0 3000
+stick l 0 32767 3000
+stick l 32767 0 3000
+wait 3000
