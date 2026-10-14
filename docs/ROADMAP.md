@@ -348,3 +348,11 @@ Next: find how No Return loads those actor packages and sets the player look, th
   (also in the look) was missing; it's now in the look's list. **Crash 7:** `loadactor military-pistol-pelvis` killed
   the game. That's a mesh part, not a package, so WantLoadInfo::AsyncLoadConstructor hit its "Asset not found"
   debug-break. `loadactor` now refuses names not listed in build\pc\main\actor97.txt.
+- **2026-10-14: player look swapped to No Return Dina (verified in game).** Launched from the launcher (click Play),
+  title screen and Continue with the virtual pad, then `look dina-player` (13 actor packages). The request was
+  accepted in 3 s; get-object-look on the player returns 0x57e7ad8e62d36813 (`dina-player`). The player was invisible
+  until `native !d54d00 sid:player 1` (set-all-meshes-visible). Now visible: Dina's head, hair bun, jeans, holster,
+  hands, and a green backpack (`backpack-rogue-ellie-base`). Missing: jacket, torso and arms. The jacket is cloth
+  (`dina-player-seattle-jacket-cloth`), and the player still owns Ellie's 3 ProcessCharCloth props (7239-7241), so the new
+  look's cloth objects were probably never spawned. Next: respawn or attach the look's cloth, or test the
+  `dina-player-no-jacket` / patrol looks, whose bodies may include a torso.
