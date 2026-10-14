@@ -436,3 +436,13 @@ Next: find how No Return loads those actor packages and sets the player look, th
   `aef-script` with `loadpkg aef-script` (type 1 is right for a level), plus the NPC Ellie actor packages, then
   `spawnlook npc-enemy-ellie-1 ellie-seattle` (or plain c-spawn-npc). Then AI off and a friendly faction. Risks: the
   level's state scripts may start the fight logic; the spawner is an enemy.
+- **NPC Ellie spawned in Watchtower (verified in game, 2026-10-14 21:59-22:03).** Relaunched the game myself
+  (launcher.exe; title skip and Continue with the virtual pad). Then: `loadpkg aef-script` (theater fight level,
+  type 1) plus `loadactor` anim-ellie-boss, anim-melee-ellie-npc-t2, anim-melee-ellie-abby-fight and
+  `loadpkg part-actor-anim-melee-ellie-abby-fight`. LevelMgr went 566 -> 609; Ellie's NPC body parts and Jesse came
+  in too. Spawners npc-enemy-ellie-1 / -pistol-1 appeared. `native 626240 sid:npc-enemy-ellie-1` (c-spawn-npc)
+  spawned NPC Ellie (theater outfit). `spawned npc-enemy-ellie-1 here` placed her beside the player. AI off with
+  npc-set-script-mode 1 1. Faction 3 -> 7 (Dina's) with set-object-faction (rva 0x422FB0, args: object, faction id);
+  get-object-faction is rva 0x40F700. Game stable throughout. She stands in a combat stance (theater fight demeanor);
+  her look is the theater outfit. Screenshot re\npc-ellie-2026-10-14.png. Next: give her the player's look
+  (spawnlook on her own Ellie-archetype spawner should be safe), demeanor 0, and drive her as the remote host's body.
