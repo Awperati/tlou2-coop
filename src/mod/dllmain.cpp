@@ -221,6 +221,8 @@ void CoopMain() {
     uintptr_t lastPlayerObj = 1;
     ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0, lastHide = 0, lastStance = 0;
     bool mainHooked = false, testWasDown = false;
+    std::string keepLoad;   // package re-requested every 200 ms (want-loads look rebuilt each frame)
+    unsigned long long keepLoadLog = 0;
     bool selfPuppet = GetFileAttributesW((dir + L"tlou2-coop\\selfpuppet.on").c_str()) != INVALID_FILE_ATTRIBUTES;
     if (selfPuppet) Log("selfpuppet: on (restored)");
     const int testKey = cfg.get("debug", "TestTeleportKey", "F10").empty() ? 0 : ParseKey(cfg.get("debug", "TestTeleportKey", "F10"));
@@ -353,6 +355,8 @@ void CoopMain() {
                         }
                         Log("openfiles: %d matching '%s'", n, flt.c_str());
                     }
+                    else if (line.rfind("keepload ", 0) == 0) { keepLoad = Trim(line.substr(9)); Log("keepload: %s", keepLoad.c_str()); }
+                    else if (line == "keepload") { keepLoad.clear(); Log("keepload: off"); }
                     else if (line.rfind("loadpkg ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(8)), true);
                     else if (line.rfind("pkgloaded ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(10)), false);
                     else if (line.rfind("selfoffset ", 0) == 0) { bridge.SetSelfOffset(std::stof(line.substr(11))); Log("selfoffset: %s m", line.substr(11).c_str()); }
@@ -412,7 +416,14 @@ void CoopMain() {
         }
         testWasDown = testDown;
 
-        if (now - lastStance >= 200) { lastStance = now; bridge.PollStance(); }
+        if (now - lastStance >= 200) {
+            lastStance = now; bridge.PollStance();
+            if (!keepLoad.empty()) {
+                bool logIt = now - keepLoadLog > 3000;
+                if (logIt) keepLoadLog = now;
+                bridge.QueueLoadPackage(keepLoad, true, logIt);
+            }
+        }
         if (selfPuppet && self) {
             bridge.DrivePuppet(0, *self);
             // The game re-shows weapons when they are drawn or swapped; re-hide each second.

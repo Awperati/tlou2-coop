@@ -1424,19 +1424,19 @@ void GameBridge::PollStance() {
 // LoadRegistry::AddWantLoad. Passing a pointer to the hash instead (2026-10-12) read
 // garbage as the name and most likely crashed the game. is-level-loaded? (rva 0xD48660)
 // takes the id. All .psarc archives, world-rogue included, are open from start-up.
-void GameBridge::QueueLoadPackage(const std::string& name, bool load) {
-    RunInScriptContext([name, load] {
+void GameBridge::QueueLoadPackage(const std::string& name, bool load, bool log) {
+    RunInScriptContext([name, load, log] {
         uint64_t sid = Fnv1a(name);
         uint64_t ret[4] = {};
         if (load) {
             uint64_t argv[8] = {reinterpret_cast<uint64_t>(name.c_str())};
             bool ok = SafeNative(BuildRva(0xD4D170), 1, argv, ret);
-            Log("loadpkg: request '%s' ok=%d ret=%llx", name.c_str(), ok, ret[0]);
+            if (log) Log("loadpkg: request '%s' ok=%d ret=%llx", name.c_str(), ok, ret[0]);
         }
         uint64_t q[8] = {sid};
         uint64_t r2[4] = {};
         bool ok2 = SafeNative(BuildRva(0xD48660), 1, q, r2);
-        Log("loadpkg: '%s' loaded? ok=%d ret=%llx", name.c_str(), ok2, r2[0]);
+        if (log) Log("loadpkg: '%s' loaded? ok=%d ret=%llx", name.c_str(), ok2, r2[0]);
     });
 }
 
