@@ -417,3 +417,13 @@ Next: find how No Return loads those actor packages and sets the player look, th
   body an NPC-safe look. Either check how the dina-player look record differs from an NPC look (npc-normal-base vs
   player data), or use a story spawner whose character matches (e.g. an Ellie NPC spawner from a flashback level),
   or use the NPC look "ellie" (no player parts).
+- NPC-safe Ellie look (static, 2026-10-14): look records in bin.psarc dc1/look2/characters.bin hold the name (+0x00),
+  skeleton (+0x10/+0x18), mesh parts (+0xA0), cloth (+0xB0), dependency packages (+0xC0) and animation packages
+  (+0xD0). NPC looks (`dina`, `jesse`, `joel`) list `npc-normal-base` and NPC anims (`anim-dina`, `anim-joel`...).
+  **All 83 looks on ellie-skel are player looks:** player anim packages (`anim-ellie-player-*`), no `npc-normal-base`.
+  So there is no NPC Ellie look, plain `ellie` included. Crash 8 most likely came from an Ellie (ellie-skel, player
+  anims) look on a Dina spawner, whose NPC uses dina-skel and Dina's NPC anims. The NPC Ellie seen in Abby's
+  chapters (theater fight) must come from an Ellie-character spawner in those levels (world-abby-ellie-fight /
+  world-theater), not from a look. Options for the host's body on the partner's PC: (1) load or borrow an Ellie
+  spawner and archetype from world-abby-ellie-fight; (2) a Dina NPC body wearing her NPC look (works today) as a
+  stand-in; (3) longer term, a second player-like process.
