@@ -460,3 +460,13 @@ Next: find how No Return loads those actor packages and sets the player look, th
   Don't retry without RE of how the spawner's character def is used. The user relaunched the game.
 - Automation note: my Alt-tap focus trick opened the Windows task switcher while the user was using the PC, and the
   virtual-pad presses landed on the wrong menu item (No Return info page). Only drive the game when the PC is free.
+- Spawn internals (static, 2026-10-14): spawner+0x88 is **not** a character def. It's a spawner group whose
+  +256 list holds child EntitySpawners (group spawners recurse), which explains crash 9. spawner+0x70 is the
+  process-type/archetype sid passed to the spawn info; spawner+0x90 is copied into spawn info[20] (likely the owning
+  level); spawner+0x98 holds properties (a "birth" property is checked). Process::SpawnProcess (rva 0x14C9BB0) puts
+  the new process under the spawn info's parent tree, or ProcessMgr+448 (default tree) when none. ProcessMgr trees:
+  root +416, top-level trees +440 onwards. `ProcessMgr::RequestChangeParentNextFrame(mgr, pid, tree)` (rva 0x1447EB0)
+  re-parents a process on the next frame; GetParentProcess is sub_14133D550. New commands (built, not deployed):
+  `treeof <spawner|buddy>` shows the parent chain; `reparent <spawner> [mgr offset]` asks to move the NPC under that
+  tree. Next live test: `treeof buddy` vs `treeof npc-enemy-ellie-pistol-1`; if they differ, reparent Ellie to
+  Dina's tree and see if she animates.

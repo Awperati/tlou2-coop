@@ -453,6 +453,11 @@ void CoopMain() {
                         bridge.QueueCompanionHidden(companionOff);
                     }
                     else if (line == "voxnames") bridge.QueueVoxNames();
+                    else if (line.rfind("treeof", 0) == 0) bridge.QueueTreeOf(line.size() > 7 ? Trim(line.substr(7)) : std::string());
+                    else if (line.rfind("reparent ", 0) == 0) {   // reparent <spawner> [mgr offset, default 448]
+                        std::istringstream ss(line.substr(9)); std::string sp; int off = 448; ss >> sp >> off;
+                        bridge.QueueTreeOf(sp, off);
+                    }
                     else if (line.rfind("spawnlook ", 0) == 0) {   // spawnlook <spawner> <look>
                         std::istringstream ss(line.substr(10)); std::string sp, lk; ss >> sp >> lk;
                         if (!sp.empty() && !lk.empty()) bridge.QueueSpawnWithLook(sp, lk);

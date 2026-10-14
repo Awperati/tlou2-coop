@@ -1667,6 +1667,47 @@ void GameBridge::QueueSpawnWithLook(const std::string& spawner, const std::strin
     });
 }
 
+// Process trees (ProcessMgr = EngineComponents[19]): root at mgr+416, top-level trees at
+// mgr+440.. (+448 is the default tree spawned NPCs go into; +728/+824/+832 are others).
+// GetParentProcess = sub_14133D550. ProcessMgr::RequestChangeParentNextFrame(mgr, pid,
+// tree) at rva 0x1447EB0 moves a process to another tree on the next frame (the tree
+// must not be a plain process).
+// treeof: report which top-level tree a spawner's NPC (or the buddy) sits under.
+// reparent: request a move of that NPC under the tree at mgr+<off> (default 448).
+// The theater-level NPC Ellie stays frozen in Watchtower; most likely her tree (her
+// spawner's level) isn't updated there. 2026-10-14, not run yet.
+void GameBridge::QueueTreeOf(const std::string& spawner, int moveToOff) {
+    RunOnGameFiber([this, spawner, moveToOff] {
+        auto mgr = componentTable_ ? Read<uintptr_t>(componentTable_ + 19 * 8) : std::nullopt;
+        if (!mgr || !*mgr) return;
+        uintptr_t p = spawner.empty() || spawner == "buddy" ? findBuddyOnFiber() : spawnedProcessOnFiber(spawner);
+        if (!p) { Log("treeof: no process for '%s'", spawner.c_str()); return; }
+        using ParentFn = uintptr_t (*)(uintptr_t);
+        auto parentOf = reinterpret_cast<ParentFn>(BuildRva(0x133D550));
+        std::string chain;
+        uintptr_t cur = p, top = 0;
+        for (int i = 0; i < 16 && cur; ++i) {
+            uintptr_t par = parentOf(cur);
+            int which = -1;
+            for (int off = 416; off <= 840; off += 8) { auto t = Read<uintptr_t>(*mgr + off); if (t && *t && *t == par) { which = off; break; } }
+            char b[48]; snprintf(b, sizeof(b), " -> %llx%s", static_cast<unsigned long long>(par), which >= 0 ? (std::string("[mgr+") + std::to_string(which) + "]").c_str() : "");
+            chain += b;
+            if (which == 416) break;
+            if (which >= 0) top = par;
+            cur = par;
+        }
+        auto pid = Read<uint32_t>(p + 0x94);
+        Log("treeof %s (pid %u):%s", spawner.empty() ? "buddy" : spawner.c_str(), pid ? *pid : 0, chain.c_str());
+        if (moveToOff > 0 && pid) {
+            auto tree = Read<uintptr_t>(*mgr + moveToOff);
+            if (!tree || !*tree) { Log("reparent: no tree at mgr+%d", moveToOff); return; }
+            using ReqFn = void (*)(uintptr_t, uint32_t, uintptr_t);
+            reinterpret_cast<ReqFn>(BuildRva(0x1447EB0))(*mgr, *pid, *tree);
+            Log("reparent: requested pid %u -> tree mgr+%d (%llx)", *pid, moveToOff, static_cast<unsigned long long>(*tree));
+        }
+    }, true);
+}
+
 void GameBridge::QueueVoxNames() {
     RunOnGameFiber([this] {
         auto name = [](uintptr_t p) -> std::string {
