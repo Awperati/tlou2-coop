@@ -408,3 +408,12 @@ Next: find how No Return loads those actor packages and sets the player look, th
   player's own spot. That restarts locomotion, like a respawn. Clean test from a fresh checkpoint: Ellie ->
   `look dina-player-no-jacket` -> accepted in 2 s -> meshes shown -> reset teleport -> the virtual stick walks Dina
   about 3 m. No freeze. The spawn-time hook idea (step 2) isn't needed for now.
+- (b) done 2026-10-14 21:46: with the proper swap (`look` + reset teleport), `look dina-player` shows the full Seattle
+  jacket and sleeves. The missing jacket earlier was a side effect of the frozen anim state. Screenshot:
+  re\dina-jacket-2026-10-14.png.
+- **Crash 8 (2026-10-14 21:49):** `spawnlook cdina-wat-horse-explore-freeway-1 ellie-seattle`
+  (c-spawn-npc-with-look, rva 0x626710, args spawner, 0, look) returned an Npc pointer, then the game died within
+  about 5 s. It's the reverse of crash 6: a player-only look on an NPC (Dina's spawner and AI). Next: give the remote
+  body an NPC-safe look. Either check how the dina-player look record differs from an NPC look (npc-normal-base vs
+  player data), or use a story spawner whose character matches (e.g. an Ellie NPC spawner from a flashback level),
+  or use the NPC look "ellie" (no player parts).

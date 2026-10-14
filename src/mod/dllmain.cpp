@@ -444,6 +444,10 @@ void CoopMain() {
                         bridge.QueueCompanionHidden(companionOff);
                     }
                     else if (line == "voxnames") bridge.QueueVoxNames();
+                    else if (line.rfind("spawnlook ", 0) == 0) {   // spawnlook <spawner> <look>
+                        std::istringstream ss(line.substr(10)); std::string sp, lk; ss >> sp >> lk;
+                        if (!sp.empty() && !lk.empty()) bridge.QueueSpawnWithLook(sp, lk);
+                    }
                     else if (line == "lookstate") bridge.QueueLookState();
                     else if (line.rfind("speakermap", 0) == 0) {   // speakermap <from> <to> | speakermap clear
                         std::istringstream ss(line.substr(10)); std::string a, b; ss >> a >> b;

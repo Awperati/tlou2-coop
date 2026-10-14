@@ -1654,6 +1654,19 @@ void GameBridge::QueueCompanionHidden(bool hidden) {
 
 // character-get-vox-name (native rva 0x626CF0) returns Character+2128 (char*), the name the
 // dialogue system uses for that character's lines. Read-only report for player and buddy.
+// c-spawn-npc-with-look (native rva 0x626710): <spawner> <name-or-0> <look>. Same checks as
+// c-spawn-npc (valid spawner, not already spawned unless a multispawner), then spawns with
+// the given look. For the remote partner's body on this PC (e.g. host's Ellie on the
+// partner's screen). Heavy call: runs in the task-update phase like c-spawn-npc.
+void GameBridge::QueueSpawnWithLook(const std::string& spawner, const std::string& look) {
+    RunInScriptContext([spawner, look] {
+        uint64_t argv[8] = {Fnv1a(spawner), 0, Fnv1a(look)};
+        uint64_t ret[4] = {};
+        bool ok = SafeNative(BuildRva(0x626710), 3, argv, ret);
+        Log("spawnlook: '%s' with look '%s' ok=%d ret=%llx", spawner.c_str(), look.c_str(), ok, static_cast<unsigned long long>(ret[0]));
+    });
+}
+
 void GameBridge::QueueVoxNames() {
     RunOnGameFiber([this] {
         auto name = [](uintptr_t p) -> std::string {
