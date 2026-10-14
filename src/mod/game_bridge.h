@@ -86,8 +86,7 @@ public:
     void SetSelfLead(float s) { selfLead_ = s; }
     float selfNudge_ = 0.f;   // fraction of her error pulled per tick by writing Process+0x130; no effect in game (overwritten), off
     bool selfDir_ = true;
-    bool remoteDir_ = true;   // remote body: move-in-direction steering (off = move-to only)
-    float selfDirLead_ = 1.5f;   // loop selftest 2026-10-14: 0.5 -> 1.6 m mean at a run, 2.0 -> 1.5 m
+    bool remoteDir_ = true;   // remote body: move-in-direction steering (off = move-to only)    float selfDirLead_ = 1.5f;   // loop selftest 2026-10-14: 0.5 -> 1.6 m mean at a run, 2.0 -> 1.5 m
     bool dirActive_ = false, runGait_ = false;
     int lastGait_ = -1;
     float selfWalkSpeed_ = 1.4f, selfRunSpeed_ = 3.3f;   // her nominal pace per gait (m/s), see self log

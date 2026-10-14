@@ -571,3 +571,12 @@ Next: find how No Return loads those actor packages and sets the player look, th
   The sim result is not a verdict: her own speed read 0 in BOTH modes, and a plain `moveto ... 6 1` left her
   Process+0x130 unchanged for 4 s. The 3 s "stuck" teleports in the 06:49 run were the same thing: she never moved.
   SumatraPDF had the foreground, so the game is most likely paused on focus loss. Re-run with tlou-ii in front.
+- **Correction + motion result (2026-10-15 07:00-07:05, game in front, user idle 3-6 min):** the game was NOT paused.
+  `npc-wat-laundry-militia-2` (the `body` spawn) does not move at all: move-to (AI on or off, owned or not) returns 1
+  and its Process+0x130 stays put. `npc-wat-laundry-militia-3` walks on the same move-to. Cause unknown (candidates:
+  faction 7 set by `body`, or it was left off the navmesh by the 775 m teleport). On militia-3, sim walking a 3 m
+  circle at 1.5 m/s:
+  - `remotedir on`: her speed 1.2-1.6 m/s, gap 1.2-2.6 m, 0.5-3 m behind. Once per lap (~12 s) she stalls to
+    0.1-0.3 m/s and the gap reaches 5 m. The sim circle crosses an obstacle there; a real player can't walk through it.
+  - `remotedir off` (old move-to every 1 s / 1 m): her speed 0.0 for the whole run. The re-issue restarts her each time.
+  - A catch-up run when 1.5 m+ behind did not raise her pace and flipped gait every few s; dropped.

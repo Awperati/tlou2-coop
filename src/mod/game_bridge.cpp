@@ -561,6 +561,8 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
         if (speed > 0.3f) {
             float dx = at.x - cur->x, dz = at.z - cur->z;
             float dl = std::sqrt(dx * dx + dz * dz);
+            // A catch-up run when 1.5 m+ behind was tried and dropped: her pace did not rise
+            // and the gait flipped every few seconds (LAN sim 07:04).
             if (speed > 2.4f) runGait_ = true; else if (speed < 1.9f) runGait_ = false;
             int m = runGait_ ? 1 : 0;
             // Re-send on a 12+ degree heading change, a gait change, or every 2 s.
