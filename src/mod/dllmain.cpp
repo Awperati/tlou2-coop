@@ -223,6 +223,8 @@ void CoopMain() {
     bool mainHooked = false, testWasDown = false;
     std::string keepLoad;   // package re-requested every 200 ms (want-loads look rebuilt each frame)
     unsigned long long keepLoadLog = 0;
+    bool companionOff = GetFileAttributesW((dir + L"tlou2-coop\\companion.off").c_str()) != INVALID_FILE_ATTRIBUTES;
+    unsigned long long companionAt = 0;
     bool selfPuppet = GetFileAttributesW((dir + L"tlou2-coop\\selfpuppet.on").c_str()) != INVALID_FILE_ATTRIBUTES;
     if (selfPuppet) Log("selfpuppet: on (restored)");
     const int testKey = cfg.get("debug", "TestTeleportKey", "F10").empty() ? 0 : ParseKey(cfg.get("debug", "TestTeleportKey", "F10"));
@@ -433,6 +435,14 @@ void CoopMain() {
                         }
                         if (!hits) Log("findwant: '%s' not wanted", nm.c_str());
                     }
+                    else if (line == "companion off" || line == "companion on") {
+                        companionOff = line == "companion off";
+                        std::wstring mk = dir + L"tlou2-coop\\companion.off";
+                        if (companionOff) { if (HANDLE fh = CreateFileW(mk.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr); fh != INVALID_HANDLE_VALUE) CloseHandle(fh); }
+                        else DeleteFileW(mk.c_str());
+                        if (companionOff && selfPuppet) { selfPuppet = false; bridge.ReleasePuppet(); SetSelfPuppetMarker(dir, false); Log("selfpuppet: off (companion off)"); }
+                        bridge.QueueCompanionHidden(companionOff);
+                    }
                     else if (line.rfind("look ", 0) == 0) bridge.StartLookSwap(Trim(line.substr(5)));
                     else if (line.rfind("unwant ", 0) == 0) {   // unwant <name> [times]
                         std::istringstream ss(line.substr(7)); std::string nm; int times = 1; ss >> nm >> times;
@@ -500,6 +510,7 @@ void CoopMain() {
 
         if (now - lastStance >= 200) {
             lastStance = now; bridge.PollStance(); bridge.PollLookSwap();
+            if (companionOff && now - companionAt > 2000) { companionAt = now; bridge.QueueCompanionHidden(true); }
             if (!keepLoad.empty()) {
                 bool logIt = now - keepLoadLog > 3000;
                 if (logIt) keepLoadLog = now;

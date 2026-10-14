@@ -356,3 +356,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
   (`dina-player-seattle-jacket-cloth`), and the player still owns Ellie's 3 ProcessCharCloth props (7239-7241), so the new
   look's cloth objects were probably never spawned. Next: respawn or attach the look's cloth, or test the
   `dina-player-no-jacket` / patrol looks, whose bodies may include a torso.
+- **2026-10-14: new co-op model (user's design), verified in game.** Each player is a real player wearing their
+  character's No Return look. `look dina-player-no-jacket` renders fully (hair, shirt, arms, jeans, backpack);
+  `dina-player` (Seattle jacket) still misses its cloth jacket. `look` loads the look's actor packages, polls
+  player-request-set-look-id, then calls set-all-meshes-visible on the player. `companion off` hides the story
+  companion on this PC: body, nearby cloth and weapons hidden, collider off, player ignores her. AI is kept for
+  story scripts, and it's re-applied every 2 s and remembered across reloads (`tlou2-coop\companion.off`).
+  Note: hidden cloth may not come back with `companion on` (seen before with her jacket).

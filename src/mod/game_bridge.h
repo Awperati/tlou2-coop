@@ -104,17 +104,20 @@ public:
     // Make every attachable in the world visible again (undo a bad hide).
     void QueueShowAllAttachables();
     // Show every attachable within 2.5 m of the companion and her own meshes; log names.
-    void QueueShowCompanion();
+    void QueueShowCompanion(bool visible = true, float radius = 2.5f, bool quiet = false);
     // load-level / is-level-loaded? on a package name (e.g. dina-player-skel), logged.
     void QueueLoadPackage(const std::string& name, bool load, bool log = true);
     // Want an actor package (WantLoadInfo type 2), as level-dependent actors are loaded.
     void QueueLoadActor(const std::string& name);
     void QueueUnwant(const std::string& name, int times = 1);
+    // Hide the story companion (meshes off, no collision, AI kept) or show her again.
+    void QueueCompanionHidden(bool hidden);
+    bool companionHidden_ = false, companionLogged_ = false;
     // Make the local player wear a No Return look (e.g. dina-player): load its packages, poll the request.
     void StartLookSwap(const std::string& look);
     void PollLookSwap();
     std::string lookSwap_;
-    unsigned long long lookSwapStart_ = 0, lookSwapLast_ = 0;
+    unsigned long long lookSwapStart_ = 0, lookSwapLast_ = 0, lookShowAt_ = 0;
     // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
     void QueueDemeanorNames();
     // Player stance, sampled on a game fiber (player-is-crouched?/prone?/aiming? natives).

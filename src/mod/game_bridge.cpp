@@ -1511,22 +1511,51 @@ void GameBridge::QueueUnwant(const std::string& name, int times) {
 // Never use load-level (type 1) on these names: a type-1 want on "dina-player-skel"
 // left that package unloadable for the rest of the session (2026-10-14).
 void GameBridge::StartLookSwap(const std::string& look) {
-    static const char* kDinaPlayer[] = {
-        "dina-player-skel", "dina-player-head", "dina-player-hair", "dina-player-seattle-body",
-        "dina-player-backpack", "dina-player-backpack-gas-can", "dina-player-r-forearm-bandage",
-        "dina-player-l-bicep-bandage", "dina-player-leg-holster-r", "dina-player-hair-cloth",
-        "dina-player-seattle-jacket-cloth", "dina-player-backpack-zip-cloth",
-        "backpack-rogue-ellie-base"};   // also needed: the look stayed refused without it (2026-10-14)
-    for (const char* p : kDinaPlayer) QueueLoadActor(p);
+    // Part lists from bin.psarc dc1/look2/characters.bin (tools/dsar.py), plus the skeleton
+    // and backpack-rogue-ellie-base, which the look also needs (it stayed refused without it).
+    static const std::map<std::string, std::vector<const char*>> kLooks = {
+        {"dina-player", {"dina-player-head", "dina-player-hair", "dina-player-seattle-body", "dina-player-backpack",
+                         "dina-player-backpack-gas-can", "dina-player-r-forearm-bandage", "dina-player-l-bicep-bandage",
+                         "dina-player-leg-holster-r", "dina-player-hair-cloth", "dina-player-seattle-jacket-cloth",
+                         "dina-player-backpack-zip-cloth"}},
+        {"dina-player-no-jacket", {"dina-player-head", "dina-player-hair", "dina-player-no-jacket-body", "dina-player-backpack",
+                         "dina-player-backpack-gas-can", "dina-player-no-jacket-r-forearm-bandage",
+                         "dina-player-no-jacket-l-bicep-bandage", "dina-player-leg-holster-r", "dina-player-hair-cloth",
+                         "dina-player-backpack-zip-cloth"}},
+        {"dina-player-patrol", {"dina-player-head", "dina-player-patrol-hair", "dina-player-patrol-body", "dina-player-backpack",
+                         "dina-player-backpack-gas-can", "dina-player-patrol-r-forearm-bandage",
+                         "dina-player-patrol-l-bicep-bandage", "dina-player-patrol-glove", "dina-player-leg-holster-r",
+                         "dina-player-side-strand-cloth", "dina-player-backpack-zip-cloth"}},
+        {"dina-player-patrol-no-jacket", {"dina-player-head", "dina-player-patrol-hair", "dina-player-patrol-no-jacket-body",
+                         "dina-player-backpack", "dina-player-backpack-gas-can", "dina-player-patrol-no-jacket-r-forearm-bandage",
+                         "dina-player-patrol-no-jacket-l-bicep-bandage", "dina-player-patrol-hand", "dina-player-leg-holster-r",
+                         "dina-player-side-strand-cloth", "dina-player-vest-zipper-cloth", "dina-player-backpack-zip-cloth"}},
+    };
+    auto it = kLooks.find(look);
+    if (it == kLooks.end()) { Log("look: no package list for '%s'", look.c_str()); return; }
+    QueueLoadActor("dina-player-skel");
+    QueueLoadActor("backpack-rogue-ellie-base");
+    for (const char* p : it->second) QueueLoadActor(p);
     lookSwap_ = look;
     lookSwapStart_ = GetTickCount64();
     lookSwapLast_ = 0;
-    Log("look: wanting %zu packages for '%s', polling the look request", std::size(kDinaPlayer), look.c_str());
+    Log("look: wanting %zu packages for '%s', polling the look request", it->second.size() + 2, look.c_str());
 }
 
 void GameBridge::PollLookSwap() {
-    if (lookSwap_.empty()) return;
     ULONGLONG now = GetTickCount64();
+    if (lookShowAt_ && now >= lookShowAt_) {
+        // After the swap the player rendered nothing until set-all-meshes-visible
+        // (native rva 0xD54D00) <player> #t (2026-10-14).
+        lookShowAt_ = 0;
+        RunInScriptContext([] {
+            uint64_t argv[8] = {Fnv1a("player"), 1};
+            uint64_t ret[4] = {};
+            SafeNative(BuildRva(0xD54D00), 2, argv, ret);
+            Log("look: player meshes set visible");
+        });
+    }
+    if (lookSwap_.empty()) return;
     if (now - lookSwapLast_ < 1000) return;
     lookSwapLast_ = now;
     if (now - lookSwapStart_ > 60000) { Log("look: '%s' still refused after 60 s, giving up", lookSwap_.c_str()); lookSwap_.clear(); return; }
@@ -1538,25 +1567,63 @@ void GameBridge::PollLookSwap() {
         if (ok && ret[0]) {
             Log("look: player-request-set-look-id '%s' accepted", look.c_str());
             lookSwap_.clear();
+            lookShowAt_ = GetTickCount64() + 1500;   // new meshes come up hidden; show them shortly after
         }
     });
 }
 
-void GameBridge::QueueShowCompanion() {
-    RunOnGameFiber([this] {
+// Companion off (design 2026-10-14): the partner plays a real player with the companion's
+// look, so the story companion NPC is hidden on this PC. Her AI stays on so story scripts
+// that wait for or talk to her keep working. Every call re-applies (processes relocate):
+//   set-all-meshes-visible <npc> #f        rva 0xD54D00
+//   npc-disable-character-collider <npc>   rva 0x631C70 (player walks through her)
+//   player-ignore-object-collision <npc>   rva 0xC9CC10
+// On: meshes visible, collider on (rva 0x632E20), player ignore cleared.
+void GameBridge::QueueCompanionHidden(bool hidden) {
+    RunOnGameFiber([this, hidden] {
+        uintptr_t b = findBuddyOnFiber();
+        if (!b) { Log("companion: no buddy"); return; }
+        std::string name = ProcessName(b);
+        if (name.empty() || name == "?") return;
+        RunInScriptContext([name, hidden] {
+            uint64_t ret[4] = {};
+            uint64_t vis[8] = {Fnv1a(name), hidden ? 0ull : 1ull};
+            SafeNative(BuildRva(0xD54D00), 2, vis, ret);
+            uint64_t one[8] = {Fnv1a(name)};
+            SafeNative(BuildRva(hidden ? 0x631C70 : 0x632E20), 1, one, ret);
+            uint64_t ign[8] = {hidden ? Fnv1a(name) : 0ull};
+            SafeNative(BuildRva(0xC9CC10), 1, ign, ret);
+        });
+        QueueShowCompanion(!hidden, 1.2f, companionLogged_ && companionHidden_ == hidden);
+        if (!companionLogged_ || companionHidden_ != hidden) Log("companion: '%s' %s", name.c_str(), hidden ? "hidden (AI on, no collision)" : "shown");
+        companionLogged_ = true;
+        companionHidden_ = hidden;
+    }, true);
+}
+
+void GameBridge::QueueShowCompanion(bool visible, float radius, bool quiet) {
+    RunOnGameFiber([this, visible, radius, quiet]() mutable {
         uintptr_t b = findBuddyOnFiber();
         uintptr_t walk = BuildRva(0x1448C10);
         auto mgr = componentTable_ ? Read<uintptr_t>(componentTable_ + 19 * 8) : std::nullopt;
         if (!b || !walk || !mgr || !*mgr) return;
         auto bp = Read<Vec3>(b + offPos_);
         if (!bp) return;
-        int body = SafeSetObjectVisible(b, true);
+        // Hiding: skip the radius walk while the player is close. It would catch the player's
+        // own cloth (that once hid Dina's jacket for good).
+        if (!visible) {
+            uintptr_t pl = follow(player_);
+            auto pp = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
+            if (!pp || Distance(*pp, *bp) < radius + 1.5f) radius = 0.f;
+        }
+        int body = SafeSetObjectVisible(b, visible);
         std::string names;
         int n = 0;
         for (uint32_t off : {512u, 528u}) {
             auto r = Read<uintptr_t>(*mgr + off);
             if (!r || !*r) continue;
-            WalkState a{true, 0, 0, *bp, 2.5f, 0, &names, false, nullptr, nullptr};
+            if (radius <= 0.f) break;
+            WalkState a{visible, 0, 0, *bp, radius, 0, &names, false, nullptr, nullptr};
             a.ids = nullptr;
             SafeWalk(walk, *mgr, *r, &a);
             n += a.count;
@@ -1567,9 +1634,9 @@ void GameBridge::QueueShowCompanion() {
         for (uint32_t i = 0; inv && *inv && i < 32; ++i) {
             uintptr_t obj = SafePropObject(*inv, i);
             if (obj == ~uintptr_t(0)) break;
-            if (obj && SafeSetObjectVisible(obj, true) == 1) { ++props; names += " prop:" + ProcessName(obj); }
+            if (obj && SafeSetObjectVisible(obj, visible) == 1) { ++props; names += " prop:" + ProcessName(obj); }
         }
-        Log("showcompanion: body %d, %d nearby attachables, %d props:%s", body, n, props, names.c_str());
+        if (!quiet) Log("%s: body %d, %d nearby attachables, %d props:%s", visible ? "showcompanion" : "hidecompanion", body, n, props, names.c_str());
     }, true);
 }
 
