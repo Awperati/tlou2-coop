@@ -1667,6 +1667,23 @@ void GameBridge::QueueSpawnWithLook(const std::string& spawner, const std::strin
     });
 }
 
+// Remote partner's body (verified 2026-10-15): a plain Watchtower NPC spawner wearing the
+// partner's player look walks on move-to (the theater Ellie's boss archetype never did).
+// Spawns it, then makes it friendly (set-object-faction <npc> 7, rva 0x422FB0, Dina's
+// faction) and hands it to DrivePuppet, which turns its AI off on takeover and walks or
+// teleports it to the remote player's position.
+void GameBridge::QueueRemoteBody(const std::string& spawner, const std::string& look) {
+    QueueSpawnWithLook(spawner, look);
+    RunInScriptContext([spawner] {
+        uint64_t argv[8] = {Fnv1a(spawner), 7};
+        uint64_t ret[4] = {};
+        SafeNative(BuildRva(0x422FB0), 2, argv, ret);
+    });
+    SetPuppetSpawner(spawner);
+    puppetAiOff_ = false;   // force a fresh takeover (AI off) on the next DrivePuppet tick
+    Log("body: '%s' wearing '%s' is now the remote body", spawner.c_str(), look.c_str());
+}
+
 // Process trees (ProcessMgr = EngineComponents[19]): root at mgr+416, top-level trees at
 // mgr+440.. (+448 is the default tree spawned NPCs go into; +728/+824/+832 are others).
 // GetParentProcess = sub_14133D550. ProcessMgr::RequestChangeParentNextFrame(mgr, pid,

@@ -462,6 +462,10 @@ void CoopMain() {
                         std::istringstream ss(line.substr(9)); std::string sp; int off = 448; ss >> sp >> off;
                         bridge.QueueTreeOf(sp, off);
                     }
+                    else if (line.rfind("body ", 0) == 0) {   // body <spawner> <look>
+                        std::istringstream ss(line.substr(5)); std::string sp, lk; ss >> sp >> lk;
+                        if (!sp.empty() && !lk.empty()) bridge.QueueRemoteBody(sp, lk);
+                    }
                     else if (line.rfind("spawnlook ", 0) == 0) {   // spawnlook <spawner> <look>
                         std::istringstream ss(line.substr(10)); std::string sp, lk; ss >> sp >> lk;
                         if (!sp.empty() && !lk.empty()) bridge.QueueSpawnWithLook(sp, lk);

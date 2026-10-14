@@ -557,3 +557,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
   Ellie in the Seattle hoodie and backpack (re\ellie-militia.png). Game stable. Recipe for the host's body on the
   partner's PC: a plain Watchtower NPC spawner + the host's player look. Next: wire this NPC into DrivePuppet as the
   remote body (puppetSpawner_ = that spawner) and test with coop_lan_sim walk.
+- **Remote body end to end (2026-10-15 06:49, user idle):** `body npc-wat-laundry-militia-2 ellie-seattle` spawned an
+  Ellie-look militia NPC (no crash), made her friendly and set her as the puppet. `coop_lan_sim walk -63 -6.8 -202
+  127.0.0.1` joined as slot 1 (31 ms RTT) and sent a host circling 3 m at 1.5 m/s. DrivePuppet took her over (AI off),
+  teleported her in from 775 m, then walked her toward the remote position. The data path works. Motion quality is
+  poor: every ~3 s "stuck" -> teleport (her own progress < 0.5 m in 2.5 s while 2+ m away). Likely the same lesson
+  as the companion: remote mode re-issues move-to every 1 s or 1 m and restarts her stride. Next: give the remote mode
+  the direction steering + speed scale used for the self puppet, and relax the stuck check for a moving target.

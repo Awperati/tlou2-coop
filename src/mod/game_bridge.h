@@ -116,6 +116,8 @@ public:
     void QueueTreeOf(const std::string& spawner, int moveToOff = 0);
     void QueueRehome(const std::string& spawner, const std::string& levelName);
     void QueueSpawnWithLook(const std::string& spawner, const std::string& look);
+    // Spawn a plain NPC wearing a player look, make it friendly and drive it as the remote body.
+    void QueueRemoteBody(const std::string& spawner, const std::string& look);
     bool companionHidden_ = false, companionLogged_ = false;
     // Make the local player wear a No Return look (e.g. dina-player): load its packages, poll the request.
     void StartLookSwap(const std::string& look);
