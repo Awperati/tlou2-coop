@@ -1577,12 +1577,25 @@ void GameBridge::PollLookSwap() {
         // After the swap the player rendered nothing until set-all-meshes-visible
         // (native rva 0xD54D00) <player> #t (2026-10-14).
         lookShowAt_ = 0;
+        lookTeleAt_ = now + 500;
         RunInScriptContext([] {
             uint64_t argv[8] = {Fnv1a("player"), 1};
             uint64_t ret[4] = {};
             SafeNative(BuildRva(0xD54D00), 2, argv, ret);
             Log("look: player meshes set visible");
         });
+    }
+    if (lookTeleAt_ && now >= lookTeleAt_) {
+        // Player::ChangeLookId rebuilds the anim instance mid-game and left locomotion dead
+        // (player frozen) until a respawn. The dev-menu teleport event to the player's own spot
+        // brought movement back (verified 2026-10-14 21:43).
+        lookTeleAt_ = 0;
+        if (auto s = ReadLocalPlayer(0)) {
+            TeleportTo t; t.pos = s->pos; t.yaw = s->yaw;
+            t.pos.y += 0.1f;
+            bool ok = TeleportLocalPlayer(t);
+            Log("look: reset teleport to own spot %s", ok ? "sent" : "FAILED");
+        }
     }
     if (lookSwap_.empty()) return;
     if (now - lookSwapLast_ < 1000) return;

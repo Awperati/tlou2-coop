@@ -404,3 +404,7 @@ Next: find how No Return loads those actor packages and sets the player look, th
   locomotion state machine dead until a respawn (Restart Checkpoint). Next ideas: (1) after the swap, force a
   respawn-like reset, e.g. the dev-menu teleport event (M2) to the same spot, or a checkpoint reload with the look
   kept; (2) set the look before the player spawns (find where the spawn picks the player's look and hook it).
+- **Fixed 2026-10-14 21:45 (verified in game):** after the swap, `look` sends the dev-menu teleport event (M2) to the
+  player's own spot. That restarts locomotion, like a respawn. Clean test from a fresh checkpoint: Ellie ->
+  `look dina-player-no-jacket` -> accepted in 2 s -> meshes shown -> reset teleport -> the virtual stick walks Dina
+  about 3 m. No freeze. The spawn-time hook idea (step 2) isn't needed for now.

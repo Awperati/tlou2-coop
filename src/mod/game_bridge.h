@@ -118,7 +118,7 @@ public:
     void StartLookSwap(const std::string& look);
     void PollLookSwap();
     std::string lookSwap_;
-    unsigned long long lookSwapStart_ = 0, lookSwapLast_ = 0, lookShowAt_ = 0;
+    unsigned long long lookSwapStart_ = 0, lookSwapLast_ = 0, lookShowAt_ = 0, lookTeleAt_ = 0;
     std::vector<std::string> lookPackages_;
     int lookStable_ = 0;
     bool LookPackagesLoaded();
