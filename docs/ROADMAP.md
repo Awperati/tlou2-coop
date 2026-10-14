@@ -387,3 +387,9 @@ Next: find how No Return loads those actor packages and sets the player look, th
   lock set from a player state (controller at rva 0xB71D70). `look` now waits for 3 straight polls (about 3 s) where
   every package reports loaded and nothing is pending before it asks. `lookstate` prints the fields. Built, not run.
   The freeze itself is still unexplained.
+- Live 21:32 (2026-10-14): the safe `look dina-player-no-jacket` swapped in 3 s with nothing pending before or after
+  (lookstate: current = base = new look, pending 0, locked 0). **The player froze straight away again** (virtual stick
+  moved nothing for 25 s). So the freeze comes from applying a No Return look itself, not a stuck pending request.
+  Restart Checkpoint (virtual pad) restored Ellie (look 712c65c6c3e102bf) and movement. Next suspect: the player's
+  locomotion/anim set or controllers rebuilt by the apply (sub_140D99F90, sub_140DCC670, sub_140DAC710, the anim
+  controller at player+12120), versus what No Return's own player setup does.
