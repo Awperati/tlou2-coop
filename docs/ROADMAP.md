@@ -454,3 +454,9 @@ Next: find how No Return loads those actor packages and sets the player look, th
   not an active region of the world, so its NPCs don't update. Not confirmed. Next (static): find what gates NPC
   updates per level (level active / visible / region flags in LevelMgr or Level), then either activate aef-script or
   move the NPC to an active level (e.g. the level owning Dina's spawner).
+- **Crash 9 (2026-10-14 22:09):** copying the Ellie spawner's archetype fields (+0x70 sid/+0x78 name/+0x88 def ptr)
+  into Watchtower Dina spawner cdina-wat-horse-explore-freeway-3, then `spawnlook ... ellie-seattle`, returned an Npc
+  and crashed within about 5 s. Archetype patching is unsafe as done; more state ties a spawner to its character.
+  Don't retry without RE of how the spawner's character def is used. The user relaunched the game.
+- Automation note: my Alt-tap focus trick opened the Windows task switcher while the user was using the PC, and the
+  virtual-pad presses landed on the wrong menu item (No Return info page). Only drive the game when the PC is free.

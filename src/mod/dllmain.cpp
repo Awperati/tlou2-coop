@@ -359,6 +359,15 @@ void CoopMain() {
                     }
                     else if (line.rfind("keepload ", 0) == 0) { keepLoad = Trim(line.substr(9)); Log("keepload: %s", keepLoad.c_str()); }
                     else if (line == "keepload") { keepLoad.clear(); Log("keepload: off"); }
+                    else if (line.rfind("copymem ", 0) == 0) {   // copymem <hex dst> <hex src> <bytes>: research only
+                        std::istringstream ss(line.substr(8)); std::string d, s; size_t n = 0; ss >> d >> s >> n;
+                        uintptr_t dst = std::stoull(d, nullptr, 16), src = std::stoull(s, nullptr, 16);
+                        n = std::min<size_t>(n, 64);
+                        uint8_t buf[64]; SIZE_T got = 0, put = 0;
+                        bool ok = n && ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(src), buf, n, &got) && got == n &&
+                                  WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(dst), buf, n, &put) && put == n;
+                        Log("copymem %llx <- %llx (%zu bytes): %s", static_cast<unsigned long long>(dst), static_cast<unsigned long long>(src), n, ok ? "ok" : "FAILED");
+                    }
                     else if (line.rfind("peek ", 0) == 0) {   // peek <hex addr> [bytes]: read-only memory dump
                         std::istringstream ss(line.substr(5)); std::string a; size_t n = 64; ss >> a >> n;
                         uintptr_t addr = std::stoull(a, nullptr, 16); n = std::min<size_t>(n, 512);
