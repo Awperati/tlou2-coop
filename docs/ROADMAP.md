@@ -427,3 +427,12 @@ Next: find how No Return loads those actor packages and sets the player look, th
   world-theater), not from a look. Options for the host's body on the partner's PC: (1) load or borrow an Ellie
   spawner and archetype from world-abby-ellie-fight; (2) a Dina NPC body wearing her NPC look (works today) as a
   stand-in; (3) longer term, a second player-like process.
+- Ellie NPC source (static, 2026-10-14): the theater fight levels `aef-*` live in world-theater-ambush.psarc (mounted
+  from start-up). `aef-script` (data in aef-script-ingame.pak) holds the Ellie NPC spawners `npc-enemy-ellie-1` and
+  `npc-enemy-ellie-pistol-1`, the archetype string `ellie-simple`, and `ellie-no-headshot-npc-collision-settings`.
+  NPC Ellie animations are actor packages `anim-ellie-boss` (world-abby-fights-militia.psarc), `anim-melee-ellie-npc-t2`
+  and `anim-melee-ellie-abby-fight` (part-actor-anim-melee-ellie-abby-fight). `aef-const-audio` also has
+  `vox-remap-abby-ellie-fight`, a built-in vox remap symbol worth studying for the dialogue work. Plan: load level
+  `aef-script` with `loadpkg aef-script` (type 1 is right for a level), plus the NPC Ellie actor packages, then
+  `spawnlook npc-enemy-ellie-1 ellie-seattle` (or plain c-spawn-npc). Then AI off and a friendly faction. Risks: the
+  level's state scripts may start the fight logic; the spawner is an enemy.
