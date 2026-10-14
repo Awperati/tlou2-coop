@@ -1448,7 +1448,32 @@ void GameBridge::QueueLoadPackage(const std::string& name, bool load, bool log) 
 //   WantLoadInfo(info, type, name, sid)                          rva 0x1AAEE20
 //   LoadRegistry::AddWantLoad(g_registry 0x3603788, info, true)  rva 0x1AEDF40
 // Runs in the task-update phase like the other heavy engine calls.
+// True if <game>\build\pc\main\actor97.txt lists this actor package. Wanting a name that is
+// not a package hits a debug-break in WantLoadInfo::AsyncLoadConstructor ("Asset %s not
+// found"): "military-pistol-pelvis" (a mesh part name) crashed the game on 2026-10-14.
+static bool IsActorPackage(const std::string& name) {
+    static std::vector<std::string> names;
+    static bool loaded = false;
+    if (!loaded) {
+        loaded = true;
+        wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring p = exe; p = p.substr(0, p.find_last_of(L"\\/") + 1) + L"build\\pc\\main\\actor97.txt";
+        std::string text;
+        if (FILE* f = _wfopen(p.c_str(), L"rb")) {
+            char buf[65536]; size_t n;
+            while ((n = fread(buf, 1, sizeof(buf), f)) > 0) text.append(buf, n);
+            fclose(f);
+        }
+        std::istringstream ss(text); std::string line;
+        while (std::getline(ss, line)) { while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back(); if (!line.empty()) names.push_back(line); }
+        std::sort(names.begin(), names.end());
+        Log("loadactor: %zu actor packages listed in actor97.txt", names.size());
+    }
+    return std::binary_search(names.begin(), names.end(), name);
+}
+
 void GameBridge::QueueLoadActor(const std::string& name) {
+    if (!IsActorPackage(name)) { Log("loadactor: '%s' is not in actor97.txt, refused (would crash)", name.c_str()); return; }
     RunOnGameFiber([name] {
         using CacheFn = const char* (*)(uintptr_t, const char*);
         using InfoFn = void* (*)(void*, int16_t, const char*, uint64_t);
@@ -1490,7 +1515,8 @@ void GameBridge::StartLookSwap(const std::string& look) {
         "dina-player-skel", "dina-player-head", "dina-player-hair", "dina-player-seattle-body",
         "dina-player-backpack", "dina-player-backpack-gas-can", "dina-player-r-forearm-bandage",
         "dina-player-l-bicep-bandage", "dina-player-leg-holster-r", "dina-player-hair-cloth",
-        "dina-player-seattle-jacket-cloth", "dina-player-backpack-zip-cloth"};
+        "dina-player-seattle-jacket-cloth", "dina-player-backpack-zip-cloth",
+        "backpack-rogue-ellie-base"};   // also needed: the look stayed refused without it (2026-10-14)
     for (const char* p : kDinaPlayer) QueueLoadActor(p);
     lookSwap_ = look;
     lookSwapStart_ = GetTickCount64();

@@ -343,3 +343,8 @@ Next: find how No Return loads those actor packages and sets the player look, th
   the session. player-request-set-look-id `dina-player` still returns 0. Fix: restart the game, then `look dina-player`
   (wants all 12 as actors, polls the look request each second for up to 60 s). The engine print hooks
   (`enginelog`) printed nothing during loads.
+- 2026-10-14 (after a game restart): `look dina-player` loaded all 12 packages, the skeleton included, so the earlier
+  type-1 calls had poisoned it for one session. The look request still returned 0. `backpack-rogue-ellie-base`
+  (also in the look) was missing; it's now in the look's list. **Crash 7:** `loadactor military-pistol-pelvis` killed
+  the game. That's a mesh part, not a package, so WantLoadInfo::AsyncLoadConstructor hit its "Asset not found"
+  debug-break. `loadactor` now refuses names not listed in build\pc\main\actor97.txt.
