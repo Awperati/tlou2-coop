@@ -605,3 +605,13 @@ Next: find how No Return loads those actor packages and sets the player look, th
   upper-half mean of her speed while the remote moves): 0.6 -> 0.57 m/s, 1.0 -> 1.04, 1.6 -> 1.29 (max 1.5),
   auto -> 1.30 (max 1.6). Her walk caps near 1.5 m/s, so a 1.6 scale can't close a gap at a walk. Run gait reaches
   3.4-4.1 m/s (07:11). One leg direction stalls 8-10 m out (her speed 0.1-0.4): likely an obstacle on that path.
+- **Remote follow tuning (2026-10-15 07:35-07:49, user away):** new `tools/remote_ab.ps1` (A/B a toggle over the LAN
+  sim, log + clip per setting) and `tools/remote_ab.py` (summary). Line sim, 8 m legs, 2 s stops, on
+  npc-wat-bank-militia-1 (alive). Gap = her distance to the remote while it moves.
+  - Catch-up run (`remotecatch`, slowed run when 1.5 m+ behind): no gain. Without snap: gap mean 2.87 vs 2.92 m.
+    With snap: median 2.5 vs 1.8 m, worse, and 5 gait flips. Default OFF.
+  - The big lag was the 180 degree reversal: her turn-in-place took ~2 s (speed 0.2-0.4) and she fell 3-5 m behind.
+    `remotesnap` (default ON): when she starts off facing 57+ degrees away, one teleport on her own spot with the new
+    heading. Walk 1.5 m/s: gap median 1.9 vs 2.3 m, and the 3-5 m spikes after reversals are gone (steady 1.6-2.0 m).
+    Run 3.5 m/s: gap median 3.0 vs 3.3 m, max 5.1 vs 7.0 m.
+  - The steady ~1.8 m walk lag is her ~1 s start-up at a walk that caps at the remote's 1.5 m/s. Not fixed.

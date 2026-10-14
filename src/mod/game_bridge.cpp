@@ -584,6 +584,19 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             Vec3 nd = dl > 0.05f ? Vec3{dx / dl, 0.f, dz / dl} : lastDir_;
             float dot = nd.x * lastDir_.x + nd.z * lastDir_.z;
             if (dl > 0.05f && (!moveIssuedAt_ || !dirActive_ || m != lastGait_ || dot < 0.978f || t - moveIssuedAt_ > 2000)) {
+                // Starting off facing away: her turn-in-place took ~2 s, so she fell 3-4 m behind
+                // on every reversal (line sim 07:37, her speed 0.2-0.4). Snap her heading with one
+                // teleport on her own spot first (as the self puppet's idle turn does).
+                if (!dirActive_ && remoteSnap_) {
+                    auto q = Read<Quat>(b + offRot_);
+                    float want = std::atan2(nd.x, nd.z);
+                    float diff = q ? std::fabs(std::remainder(YawFromQuat(*q) - want, 6.2831853f)) : 0.f;
+                    if (diff > 1.0f) {
+                        alignas(16) float locator[8] = {cur->x, cur->y, cur->z, 1.f, 0.f, std::sin(want * 0.5f), 0.f, std::cos(want * 0.5f)};
+                        bool ok = CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
+                        Log("remote: snap turn %.0f deg %s", diff * 57.3f, ok ? "sent" : "FAILED");
+                    }
+                }
                 lastDir_ = nd;
                 IssueMoveInDir(name, nd, m);
                 dirActive_ = true;
