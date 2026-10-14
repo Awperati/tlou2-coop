@@ -593,3 +593,15 @@ Next: find how No Return loads those actor packages and sets the player look, th
     peaks at 2.4-4.2 m early in a leg, then closes during the stop. Speed scale sits at 1.6 and her walk never goes
     past ~1.6 m/s: npc-set-movement-speed-scale may have no effect on her. Not yet checked.
   - 3.5 m/s: legs are only 2.3 s, so she never settles. Gap 2-5.6 m, back to ~1 m in each stop.
+- **Body spawn fixed (2026-10-15 07:17, game in front, user idle 19 min):** c-spawn-npc-with-look (rva 0x626710) =
+  <spawner> <location spawner or 0> <look>. Arg 2 is not a point: it is another spawner, whose locator is used via
+  sub_141BBE450 (rva 0x1BBE450). That helper copies spawner+0 (local pos vec4 + quat at +0x10) and applies the
+  parent (spawner+144 parent spawner, else +136 owning Level). `MoveSpawnerTo` writes spawner+0 so the world spot
+  lands where wanted. `body` now spawns 2 m beside the player. `body npc-wat-bank-militia-1 ellie-seattle` moved its
+  spawner from -74.36 -7.84 -231.54 to -66.29 -6.81 -203.52 (miss 0.00 m). npcstate 3 s and 8 s later: alive 1,
+  running behavior 259cefc1e29d44fd, faction 7. It follows the sim. Caveat: this spawner's own spot was only 28 m
+  away, so this run alone does not prove the far spot was what killed militia-1/-2.
+- **Speed scale works, but only downward for a walk** (`remotescale <s>` pins it; line sim 10 m legs at 1.5 m/s,
+  upper-half mean of her speed while the remote moves): 0.6 -> 0.57 m/s, 1.0 -> 1.04, 1.6 -> 1.29 (max 1.5),
+  auto -> 1.30 (max 1.6). Her walk caps near 1.5 m/s, so a 1.6 scale can't close a gap at a walk. Run gait reaches
+  3.4-4.1 m/s (07:11). One leg direction stalls 8-10 m out (her speed 0.1-0.4): likely an obstacle on that path.

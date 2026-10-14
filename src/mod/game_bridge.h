@@ -86,6 +86,7 @@ public:
     void SetSelfLead(float s) { selfLead_ = s; }
     float selfNudge_ = 0.f;   // fraction of her error pulled per tick by writing Process+0x130; no effect in game (overwritten), off
     bool selfDir_ = true;
+    float remoteScale_ = 0.f;   // remotescale <s>: fixed speed scale for the remote body (0 = auto)
     bool remoteDir_ = true;   // remote body: move-in-direction steering (off = move-to only)
     float selfDirLead_ = 1.5f;   // loop selftest 2026-10-14: 0.5 -> 1.6 m mean at a run, 2.0 -> 1.5 m
     bool dirActive_ = false, runGait_ = false;
@@ -116,7 +117,8 @@ public:
     void QueueVoxNames();
     void QueueTreeOf(const std::string& spawner, int moveToOff = 0);
     void QueueRehome(const std::string& spawner, const std::string& levelName);
-    void QueueSpawnWithLook(const std::string& spawner, const std::string& look);
+    void QueueSpawnWithLook(const std::string& spawner, const std::string& look, bool nearPlayer = false);
+    bool MoveSpawnerTo(const std::string& spawner, const Vec3& at);   // script context
     // Spawn a plain NPC wearing a player look, make it friendly and drive it as the remote body.
     void QueueRemoteBody(const std::string& spawner, const std::string& look);
     void QueueNpcState(const std::string& name, int faction);   // npcstate <npc> [faction]

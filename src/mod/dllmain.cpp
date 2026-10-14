@@ -497,6 +497,7 @@ void CoopMain() {
                         Log("selfspeed: walk %.2f run %.2f gain %.2f", bridge.selfWalkSpeed_, bridge.selfRunSpeed_, bridge.selfSpeedGain_);
                     }
                     else if (line.rfind("selfstyle ", 0) == 0) { bridge.selfStyle_ = std::stoi(line.substr(10)); Log("selfstyle: %d", bridge.selfStyle_); }
+                    else if (line.rfind("remotescale ", 0) == 0) { bridge.remoteScale_ = std::stof(line.substr(12)); Log("remotescale: %.2f", bridge.remoteScale_); }
                     else if (line == "remotedir on" || line == "remotedir off") { bridge.remoteDir_ = line == "remotedir on"; Log("remotedir: %s", line.substr(10).c_str()); }
                     else if (line == "selfdir on" || line == "selfdir off") { bridge.SetSelfDir(line == "selfdir on"); Log("selfdir: %s", line.substr(8).c_str()); }
                     else if (line.rfind("selfnudge ", 0) == 0) { bridge.SetSelfNudge(std::stof(line.substr(10))); Log("selfnudge: %s", line.substr(10).c_str()); }

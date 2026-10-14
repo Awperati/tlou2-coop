@@ -586,7 +586,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             }
             float nominal = m ? selfRunSpeed_ : selfWalkSpeed_;
             float want = std::max(0.f, speed - selfSpeedGain_ * along);
-            SetSpeedScale(name, std::clamp(want / nominal, 0.5f, 1.6f));
+            SetSpeedScale(name, remoteScale_ > 0.f ? remoteScale_ : std::clamp(want / nominal, 0.5f, 1.6f));   // remotescale <s> pins it for tests
             return;
         }
         SetSpeedScale(name, 1.f);
@@ -1729,8 +1729,46 @@ void GameBridge::QueueCompanionHidden(bool hidden) {
 // c-spawn-npc (valid spawner, not already spawned unless a multispawner), then spawns with
 // the given look. For the remote partner's body on this PC (e.g. host's Ellie on the
 // partner's screen). Heavy call: runs in the task-update phase like c-spawn-npc.
-void GameBridge::QueueSpawnWithLook(const std::string& spawner, const std::string& look) {
-    RunInScriptContext([spawner, look] {
+namespace {
+// Spawner world locator (rva 0x1BBE450): copies the spawner's local locator (spawner+0: pos
+// vec4, quat at +0x10) and applies its parent (spawner+144 parent spawner, or +136 owning
+// Level). c-spawn-npc-with-look (rva 0x626710) spawns there.
+using SpawnerLocatorFn = void (*)(uintptr_t spawner, float* out);
+bool SafeSpawnerLocator(uintptr_t spawner, float* out) {
+    __try { reinterpret_cast<SpawnerLocatorFn>(BuildRva(0x1BBE450))(spawner, out); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+} // namespace
+
+// Spawn at a chosen spot: `body` spawns made at the spawner's own far-off spot came out dead
+// (2026-10-15). Moves the spawner's local position so its world position lands on `at`
+// (assumes the parent transform has no rotation; logged if the result misses).
+bool GameBridge::MoveSpawnerTo(const std::string& spawner, const Vec3& at) {
+    uint64_t argv[8] = {Fnv1a(spawner)};
+    uint64_t ret[4] = {};
+    if (!SafeNative(BuildRva(0xD45850), 1, argv, ret) || !ret[0]) { Log("spawnat: no spawner '%s'", spawner.c_str()); return false; }
+    uintptr_t sp = ret[0];
+    alignas(32) float world[8] = {};
+    auto local = Read<Vec3>(sp);
+    if (!local || !SafeSpawnerLocator(sp, world)) { Log("spawnat: '%s' locator unreadable", spawner.c_str()); return false; }
+    float nl[3] = {at.x - (world[0] - local->x), at.y - (world[1] - local->y), at.z - (world[2] - local->z)};
+    SafeWrite(sp, nl, sizeof(nl));
+    alignas(32) float check[8] = {};
+    SafeSpawnerLocator(sp, check);
+    float miss = Distance(Vec3{check[0], check[1], check[2]}, at);
+    Log("spawnat: '%s' world %.2f %.2f %.2f -> %.2f %.2f %.2f (miss %.2f m)", spawner.c_str(), world[0], world[1], world[2], check[0], check[1], check[2], miss);
+    return miss < 0.5f;
+}
+
+void GameBridge::QueueSpawnWithLook(const std::string& spawner, const std::string& look, bool nearPlayer) {
+    RunInScriptContext([this, spawner, look, nearPlayer] {
+        if (nearPlayer) {   // 2 m to the player's right, on the player's height
+            uintptr_t pl = follow(player_);
+            auto me = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
+            auto q = pl ? Read<Quat>(pl + offRot_) : std::nullopt;
+            float yaw = q ? YawFromQuat(*q) : 0.f;
+            if (me) MoveSpawnerTo(spawner, {me->x + std::cos(yaw) * 2.f, me->y, me->z - std::sin(yaw) * 2.f});
+        }
         uint64_t argv[8] = {Fnv1a(spawner), 0, Fnv1a(look)};
         uint64_t ret[4] = {};
         bool ok = SafeNative(BuildRva(0x626710), 3, argv, ret);
@@ -1744,7 +1782,7 @@ void GameBridge::QueueSpawnWithLook(const std::string& spawner, const std::strin
 // faction) and hands it to DrivePuppet, which turns its AI off on takeover and walks or
 // teleports it to the remote player's position.
 void GameBridge::QueueRemoteBody(const std::string& spawner, const std::string& look) {
-    QueueSpawnWithLook(spawner, look);
+    QueueSpawnWithLook(spawner, look, true);   // at the player: spawned at its own far-off spot it died
     RunInScriptContext([spawner] {
         uint64_t argv[8] = {Fnv1a(spawner), 7};
         uint64_t ret[4] = {};
