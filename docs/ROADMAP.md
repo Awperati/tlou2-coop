@@ -507,3 +507,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
   brain is an enemy/boss archetype that only runs inside an encounter (behavior 0, no idle behavior); compare her
   AI state with the walking Dina's (npc-get-script-mode, behavior, demeanor); (2) try the script-owned move-to path
   (script mode 1 bound + move-to in script context) on the rehomed NPC; (3) Level+0x12 bit 0x02 still untraced.
+- AI state comparison 2026-10-15 06:37 (user idle): story Dina: script mode 0, behavior 0x46f9879bc6b6c976 (active),
+  demeanor 0. NPC Ellie (rehomed): script mode 0, **behavior 0 (none)**, demeanor 2 (aggressive). With the script
+  path (npc-set-script-mode 1 1, demeanor 0, move-to in script context) her script mode reads 1, but behavior stays
+  0 and she doesn't move. move-to never starts a behavior for her, while it did for Dina on 2026-10-12. Classes (from
+  the assert strings their vtables use): Dina's vtable 0x2B91580 is a Buddy (Npc subclass); Ellie's 0x2BA7B90 is a
+  plain Npc/Human (enemy). Her AI brain runs no behavior at all, which points at encounter/brain setup (an enemy
+  NPC with no encounter, or a brain never started), not navigation. Level+0x12 bit 0x02 still untraced.
