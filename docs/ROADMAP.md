@@ -470,3 +470,11 @@ Next: find how No Return loads those actor packages and sets the player look, th
   `treeof <spawner|buddy>` shows the parent chain; `reparent <spawner> [mgr offset]` asks to move the NPC under that
   tree. Next live test: `treeof buddy` vs `treeof npc-enemy-ellie-pistol-1`; if they differ, reparent Ellie to
   Dina's tree and see if she animates.
+- 2026-10-15 06:26 (live): `treeof buddy` (Dina) = `treeof npc-enemy-ellie-pistol-1` (NPC Ellie): both sit under
+  ProcessMgr+464, so the **process tree is ruled out** as the reason she's frozen. Re-spawned Seattle-look NPC Ellie
+  first appears at the theater's own coordinates (385.4, -159.7, 598.5; 935 m away), then is teleported beside the
+  player. She stays frozen: move-to returns 1, position unchanged. Remaining suspects: (1) her owning level
+  (spawner+0x90 -> aef-script) isn't in the active/logged-in set, and NPC updates are gated per level; (2) her nav
+  and binding point at the theater's navmesh/space (not loaded here), so AI and locomotion can't run. Next (static):
+  find what Npc update checks about its level or nav (e.g. `set-nav-mesh-enable-by-level` rva 0x21086F0 hints
+  navmeshes are enabled per level).
