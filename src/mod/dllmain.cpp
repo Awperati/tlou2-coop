@@ -433,6 +433,11 @@ void CoopMain() {
                         }
                         if (!hits) Log("findwant: '%s' not wanted", nm.c_str());
                     }
+                    else if (line.rfind("look ", 0) == 0) bridge.StartLookSwap(Trim(line.substr(5)));
+                    else if (line.rfind("unwant ", 0) == 0) {   // unwant <name> [times]
+                        std::istringstream ss(line.substr(7)); std::string nm; int times = 1; ss >> nm >> times;
+                        bridge.QueueUnwant(nm, std::clamp(times, 1, 2000));
+                    }
                     else if (line.rfind("loadactor ", 0) == 0) bridge.QueueLoadActor(Trim(line.substr(10)));
                     else if (line.rfind("loadpkg ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(8)), true);
                     else if (line.rfind("pkgloaded ", 0) == 0) bridge.QueueLoadPackage(Trim(line.substr(10)), false);
@@ -494,7 +499,7 @@ void CoopMain() {
         testWasDown = testDown;
 
         if (now - lastStance >= 200) {
-            lastStance = now; bridge.PollStance();
+            lastStance = now; bridge.PollStance(); bridge.PollLookSwap();
             if (!keepLoad.empty()) {
                 bool logIt = now - keepLoadLog > 3000;
                 if (logIt) keepLoadLog = now;

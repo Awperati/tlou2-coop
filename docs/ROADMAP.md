@@ -336,3 +336,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
   object+8 = path): 41 mounted, world-rogue.psarc included (slot 27). So the file system can reach it, and the
   block is in package resolution or loading (PackageMgr::PreparePackageForLoading, rva 0x12DC610, builds
   "actor%i/%s.pak"), not mounting. Next: hook or trace why no package load starts for dina-player-skel.
+- 2026-10-14 (live): with type-2 wants, 11 of the 12 `dina-player` packages loaded, world-rogue ones included
+  (head, hair, seattle-body, backpack, bandages, holster). Only `dina-player-skel` won't load. It was the one name
+  given to `load-level` (type 1) earlier, ~200 times through keepload. Removing those wants (`unwant`, wants are
+  refcounted) doesn't unstick it, and its level def matches a loaded one. LevelMgr likely keeps a failed entry for
+  the session. player-request-set-look-id `dina-player` still returns 0. Fix: restart the game, then `look dina-player`
+  (wants all 12 as actors, polls the look request each second for up to 60 s). The engine print hooks
+  (`enginelog`) printed nothing during loads.

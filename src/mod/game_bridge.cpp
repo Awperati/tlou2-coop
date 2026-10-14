@@ -1466,6 +1466,56 @@ void GameBridge::QueueLoadActor(const std::string& name) {
     }, true);
 }
 
+// LoadRegistry::RemoveWantLoad(*rva 0x3603788, sid, false), rva 0x1AF1270 (as the particle
+// manager unloads its packs). Used to drop the bad type-1 want that load-level made for
+// "dina-player-skel", which seems to block the actor (type 2) load of the same name.
+void GameBridge::QueueUnwant(const std::string& name, int times) {
+    RunOnGameFiber([name, times] {
+        using RemoveFn = void (*)(uintptr_t, uint64_t, uint8_t);
+        auto regPtr = Read<uintptr_t>(BuildRva(0x3603788));
+        if (!regPtr || !*regPtr) { Log("unwant: registry not found"); return; }
+        // Wants may be reference counted: keepload re-added the type-1 want ~200 times.
+        for (int i = 0; i < times; ++i) reinterpret_cast<RemoveFn>(BuildRva(0x1AF1270))(*regPtr, Fnv1a(name), 0);
+        Log("unwant: removed wants for '%s' x%d", name.c_str(), times);
+    }, true);
+}
+
+// Player look swap to No Return's playable Dina. Wants her 12 actor packages (type 2, see
+// QueueLoadActor), then polls player-request-set-look-id (native rva 0xCA1880) once a
+// second: it returns 0 and changes nothing until every package the look needs is loaded.
+// Never use load-level (type 1) on these names: a type-1 want on "dina-player-skel"
+// left that package unloadable for the rest of the session (2026-10-14).
+void GameBridge::StartLookSwap(const std::string& look) {
+    static const char* kDinaPlayer[] = {
+        "dina-player-skel", "dina-player-head", "dina-player-hair", "dina-player-seattle-body",
+        "dina-player-backpack", "dina-player-backpack-gas-can", "dina-player-r-forearm-bandage",
+        "dina-player-l-bicep-bandage", "dina-player-leg-holster-r", "dina-player-hair-cloth",
+        "dina-player-seattle-jacket-cloth", "dina-player-backpack-zip-cloth"};
+    for (const char* p : kDinaPlayer) QueueLoadActor(p);
+    lookSwap_ = look;
+    lookSwapStart_ = GetTickCount64();
+    lookSwapLast_ = 0;
+    Log("look: wanting %zu packages for '%s', polling the look request", std::size(kDinaPlayer), look.c_str());
+}
+
+void GameBridge::PollLookSwap() {
+    if (lookSwap_.empty()) return;
+    ULONGLONG now = GetTickCount64();
+    if (now - lookSwapLast_ < 1000) return;
+    lookSwapLast_ = now;
+    if (now - lookSwapStart_ > 60000) { Log("look: '%s' still refused after 60 s, giving up", lookSwap_.c_str()); lookSwap_.clear(); return; }
+    std::string look = lookSwap_;
+    RunInScriptContext([this, look] {
+        uint64_t argv[8] = {Fnv1a(look)};
+        uint64_t ret[4] = {};
+        bool ok = SafeNative(BuildRva(0xCA1880), 1, argv, ret);
+        if (ok && ret[0]) {
+            Log("look: player-request-set-look-id '%s' accepted", look.c_str());
+            lookSwap_.clear();
+        }
+    });
+}
+
 void GameBridge::QueueShowCompanion() {
     RunOnGameFiber([this] {
         uintptr_t b = findBuddyOnFiber();

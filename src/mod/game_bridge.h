@@ -109,6 +109,12 @@ public:
     void QueueLoadPackage(const std::string& name, bool load, bool log = true);
     // Want an actor package (WantLoadInfo type 2), as level-dependent actors are loaded.
     void QueueLoadActor(const std::string& name);
+    void QueueUnwant(const std::string& name, int times = 1);
+    // Make the local player wear a No Return look (e.g. dina-player): load its packages, poll the request.
+    void StartLookSwap(const std::string& look);
+    void PollLookSwap();
+    std::string lookSwap_;
+    unsigned long long lookSwapStart_ = 0, lookSwapLast_ = 0;
     // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
     void QueueDemeanorNames();
     // Player stance, sampled on a game fiber (player-is-crouched?/prone?/aiming? natives).
