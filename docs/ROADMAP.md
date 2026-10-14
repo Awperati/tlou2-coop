@@ -500,3 +500,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
   dependent of one Level, and aef-script's dependents stay frozen in Watchtower. New `rehome <spawner> <level>`
   calls that same setter to move a spawned NPC to another loaded level (e.g. `rehome npc-enemy-ellie-1 wat-const`).
   Built, not deployed or run. Level+0x12 bit 0x02 not traced yet; the rehome test will show whether it matters.
+- Rehome test 2026-10-15 06:36 (user idle, game in front): `rehome npc-enemy-ellie-1 wat-const` worked
+  (Process+168: aef-script Level -> wat-const Level), but she still won't walk: move-to returns 1, position unchanged
+  after 7 s. Script mode 0 (AI on), current behavior 0, faction 7. So level ownership is not the (only) cause. She
+  had moved about 2.3 m at some point while the user was playing, so she isn't completely dead. Next ideas: (1) her
+  brain is an enemy/boss archetype that only runs inside an encounter (behavior 0, no idle behavior); compare her
+  AI state with the walking Dina's (npc-get-script-mode, behavior, demeanor); (2) try the script-owned move-to path
+  (script mode 1 bound + move-to in script context) on the rehomed NPC; (3) Level+0x12 bit 0x02 still untraced.
