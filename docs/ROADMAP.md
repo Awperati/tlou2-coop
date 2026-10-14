@@ -524,3 +524,13 @@ Next: find how No Return loads those actor packages and sets the player look, th
   locomotion, so move-to never starts a behavior. Option that avoids it: spawn the host's body from a plain
   Watchtower NPC spawner (militia or Dina) and dress it with an Ellie look. That needs a look the archetype's
   skeleton can take (Dina's NPC look already lists ellie-skel among its dependencies).
+- NPC Ellie archetype (static, 2026-10-15): bin.psarc dc1/ai-archetypes.bin defines `enemy-ellie`, the theater
+  boss archetype, whose strings are boss skills (`ellie-boss-sneak`, `-surprise`, `-throw-grenade`, `-uncover`). Her
+  melee data is dc1/melee/npc-standing/npc-enemy-ellie*.bin, with phases 1-3. Standard archetypes carry generic skills
+  (script, follow, explore, idle, stick-drive...). Consistent with the live result: her brain never starts a behavior
+  for move-to. Record layout not fully decoded, so "no script skill" isn't proven. Skeleton compatibility: every
+  Ellie look is on ellie-skel with player anim packages. The only NPC archetype that has worked with it is
+  enemy-ellie. A Dina-archetype NPC + ellie-seattle crashed (crash 8). Plain militia archetypes use
+  base-male/base-female skeletons, so an Ellie look on them is untested and risky. Options: (a) give the
+  enemy-ellie NPC a standard archetype at runtime (find npc-get-archetype's field and the archetype table), keeping
+  her Ellie anims; (b) find what crash 8 actually was before retrying an Ellie look on a plain archetype.
