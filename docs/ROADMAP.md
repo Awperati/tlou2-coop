@@ -541,3 +541,13 @@ Next: find how No Return loads those actor packages and sets the player look, th
   still starts no behavior and she doesn't move. Skills and brain are evidently built from the archetype at spawn,
   so swapping the fields afterwards changes nothing. Crash-8 path (player look on a plain archetype) not decompiled
   yet.
+- Crash 8 analysis (static, 2026-10-15): c-spawn-npc-with-look passes the look through a spawn callback (object
+  off_142BC2510, look id at +8). sub_141BBFD50 calls it on the spawn info before Process::SpawnProcess, so the NPC is
+  built with that look from the start. **Skeletons are not the problem:** dc1/skel-retargets.bin has retargets
+  dina-skel -> ellie-skel and base-female-skel -> ellie-skel (325 pairs; ellie-skel retargets to/from almost every
+  character skeleton). The working case (theater spawner + ellie-seattle) was a **plain Npc** (vtable 0x2BA7B90). The
+  crashing case was Dina's spawner, a **Buddy** (vtable 0x2B91580); buddy logic most likely assumes Dina-specific
+  data (buddy anim sets, facial/gesture rigs). The walking militia NPCs are the same plain Npc class as theater
+  Ellie. **Prediction:** a plain female militia spawner in Watchtower (e.g. npc-wat-laundry-militia-3,
+  militia-female-04-backpack) + `spawnlook ... ellie-seattle` should neither crash nor freeze, giving a walking
+  Ellie body. Not tested.
