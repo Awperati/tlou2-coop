@@ -551,3 +551,9 @@ Next: find how No Return loads those actor packages and sets the player look, th
   Ellie. **Prediction:** a plain female militia spawner in Watchtower (e.g. npc-wat-laundry-militia-3,
   militia-female-04-backpack) + `spawnlook ... ellie-seattle` should neither crash nor freeze, giving a walking
   Ellie body. Not tested.
+- **Walking NPC Ellie body (verified in game, 2026-10-15 06:47):** `spawnlook npc-wat-laundry-militia-3 ellie-seattle`
+  (plain female militia Watchtower spawner, plain Npc class) with no crash. Then npc-set-script-mode 1 1, faction 7,
+  `spawned ... here`, and move-to: she **walked** to the target (-64.72,-202.20 vs -65.00,-201.99) and looks like
+  Ellie in the Seattle hoodie and backpack (re\ellie-militia.png). Game stable. Recipe for the host's body on the
+  partner's PC: a plain Watchtower NPC spawner + the host's player look. Next: wire this NPC into DrivePuppet as the
+  remote body (puppetSpawner_ = that spawner) and test with coop_lan_sim walk.
