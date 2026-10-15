@@ -91,8 +91,8 @@ bool Read(Reader& r, std::vector<EnemyState>& v) {
     for (auto& e : v) { e.sid = r.u64(); e.health = r.f32(); e.flags = r.u8(); }
     return r.ok();
 }
-void Write(Writer& w, const EnemyDamage& d) { w.u64(d.sid); w.f32(d.amount); }
-bool Read(Reader& r, EnemyDamage& d) { d.sid = r.u64(); d.amount = r.f32(); return r.ok(); }
+void Write(Writer& w, const EnemyDamage& d) { w.u64(d.sid); w.f32(d.amount); w.u8(d.flags); }
+bool Read(Reader& r, EnemyDamage& d) { d.sid = r.u64(); d.amount = r.f32(); d.flags = r.u8(); return r.ok(); }
 
 void Write(Writer& w, const Objective& s) {
     w.u32(s.id); w.vec(s.pos); w.f32(s.radius); w.u8(s.isTransition); w.str(s.label);

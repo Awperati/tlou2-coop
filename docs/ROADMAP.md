@@ -760,3 +760,22 @@ Not done: none of these natives has been called live yet.
     ones are sent); a client doesn't rejoin a host that restarted (needs a mod reload).
   - Afterwards: host mode, Ellie's look and companion restored, and test NPCs militia-9/10 removed with kill-entity.
     Killed test enemies militia-6/7 lie far off at their spawn spots until a checkpoint restart.
+- **Alert sync + client auto-rejoin (2026-10-15 18:38-18:44, user idle ~45 min, game in the background):**
+  - `npc-make-aware-of <npc> <target> <level>`: level 3 put a militia NPC in combat (npc-in-combat? 1,
+    npc-get-awareness 3, demeanor 2). A 4th arg faulted inside sub_140501110 (SEH caught), so it takes 3 args.
+  - EnemyState flag bit1 = in combat. EnemyDamage gains a flags byte (bit0 = alert). Partner: if the host says
+    combat and it isn't here -> npc-make-aware-of the host's body. If it is in combat only here -> report an alert.
+    Each is throttled to once per 5 s per enemy. Host: an alert report -> npc-make-aware-of the buddy (the
+    partner's stand-in there).
+  - Host test: sim partner `--alert npc-wat-bank-militia-1 3` -> `partner was spotted by ..., now hunting 'dina'`.
+    The enemy went in combat (1), demeanor 2 then 5 (search). In an earlier run the alerted enemy ended up dead,
+    probably shot by Dina.
+  - Partner test: the spawned enemy was already in combat locally, so it sent `spotted us, alert sent to the host`.
+    It also reported hits: the hidden story Dina is still fighting on the partner's PC. To fix: the hidden
+    companion should not fight (AI off or passive) when the partner plays her. The host -> partner
+    make-aware-of branch did not fire, because the enemy was already in combat.
+  - Auto-rejoin: when the host drops (Bye or timeout), a client keeps sending Hello to the same address. Unit test:
+    host.Stop then StartHost again -> client reconnects (63 tests pass). Live: `player 0 left` 18:43:44, then
+    `joined as slot 1` 18:43:48 against a new sim host, with no mod reload.
+  - Restored afterwards: host mode, Ellie's look, companion shown. Test NPCs removed with kill-entity.
+    Dina and the player are not in combat.

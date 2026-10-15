@@ -38,14 +38,18 @@ int main(int argc, char** argv) {
     // M6 test options (after the address):
     //   --hit <spawner> <amount> <at s>      client: report damage to that enemy at time <at>
     //   --enemy <spawner> <health> <dead s>  host: send that enemy's state, dead from <dead s> on
-    struct Hit { uint64_t sid; float amount; float at; bool sent = false; };
+    struct Hit { uint64_t sid; float amount; float at; bool sent = false; bool alert = false; };
     std::vector<Hit> hits;
-    std::string enemyName; float enemyHp = 0, enemyDeadAt = 1e9f;
+    std::string enemyName; float enemyHp = 0, enemyDeadAt = 1e9f, combatFrom = 1e9f, combatTo = 1e9f;
     auto fnv = [](const std::string& n) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char c : n) { h ^= c; h *= 0x100000001b3ull; } return h; };
     for (int i = 1; i + 3 < argc; ++i) {
         std::string a = argv[i];
         if (a == "--hit") hits.push_back({fnv(argv[i + 1]), static_cast<float>(std::atof(argv[i + 2])), static_cast<float>(std::atof(argv[i + 3]))});
         if (a == "--enemy") { enemyName = argv[i + 1]; enemyHp = static_cast<float>(std::atof(argv[i + 2])); enemyDeadAt = static_cast<float>(std::atof(argv[i + 3])); }
+        // --combat <from s> <to s> <unused>: host flags the --enemy as in combat in that window
+        if (a == "--combat") { combatFrom = static_cast<float>(std::atof(argv[i + 1])); combatTo = static_cast<float>(std::atof(argv[i + 2])); }
+        // --alert <spawner> <at s> <unused>: client reports that enemy spotted it
+        if (a == "--alert") hits.push_back({fnv(argv[i + 1]), 0.f, static_cast<float>(std::atof(argv[i + 2])), false, true});
     }
     size_t enemyMsgs = 0, enemyCount = 0, enemyDead = 0;
     ULONGLONG enemySentAt = 0;
@@ -76,7 +80,7 @@ int main(int argc, char** argv) {
             for (auto& h : hits) if (h.sid == e.sid && enemyMsgs % 10 == 1) std::printf("[client] enemy %016llx health %.1f%s\n", (unsigned long long)e.sid, e.health, (e.flags & kEnemyDead) ? " dead" : "");
         }
     };
-    cb.onEnemyDamage = [](uint8_t slot, const EnemyDamage& d) { std::printf("[host] slot %u hit %016llx for %.1f\n", slot, (unsigned long long)d.sid, d.amount); };
+    cb.onEnemyDamage = [](uint8_t slot, const EnemyDamage& d) { std::printf("[host] slot %u hit %016llx for %.1f%s\n", slot, (unsigned long long)d.sid, d.amount, (d.flags & kReportAlert) ? " (alert)" : ""); };
     cb.onObjective = [](const Objective& o) {
         std::printf("[client] objective '%s' at (%.1f, %.1f, %.1f) transition=%u\n", o.label.c_str(), o.pos.x, o.pos.y, o.pos.z, o.isTransition);
     };
@@ -123,10 +127,10 @@ int main(int argc, char** argv) {
         }
         s.SendPlayerState(me);
         float tsec = (now - start) / 1000.f;
-        for (auto& h : hits) if (!h.sent && tsec >= h.at && s.connected()) { s.SendEnemyDamage({h.sid, h.amount}); h.sent = true; std::printf("[client] t=%.1f reported a %.1f hit\n", tsec, h.amount); }
+        for (auto& h : hits) if (!h.sent && tsec >= h.at && s.connected()) { s.SendEnemyDamage({h.sid, h.amount, static_cast<uint8_t>(h.alert ? kReportAlert : 0)}); h.sent = true; std::printf("[client] t=%.1f reported a %.1f hit\n", tsec, h.amount); }
         if (!enemyName.empty() && mode == "host" && now - enemySentAt > 200) {
             enemySentAt = now;
-            s.SendEnemyStates({{fnv(enemyName), tsec >= enemyDeadAt ? 0.f : enemyHp, static_cast<uint8_t>(tsec >= enemyDeadAt ? kEnemyDead : 0)}});
+            s.SendEnemyStates({{fnv(enemyName), tsec >= enemyDeadAt ? 0.f : enemyHp, static_cast<uint8_t>(tsec >= enemyDeadAt ? kEnemyDead : (tsec >= combatFrom && tsec < combatTo ? kEnemyCombat : 0))}});
         }
 
         if (!walk && mode != "host" && s.connected() && haveOther) {

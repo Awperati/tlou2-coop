@@ -168,6 +168,16 @@ static void TestLoopbackSession() {
     CHECK(gotEnemies == 170);
     CHECK(gotDamage);
 
+    // The host restarts: the client rejoins on its own.
+    host.Stop();
+    welcomed = false;
+    for (int i = 0; i < 50; ++i) { client.Poll(); Sleep(5); }
+    CHECK(!client.connected());
+    CHECK(host.StartHost("test", 47890, 2, false));
+    for (int i = 0; i < 600 && !client.connected(); ++i) { host.Poll(); client.Poll(); Sleep(5); }
+    CHECK(client.connected());
+    CHECK(welcomed);
+
     // A third player is rejected when MaxPlayers = 2.
     Session extra; std::string why;
     Session::Callbacks ecb; ecb.onRejected = [&](const std::string& r) { why = r; };

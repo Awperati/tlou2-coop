@@ -141,6 +141,7 @@ public:
     std::map<uint64_t, float> enemyHostHp_;    // partner: last health the host sent
     std::set<uint64_t> enemyKilledHere_;       // partner: already npc-kill'ed
     std::map<uint64_t, unsigned long long> enemyHitAt_;   // partner: when a local hit was reported
+    std::map<uint64_t, unsigned long long> enemyAlertAt_; // either side: last alert mirrored/reported
     std::atomic<bool> enemySnapBusy_{false};
     std::string PickBodySpawner();   // script context
     void QueueAutoBody(const std::string& look);   // keep a live remote body wearing `look`

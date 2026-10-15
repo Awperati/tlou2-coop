@@ -1951,6 +1951,18 @@ void NativeSetHealth(uint64_t sid, float h) {
     uint64_t ret[4] = {};
     SafeNative(BuildRva(0x4230A0), 2, argv, ret);
 }
+bool NativeInCombat(uint64_t sid) {   // npc-in-combat? (rva 0x63AC80)
+    uint64_t argv[8] = {sid};
+    uint64_t ret[4] = {};
+    return SafeNative(BuildRva(0x63AC80), 1, argv, ret) && (ret[0] & 0xFF);
+}
+// npc-make-aware-of <npc> <target> <level> (rva 0x63DDD0). Level 3 put a militia NPC in
+// combat with demeanor 2 (npc-get-awareness then read 3); a 4th arg faulted (2026-10-15).
+void NativeMakeAware(uint64_t sid, uint64_t target) {
+    uint64_t argv[8] = {sid, target, 3};
+    uint64_t ret[4] = {};
+    SafeNative(BuildRva(0x63DDD0), 3, argv, ret);
+}
 void NativeKill(uint64_t sid) {
     uint64_t argv[8] = {sid};
     uint64_t ret[4] = {};
@@ -1983,7 +1995,8 @@ void GameBridge::QueueEnemySnapshot() {
                 if (alive) enemyAlive_[sid] = true;
                 else if (known == enemyAlive_.end()) continue;          // spawned dead/corpse, never seen alive
                 else known->second = false;
-                out.push_back({sid, alive ? NativeFloat(0x40F7A0, sid) : 0.f, static_cast<uint8_t>(alive ? 0 : kEnemyDead)});
+                uint8_t flags = alive ? (NativeInCombat(sid) ? kEnemyCombat : 0) : kEnemyDead;
+                out.push_back({sid, alive ? NativeFloat(0x40F7A0, sid) : 0.f, flags});
             }
         }
         {
@@ -2015,6 +2028,22 @@ void GameBridge::ApplyEnemyStates(const std::vector<EnemyState>& v) {
                 continue;
             }
             if (!alive) continue;
+            // Alerts both ways: the host saw combat -> this enemy hunts the host's body here;
+            // it is in combat only here -> it spotted the partner, tell the host.
+            ULONGLONG nowA = GetTickCount64();
+            bool combatHere = NativeInCombat(e.sid);
+            bool hostCombat = (e.flags & kEnemyCombat) != 0;
+            if (hostCombat != combatHere && nowA - enemyAlertAt_[e.sid] > 5000) {
+                enemyAlertAt_[e.sid] = nowA;
+                if (hostCombat) {
+                    NativeMakeAware(e.sid, Fnv1a(puppetSpawner_.empty() ? std::string("player") : puppetSpawner_));
+                    Log("enemies: %016llx alerted by the host, now hunting '%s'", static_cast<unsigned long long>(e.sid), puppetSpawner_.c_str());
+                } else {
+                    std::lock_guard lk(enemyMu_);
+                    damageOut_.push_back({e.sid, 0.f, kReportAlert});
+                    Log("enemies: %016llx spotted us, alert sent to the host", static_cast<unsigned long long>(e.sid));
+                }
+            }
             float h = NativeFloat(0x40F7A0, e.sid);
             auto last = enemyHostHp_.find(e.sid);
             if (last != enemyHostHp_.end() && h < last->second - 0.5f) {
@@ -2039,8 +2068,18 @@ void GameBridge::ApplyEnemyStates(const std::vector<EnemyState>& v) {
 }
 
 void GameBridge::ApplyEnemyDamage(const EnemyDamage& d) {
-    RunInScriptContext([d] {
+    RunInScriptContext([this, d] {
         if (!NativeAlive(d.sid)) return;
+        if (d.flags & kReportAlert) {
+            // The partner's stand-in here is the buddy (their character's companion).
+            uintptr_t buddy = findBuddyOnFiber();
+            std::string who = buddy ? ProcessName(buddy) : std::string();
+            if (!who.empty() && who != "?" && !NativeInCombat(d.sid)) {
+                NativeMakeAware(d.sid, Fnv1a(who));
+                Log("enemies: partner was spotted by %016llx, now hunting '%s'", static_cast<unsigned long long>(d.sid), who.c_str());
+            }
+            if (d.amount <= 0.f) return;
+        }
         float h = NativeFloat(0x40F7A0, d.sid);
         float n = h - d.amount;
         if (n <= 0.f) NativeKill(d.sid); else NativeSetHealth(d.sid, n);

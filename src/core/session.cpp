@@ -94,6 +94,7 @@ bool Session::StartClient(const std::string& hostAddr, uint16_t port, const Hell
     in_addr a{};
     if (inet_pton(AF_INET, hostAddr.c_str(), &a) != 1) { Stop(); return false; }
     Peer host; host.ip = a.s_addr; host.port = htons(port); host.slot = 0; host.lastHeard = NowMs();
+    hostIp_ = host.ip; hostPort_ = host.port;
     peers_[0] = host;
     pendingHello_ = hello;
     lastHelloSend_ = 0;
@@ -146,6 +147,16 @@ Session::Peer* Session::peerBySlot(uint8_t slot) {
 void Session::dropPeer(uint8_t slot) {
     if (!peers_.erase(slot)) return;
     if (cb_.onPeerLeft) cb_.onPeerLeft(slot);
+    if (role_ == Role::Client && slot == 0 && hostIp_) {
+        // The host left or restarted: keep knocking (Hello) until a host there welcomes us
+        // again, so a partner needn't reload the mod after the host restarts the game.
+        Peer host; host.ip = hostIp_; host.port = hostPort_; host.slot = 0; host.lastHeard = NowMs();
+        peers_[0] = host;
+        localSlot_ = 0;
+        sessionId_ = 0;
+        lastHelloSend_ = 0;
+        return;
+    }
     if (role_ == Role::Client) { role_ = Role::None; localSlot_ = 0; }
 }
 

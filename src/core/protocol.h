@@ -103,9 +103,12 @@ struct TeleportTo { Vec3 pos; float yaw = 0; uint32_t objectiveId = 0; };
 struct WorldEvent { uint32_t eventId = 0; std::vector<uint8_t> args; };
 // Enemies are keyed by their spawner name's FNV-1a id: both PCs load the same level, and
 // the engine's script natives take that same id (M6, 2026-10-15).
-struct EnemyState { uint64_t sid = 0; float health = 0; uint8_t flags = 0; };   // flags bit0 dead
-constexpr uint8_t kEnemyDead = 1;
-struct EnemyDamage { uint64_t sid = 0; float amount = 0; };
+struct EnemyState { uint64_t sid = 0; float health = 0; uint8_t flags = 0; };
+constexpr uint8_t kEnemyDead = 1;     // flags bit0
+constexpr uint8_t kEnemyCombat = 2;   // flags bit1: in combat (npc-in-combat?)
+// Partner -> host: damage dealt on the partner's PC, and/or "this enemy spotted me".
+struct EnemyDamage { uint64_t sid = 0; float amount = 0; uint8_t flags = 0; };
+constexpr uint8_t kReportAlert = 1;   // flags bit0
 
 // --- serialization ---------------------------------------------------------
 class Writer {

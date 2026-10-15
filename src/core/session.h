@@ -101,6 +101,8 @@ private:
     uintptr_t sock_ = ~uintptr_t(0);
     uintptr_t discoSock_ = ~uintptr_t(0);
     uint32_t sessionId_ = 0;
+    uint32_t hostIp_ = 0;      // client: the host's address, kept to rejoin after it restarts
+    uint16_t hostPort_ = 0;
     uint8_t localSlot_ = 0;
     uint8_t maxPlayers_ = 2;
     uint16_t gamePort_ = kDefaultPort;
