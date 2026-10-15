@@ -30,6 +30,8 @@ bool PrintHookInstall(uintptr_t scriptPrint, uintptr_t ttyPrint);
 void SetEngineLog(int mode, const std::string& filter);
 // DialogManager::RequestDialog (rva 0x316C50): log requests, remap speaker names.
 bool DialogHookInstall(uintptr_t target);
+// Speaker remap on the path every RequestDialog overload ends in (sub_1403172A0).
+bool DialogFactsHookInstall(uintptr_t target, uintptr_t lockFn, uintptr_t unlockFn, uintptr_t speakerKeys);
 void SetSpeakerMap(uint64_t from, uint64_t to);
 void ClearSpeakerMap();
 void SetDialogLog(bool on);

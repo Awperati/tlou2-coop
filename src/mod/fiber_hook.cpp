@@ -341,6 +341,75 @@ bool DialogHookInstall(uintptr_t target) {
     Log("dialog hook: DialogManager::RequestDialog hooked");
     return true;
 }
+// Every RequestDialog overload (the speaker-array ones, the FactDictionary one used by
+// scripted conversations, the speaker-selector one) ends in sub_1403172A0(mgr, dialog,
+// FactDictionary* facts, ...), which picks the speaking actors from the facts whose keys
+// are the 7 speaker slots (qword_142B049E0). FactDictionary: +0 entries (24 bytes each:
+// u64 key, 16-byte BoxedValue with the u64 value first), +16 count, +32 lock (sub_1412432F0
+// lock / sub_141243A50 unlock, as overload 0x316C50 uses). Remapping the speaker values
+// here covers every path; the 0x316C50 hook only saw one of them.
+namespace {
+using FactsFn = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint8_t);
+using LockFn = void (*)(void*);
+uint8_t g_factsSaved[14];
+uint8_t* g_factsTramp = nullptr;
+uintptr_t g_factsTarget = 0, g_factsLock = 0, g_factsUnlock = 0;
+bool g_factsInstalled = false;
+uint64_t g_speakerKeys[7] = {};
+// Raw walk of the entries; no C++ objects here so __try is allowed.
+int RemapSpeakerFacts(uint64_t facts, const std::pair<uint64_t, uint64_t>* map, size_t nmap, uint64_t* seen, uint64_t* now) {
+    int n = 0;
+    __try {
+        uint8_t* e = *reinterpret_cast<uint8_t**>(facts);
+        uint64_t cnt = *reinterpret_cast<uint64_t*>(facts + 16);
+        for (uint64_t i = 0; e && i < cnt && i < 64; ++i, e += 24) {
+            uint64_t key = *reinterpret_cast<uint64_t*>(e);
+            int slot = -1;
+            for (int k = 0; k < 7; ++k) if (g_speakerKeys[k] == key) slot = k;
+            if (slot < 0) continue;
+            uint64_t& v = *reinterpret_cast<uint64_t*>(e + 8);
+            seen[slot] = v;
+            for (size_t m = 0; m < nmap; ++m) if (map[m].first == v) { v = map[m].second; break; }
+            now[slot] = v;
+            ++n;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+    return n;
+}
+uint64_t HookedDialogFacts(uint64_t mgr, uint64_t dialog, uint64_t facts, uint64_t a4, uint64_t a5, uint8_t a6) {
+    if (facts) {
+        std::vector<std::pair<uint64_t, uint64_t>> map;
+        { std::lock_guard lk(g_dlgMu); map = g_speakerMap; }
+        uint64_t seen[7] = {}, now[7] = {};
+        reinterpret_cast<LockFn>(g_factsLock)(reinterpret_cast<void*>(facts + 32));
+        int n = RemapSpeakerFacts(facts, map.data(), map.size(), seen, now);
+        reinterpret_cast<LockFn>(g_factsUnlock)(reinterpret_cast<void*>(facts + 32));
+        if (g_dlgLog) {
+            std::string s;
+            for (int k = 0; k < 7; ++k) if (seen[k]) s += " " + std::to_string(k) + "=" + SidName(seen[k]) + (now[k] != seen[k] ? "->" + SidName(now[k]) : "");
+            Log("dialog: %s speakers%s%s", SidName(dialog).c_str(), s.c_str(), n < 0 ? " (fault)" : "");
+        }
+    }
+    return reinterpret_cast<FactsFn>(g_factsTramp)(mgr, dialog, facts, a4, a5, a6);
+}
+} // namespace
+
+bool DialogFactsHookInstall(uintptr_t target, uintptr_t lockFn, uintptr_t unlockFn, uintptr_t keys) {
+    if (g_factsInstalled || !target || !lockFn || !unlockFn || !keys) return g_factsInstalled;
+    std::memcpy(g_speakerKeys, reinterpret_cast<void*>(keys), sizeof(g_speakerKeys));
+    g_factsLock = lockFn; g_factsUnlock = unlockFn;
+    // mov [rsp+10h],rbx; push rbp; push rsi; push rdi; push r12; push r13; push r14
+    static const uint8_t expect[14] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedDialogFacts), g_factsSaved, g_factsTramp)) {
+        Log("dialog facts hook: prologue changed, not hooking");
+        return false;
+    }
+    g_factsTarget = target;
+    g_factsInstalled = true;
+    Log("dialog facts hook: sub_1403172A0 hooked (speaker keys %016llx..)", static_cast<unsigned long long>(g_speakerKeys[0]));
+    return true;
+}
+
 void SetSpeakerMap(uint64_t from, uint64_t to) {
     std::lock_guard lk(g_dlgMu);
     for (auto& e : g_speakerMap) if (e.first == from) { e.second = to; return; }
@@ -429,6 +498,7 @@ bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle) {
 void FiberHookRemove() {
     if (g_bumpInstalled) { RemoveTrampoline(g_bumpTarget, g_bumpSaved, sizeof(g_bumpSaved)); g_bumpInstalled = false; Log("bump hook: removed"); }
     if (g_dlgInstalled) { RemoveTrampoline(g_dlgTarget, g_dlgSaved, sizeof(g_dlgSaved)); g_dlgInstalled = false; Log("dialog hook: removed"); }
+    if (g_factsInstalled) { RemoveTrampoline(g_factsTarget, g_factsSaved, sizeof(g_factsSaved)); g_factsInstalled = false; Log("dialog facts hook: removed"); }
     g_printMode = 0;
     for (auto& p : g_print) if (p.on) { RemoveTrampoline(p.target, p.saved, sizeof(p.saved)); p.on = false; }
     if (g_nativeInstalled) { RemoveTrampoline(g_nativeTarget, g_nativeSaved, sizeof(g_nativeSaved)); g_nativeInstalled = false; Log("script hook: removed"); }

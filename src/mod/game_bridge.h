@@ -129,6 +129,8 @@ public:
     void QueueAutoBody(const std::string& look);   // keep a live remote body wearing `look`
     void RunPickBody();   // pickbody: dry run of PickBodySpawner
     std::set<std::string> badBodySpawners_;
+    std::wstring bodyFile_;   // tlou2-coop\body.txt: spawner of the current body, kept across reloads
+    bool bodyFileChecked_ = false;
     bool autoBodyBusy_ = false;
     int autoBodyTries_ = 0;
     unsigned long long autoBodyAt_ = 0;

@@ -657,3 +657,18 @@ Next: find how No Return loads those actor packages and sets the player look, th
   the host). Not cleaned up yet: each mod reload spawns a new body, and earlier ones stay in the world; there is no
   despawn native, only npc-kill. A checkpoint restart clears them. Afterwards the game was set back to host mode,
   Ellie's look and the companion shown, then the checkpoint restarted (pad: start, down x6, a, left, a).
+- **Body reuse across reloads (2026-10-15 18:03):** the spawner of the current body goes to tlou2-coop\body.txt.
+  After a mod reload, `QueueAutoBody` takes that body back if it is still alive, instead of spawning another.
+  Live: round 1 spawned npc-wat-bank-militia-8; after the reload, round 2 logged `autobody: reusing
+  'npc-wat-bank-militia-8'` and drove it again.
+- **Dialogue speaker remap on every path (2026-10-15 17:58-18:03):** every RequestDialog overload ends in
+  sub_1403172A0(mgr, dialog, FactDictionary*, ...). Speakers are facts keyed by the 7 slot ids at qword_142B049E0
+  (fbf1ac4d96ebd022, 5a2d194b8a8ae591, ...). FactDictionary: +0 entries (24 bytes: key, BoxedValue with the u64 first),
+  +16 count, +32 lock (sub_1412432F0 / sub_141243A50). The new hook (`dialog_facts_hook`, on by default) logs every
+  request and rewrites speaker values through `speakermap`. The 0x316C50 hook saw none of Dina's idle lines; this
+  one logs them every ~30 s: `dialog: 22542302a05c4ea5 speakers 0=dina`, then 1523207a46e188a4 and b58a3da844ede06b.
+  With `speakermap dina player` they log `0=dina->player`, and the game kept running. Not proven: that the audio
+  then comes from the player. There is no loopback audio device to record it. `is-speaking?` (rva 0x319BC0) returns 0
+  even for normal lines. `is-vox-busy?` (rva 0x319CF0) returns 1 for both dina and player while a line plays, so it is
+  probably global. Dialog ids exist only as hashes (vox-dialog/global2.bin has no names). `request-dialog`
+  (rva 0x319F90) replays an id, e.g. `native !319F90 0x22542302a05c4ea5 sid:dina`.

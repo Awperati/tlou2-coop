@@ -161,6 +161,7 @@ void CoopMain() {
     std::string bodyAuto = Lower(cfg.get("body", "Auto", "client"));
     std::string bodyLook = cfg.get("body", "HostLook", "ellie-seattle");
     ULONGLONG bodyCheckAt = 0;
+    bridge.bodyFile_ = dir + L"tlou2-coop\\body.txt";
     // Partner's own setup on joining ([character] AutoLook): wear their character's look,
     // and hide the story companion when they are playing that companion. Applied in the loop.
     const bool autoLook = cfg.getBool("character", "AutoLook", true);

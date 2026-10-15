@@ -166,6 +166,8 @@ bool GameBridge::Init(const Ini& ini) {
         if (ini.getBool("engine", "script_hook", true)) ScriptHookInstall(BuildRva(0x160F950), BuildRva(0x1D91F80));
         if (ini.getBool("engine", "bump_hook", true)) BumpHookInstall(BuildRva(0xB3C330));
         if (ini.getBool("engine", "dialog_hook", true)) DialogHookInstall(BuildRva(0x316C50));
+        if (ini.getBool("engine", "dialog_facts_hook", true))
+            DialogFactsHookInstall(BuildRva(0x3172A0), BuildRva(0x12432F0), BuildRva(0x1243A50), BuildRva(0x2B049E0));
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
@@ -1871,6 +1873,29 @@ void GameBridge::QueueAutoBody(const std::string& look) {
     autoBodyBusy_ = true;
     RunInScriptContext([this, look] {
         autoBodyBusy_ = false;
+        auto aliveNpc = [this](const std::string& sp) {
+            uint64_t argv[8] = {Fnv1a(sp)};
+            uint64_t ret[4] = {};
+            return spawnedProcessOnFiber(sp) && SafeNative(BuildRva(0x62D110), 1, argv, ret) && (ret[0] & 0xFF);
+        };
+        // After a mod reload: take back the body the last instance spawned (named in
+        // body.txt) instead of spawning another one; the old ones piled up (2026-10-15).
+        if (puppetSpawner_.empty() && !bodyFileChecked_ && !bodyFile_.empty()) {
+            bodyFileChecked_ = true;
+            std::string prev;
+            if (FILE* f = _wfopen(bodyFile_.c_str(), L"rb")) {
+                char buf[256] = {};
+                size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+                fclose(f);
+                prev = Trim(std::string(buf, n));
+            }
+            if (!prev.empty() && aliveNpc(prev)) {
+                Log("autobody: reusing '%s' from the last session", prev.c_str());
+                SetPuppetSpawner(prev);
+                puppetAiOff_ = false;
+                return;
+            }
+        }
         if (!puppetSpawner_.empty()) {
             uint64_t argv[8] = {Fnv1a(puppetSpawner_)};
             uint64_t ret[4] = {};
@@ -1885,6 +1910,8 @@ void GameBridge::QueueAutoBody(const std::string& look) {
         if (sp.empty()) return;
         autoBodyAt_ = GetTickCount64();
         QueueRemoteBody(sp, look);
+        if (!bodyFile_.empty())
+            if (FILE* f = _wfopen(bodyFile_.c_str(), L"wb")) { fwrite(sp.data(), 1, sp.size(), f); fclose(f); }
     });
 }
 
