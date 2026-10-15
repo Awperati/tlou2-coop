@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <deque>
+#include <map>
 #include <mutex>
 
 namespace coop {
@@ -420,6 +421,79 @@ uint64_t HookedDialogFacts(uint64_t mgr, uint64_t dialog, uint64_t facts, uint64
 }
 } // namespace
 
+// Barks and callouts don't go through DialogManager: an actor's own VoxController queues a
+// RequestedVox in sub_140331A80(VoxController*, VoxParams*), and the line plays on the
+// controller's owner (handle at +80 node / +88 id, process at node+8, id at process+148).
+// So the facts remap misses them. This hook remembers each owner's controller by name and,
+// when the speaker map sends that owner elsewhere (dina -> player), queues the request on
+// the target's controller instead (once the target has been seen speaking).
+namespace {
+using VoxReqFn = uint64_t (*)(uint64_t, uint64_t);
+uint8_t g_voxSaved[14];
+uint8_t* g_voxTramp = nullptr;
+uintptr_t g_voxTarget = 0;
+bool g_voxInstalled = false;
+std::map<uint64_t, uint64_t> g_voxCtrl;   // fnv(lower(owner name)) -> VoxController*
+bool VoxOwnerRaw(uint64_t ctrl, char* name, size_t cap) {
+    __try {
+        uint64_t node = *reinterpret_cast<uint64_t*>(ctrl + 80);
+        uint32_t id = *reinterpret_cast<uint32_t*>(ctrl + 88);
+        if (!node || !id) return false;
+        uint64_t proc = *reinterpret_cast<uint64_t*>(node + 8);
+        if (!proc || *reinterpret_cast<uint32_t*>(proc + 148) != id) return false;
+        const char* n = (*reinterpret_cast<ProcNameFn**>(proc))[5](proc);
+        name[0] = 0;
+        for (size_t i = 0; n && i + 1 < cap && n[i]; ++i) { name[i] = static_cast<char>(tolower(static_cast<unsigned char>(n[i]))); name[i + 1] = 0; }
+        return name[0] != 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+uint64_t Fnv(const char* s) { uint64_t h = 0xcbf29ce484222325ull; for (; *s; ++s) { h ^= static_cast<uint8_t>(*s); h *= 0x100000001b3ull; } return h; }
+uint64_t HookedVoxRequest(uint64_t ctrl, uint64_t params) {
+    char owner[64];
+    uint64_t use = ctrl;
+    if (ctrl && VoxOwnerRaw(ctrl, owner, sizeof(owner))) {
+        uint64_t sid = Fnv(owner);
+        uint64_t to = 0;
+        {
+            std::lock_guard lk(g_dlgMu);
+            bool fresh = g_voxCtrl.find(sid) == g_voxCtrl.end() || g_voxCtrl[sid] != ctrl;
+            g_voxCtrl[sid] = ctrl;
+            if (fresh && g_dlgLog) Log("vox: '%s' controller %p", owner, reinterpret_cast<void*>(ctrl));
+            for (auto& [from, dst] : g_speakerMap) if (from == sid) { to = dst; break; }
+            if (to) {
+                auto it = g_voxCtrl.find(to);
+                if (it != g_voxCtrl.end()) use = it->second;
+            }
+        }
+        if (to) {
+            char tname[64];
+            // The cached controller must still belong to the target (processes relocate).
+            if (use == ctrl || !VoxOwnerRaw(use, tname, sizeof(tname)) || Fnv(tname) != to) {
+                if (g_dlgLog) Log("vox: '%s' bark kept (target %s has no live controller yet)", owner, SidName(to).c_str());
+                use = ctrl;
+            } else if (g_dlgLog) {
+                Log("vox: '%s' bark -> '%s'", owner, tname);
+            }
+        }
+    }
+    return reinterpret_cast<VoxReqFn>(g_voxTramp)(use, params);
+}
+} // namespace
+
+bool VoxRequestHookInstall(uintptr_t target) {
+    if (g_voxInstalled || !target) return g_voxInstalled;
+    // mov [rsp+18h],rbx; push rbp; push rsi; push rdi; push r12; push r13; push r14
+    static const uint8_t expect[14] = {0x48, 0x89, 0x5C, 0x24, 0x18, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedVoxRequest), g_voxSaved, g_voxTramp)) {
+        Log("vox hook: prologue changed, not hooking");
+        return false;
+    }
+    g_voxTarget = target;
+    g_voxInstalled = true;
+    Log("vox hook: VoxController request (sub_140331A80) hooked");
+    return true;
+}
+
 bool DialogFactsHookInstall(uintptr_t target, uintptr_t lockFn, uintptr_t unlockFn, uintptr_t keys, uintptr_t speakerFn) {
     g_factsSpeaker = speakerFn;
     if (g_factsInstalled || !target || !lockFn || !unlockFn || !keys) return g_factsInstalled;
@@ -526,6 +600,7 @@ void FiberHookRemove() {
     if (g_bumpInstalled) { RemoveTrampoline(g_bumpTarget, g_bumpSaved, sizeof(g_bumpSaved)); g_bumpInstalled = false; Log("bump hook: removed"); }
     if (g_dlgInstalled) { RemoveTrampoline(g_dlgTarget, g_dlgSaved, sizeof(g_dlgSaved)); g_dlgInstalled = false; Log("dialog hook: removed"); }
     if (g_factsInstalled) { RemoveTrampoline(g_factsTarget, g_factsSaved, sizeof(g_factsSaved)); g_factsInstalled = false; Log("dialog facts hook: removed"); }
+    if (g_voxInstalled) { RemoveTrampoline(g_voxTarget, g_voxSaved, sizeof(g_voxSaved)); g_voxInstalled = false; Log("vox hook: removed"); }
     g_printMode = 0;
     for (auto& p : g_print) if (p.on) { RemoveTrampoline(p.target, p.saved, sizeof(p.saved)); p.on = false; }
     if (g_nativeInstalled) { RemoveTrampoline(g_nativeTarget, g_nativeSaved, sizeof(g_nativeSaved)); g_nativeInstalled = false; Log("script hook: removed"); }

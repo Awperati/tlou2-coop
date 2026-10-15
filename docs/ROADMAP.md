@@ -687,3 +687,19 @@ Next: find how No Return loads those actor packages and sets the player look, th
   'Player'`. Test requests with speaker player / ellie logged `plays from 'npc-wat-bank-militia-8'`. No natural Ellie
   line fired while she stood idle, so it is shown with replayed ids only. Afterwards: host mode, Ellie's look and
   the companion restored. The militia-8 test body is still in the world.
+- **Which dialogue paths the remap covers (static, 2026-10-15 18:20):** the vox request queue has three request
+  kinds. Each has its own AllocRequest<>.
+  1. `RequestedDialog`: every DialogManager::RequestDialog overload (speaker array, FactDictionary, speaker
+     selector, `request-dialog`) ends in sub_1403172A0. **Covered** by the facts hook.
+  2. Conversations: DetermineValidSpeakers (sub_140312F70) builds the ConversationHandle's speakers from the same
+     request facts (ConversationHandle::AddSpeaker per speaker-slot fact). It is reached only via sub_140315200 <-
+     sub_140315020 <- sub_1403172A0 / sub_140330F60. PlayNextDialog (sub_1403159C0) and `RequestedNextDialog`
+     (sub_140314AF0, sub_1403177B0) continue on that handle. Later speaker lookups (sub_140327840,
+     sub_14032AC40, sub_140330F60) read the request's own copy at RequestedDialog+40, which sub_140327FA0 makes
+     after the hook has run. So follow-up lines in a conversation inherit the remap. **Covered**, by reasoning.
+  3. `RequestedVox`: barks and callouts. An actor's own VoxController queues them in
+     sub_140331A80(VoxController*, VoxParams*), reached only through vtables. The line plays on the controller's
+     owner (+80 handle node, +88 id; process at node+8, id at +148), with no facts involved. **Not covered** by
+     the facts hook. A new `vox_hook` caches each owner's controller by name. When `speakermap` sends that owner
+     elsewhere, it queues the request on the target's controller, once the target has spoken at least once and
+     the cached controller still belongs to it. Built; `vox_hook = false` in offsets.ini until tested in game.
