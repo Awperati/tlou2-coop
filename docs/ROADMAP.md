@@ -833,3 +833,10 @@ Not done: nothing from M7 has been hooked or called live yet.
   [0x143603768]+99), every 250 ms; changes go out as Paused. The receiving side only logs and shows an overlay
   note; it doesn't restart or pause yet. `checkpoint_hooks = false` in offsets.ini until the first in-game test,
   which waits for the user, since a restart throws away progress since the last checkpoint.
+- **Crash 10, 2026-10-15 19:03 (graphics driver again, not the mod):** dump tlou-ii.exe.12480.dmp. Write to address 0
+  at +0x19C5950, reached from ndgi::AssertDeviceRemoved (sub_1412F5210, "device removed with HRESULT") and
+  sub_1419C0EE0 (DXGI_ERROR_DEVICE_RESET / DRIVER_INTERNAL_ERROR strings), inside a compute dispatch from
+  BgJointWindJob. This is the same GPU device reset as 07:57 (AMD RX 9070 XT, driver 26.7.1). No mod frame on
+  the stack, and the last mod log line was a routine position line 5 s before. The M7 hooks were installed 3 min
+  earlier but never fired (no "checkpoint:" lines). The game was relaunched with launcher.exe and the pad
+  (Play, intro, Continue) back to the Watchtower checkpoint; both checkpoint hooks installed again.
