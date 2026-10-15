@@ -42,13 +42,13 @@ int main(int argc, char** argv) {
     std::vector<Hit> hits;
     std::string enemyName; float enemyHp = 0, enemyDeadAt = 1e9f, combatFrom = 1e9f, combatTo = 1e9f;
     auto fnv = [](const std::string& n) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char c : n) { h ^= c; h *= 0x100000001b3ull; } return h; };
-    for (int i = 1; i + 3 < argc; ++i) {
+    for (int i = 1; i + 2 < argc; ++i) {   // --combat/--alert take 2 values, --hit/--enemy 3
         std::string a = argv[i];
-        if (a == "--hit") hits.push_back({fnv(argv[i + 1]), static_cast<float>(std::atof(argv[i + 2])), static_cast<float>(std::atof(argv[i + 3]))});
-        if (a == "--enemy") { enemyName = argv[i + 1]; enemyHp = static_cast<float>(std::atof(argv[i + 2])); enemyDeadAt = static_cast<float>(std::atof(argv[i + 3])); }
-        // --combat <from s> <to s> <unused>: host flags the --enemy as in combat in that window
+        if (a == "--hit" && i + 3 < argc) hits.push_back({fnv(argv[i + 1]), static_cast<float>(std::atof(argv[i + 2])), static_cast<float>(std::atof(argv[i + 3]))});
+        if (a == "--enemy" && i + 3 < argc) { enemyName = argv[i + 1]; enemyHp = static_cast<float>(std::atof(argv[i + 2])); enemyDeadAt = static_cast<float>(std::atof(argv[i + 3])); }
+        // --combat <from s> <to s>: host flags the --enemy as in combat in that window
         if (a == "--combat") { combatFrom = static_cast<float>(std::atof(argv[i + 1])); combatTo = static_cast<float>(std::atof(argv[i + 2])); }
-        // --alert <spawner> <at s> <unused>: client reports that enemy spotted it
+        // --alert <spawner> <at s>: client reports that enemy spotted it
         if (a == "--alert") hits.push_back({fnv(argv[i + 1]), 0.f, static_cast<float>(std::atof(argv[i + 2])), false, true});
     }
     size_t enemyMsgs = 0, enemyCount = 0, enemyDead = 0;

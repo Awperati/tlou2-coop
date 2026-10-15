@@ -779,3 +779,14 @@ Not done: none of these natives has been called live yet.
     `joined as slot 1` 18:43:48 against a new sim host, with no mod reload.
   - Restored afterwards: host mode, Ellie's look, companion shown. Test NPCs removed with kill-entity.
     Dina and the player are not in combat.
+- **Passive hidden companion + partner-side alert (2026-10-15 18:47-18:50):** while hidden, the companion now has
+  AI off (npc-set-script-mode; script mode read 2), perception off (npc-disable-perception 0x632260 / enable
+  0x633300), is invisible to AI (set-object-invisible-to-ai 0x423490, set-invisible-to-npcs 0x421FF0) and her
+  weapon is holstered (npc-holster-weapon 0x63A8E0, takes at least 3 args). All of it is undone when shown
+  (script mode back to 0). Live on the partner's PC, Dina stayed out of combat the whole time. With a calm
+  enemy (npc-wat-bank-militia-4) and the sim host flagging it in combat from 6 s, the log showed `alerted by the
+  host, now hunting 'npc-wat-gas-2'` (the host's body) at 6 s. New problem: the enemy then fell through the
+  floor at its own x/z (y -7.9 -> -639 -> -2167) and died. The earlier host-side alerted enemy at almost the same
+  spot didn't fall. Cause unknown. Suspects: hunting a target 30+ m away across unloaded navmesh, or a
+  traversal action. Also fixed: lan_sim parsed `--combat`/`--alert` only with a dummy third value.
+  Restored afterwards: host mode, Ellie, companion shown (script mode 0), test NPCs removed.

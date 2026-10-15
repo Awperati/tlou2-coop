@@ -1748,7 +1748,25 @@ void GameBridge::QueueCompanionHidden(bool hidden) {
             SafeNative(BuildRva(0xC9CC10), 1, ign, ret);
         });
         QueueShowCompanion(!hidden, 1.2f, companionLogged_ && companionHidden_ == hidden);
-        if (!companionLogged_ || companionHidden_ != hidden) Log("companion: '%s' %s", name.c_str(), hidden ? "hidden (AI on, no collision)" : "shown");
+        if (!companionLogged_ || companionHidden_ != hidden) {
+            // Passive while hidden: her AI kept fighting on the partner's PC and started
+            // combat there (2026-10-15 18:43). AI off (npc-set-script-mode), perception off
+            // (npc-disable-perception 0x632260 / enable 0x633300), unseen by enemies
+            // (set-object-invisible-to-ai 0x423490, set-invisible-to-npcs 0x421FF0),
+            // weapon holstered (npc-holster-weapon 0x63A8E0).
+            SetNpcAi(name, !hidden);
+            RunInScriptContext([name, hidden] {
+                uint64_t ret[4] = {};
+                uint64_t one[8] = {Fnv1a(name)};
+                SafeNative(BuildRva(hidden ? 0x632260 : 0x633300), 1, one, ret);
+                uint64_t inv[8] = {Fnv1a(name), hidden ? 1ull : 0ull};
+                SafeNative(BuildRva(0x423490), 2, inv, ret);
+                SafeNative(BuildRva(0x421FF0), 2, inv, ret);
+                uint64_t hol[8] = {Fnv1a(name), 0, 0};   // takes at least 3 args
+                if (hidden) SafeNative(BuildRva(0x63A8E0), 3, hol, ret);
+            });
+            Log("companion: '%s' %s", name.c_str(), hidden ? "hidden and passive (AI off, no perception, invisible to AI, no collision)" : "shown (AI on)");
+        }
         companionLogged_ = true;
         companionHidden_ = hidden;
     }, true);
