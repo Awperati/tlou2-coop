@@ -7,6 +7,7 @@
 #include "core/protocol.h"
 #include <atomic>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -125,6 +126,22 @@ public:
     bool MoveSpawnerTo(const std::string& spawner, const Vec3& at);   // script context
     // Spawn a plain NPC wearing a player look, make it friendly and drive it as the remote body.
     void QueueRemoteBody(const std::string& spawner, const std::string& look);
+    // M6 enemy sync, keyed by spawner-name FNV ids. Host: QueueEnemySnapshot collects
+    // health/death of every spawned "npc-" spawner; TakeEnemyOut hands it to the session.
+    // Partner: ApplyEnemyStates follows the host and reports local damage via TakeDamageOut.
+    void QueueEnemySnapshot();
+    std::vector<EnemyState> TakeEnemyOut();
+    void ApplyEnemyStates(const std::vector<EnemyState>& v);
+    void ApplyEnemyDamage(const EnemyDamage& d);
+    std::vector<EnemyDamage> TakeDamageOut();
+    std::mutex enemyMu_;
+    std::vector<EnemyState> enemyOut_;
+    std::vector<EnemyDamage> damageOut_;
+    std::map<uint64_t, bool> enemyAlive_;      // host: ids seen alive (dead ones keep being sent)
+    std::map<uint64_t, float> enemyHostHp_;    // partner: last health the host sent
+    std::set<uint64_t> enemyKilledHere_;       // partner: already npc-kill'ed
+    std::map<uint64_t, unsigned long long> enemyHitAt_;   // partner: when a local hit was reported
+    std::atomic<bool> enemySnapBusy_{false};
     std::string PickBodySpawner();   // script context
     void QueueAutoBody(const std::string& look);   // keep a live remote body wearing `look`
     void RunPickBody();   // pickbody: dry run of PickBodySpawner

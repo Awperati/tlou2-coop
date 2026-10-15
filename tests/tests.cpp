@@ -122,6 +122,7 @@ static void TestRoster() {
 static void TestLoopbackSession() {
     Session host, client;
     bool welcomed = false, gotState = false, gotTeleport = false, gotRequest = false;
+    size_t gotEnemies = 0; bool gotDamage = false;
     Session::Callbacks hcb;
     hcb.onPlayerState = [&](uint8_t slot, const PlayerState& s) { gotState = slot == 1 && s.pos.x == 7; };
     hcb.onTeleportRequest = [&](uint8_t slot) {
@@ -129,10 +130,12 @@ static void TestLoopbackSession() {
         TeleportTo t; t.pos = {1, 2, 3};
         host.SendTeleportTo(slot, t);
     };
+    hcb.onEnemyDamage = [&](uint8_t slot, const EnemyDamage& d) { gotDamage = slot == 1 && d.sid == 0xabcdef0123456789ull && d.amount == 12.5f; };
     host.setCallbacks(hcb);
     Session::Callbacks ccb;
     ccb.onWelcome = [&](const Welcome& w) { welcomed = w.slot == 1; };
     ccb.onTeleportTo = [&](const TeleportTo& t) { gotTeleport = t.pos.y == 2; };
+    ccb.onEnemyStates = [&](const std::vector<EnemyState>& v) { for (auto& e : v) if (e.health == 40.f && (e.flags & kEnemyDead) == (e.sid & 1)) ++gotEnemies; };
     client.setCallbacks(ccb);
 
     CHECK(host.StartHost("test", 47890, 2, false));
@@ -155,6 +158,15 @@ static void TestLoopbackSession() {
     CHECK(gotRequest);
     CHECK(gotTeleport);
     CHECK(host.peerCount() == 1);
+
+    // M6: 170 enemies go out in 3 packets; one damage report comes back.
+    std::vector<EnemyState> enemies(170);
+    for (size_t i = 0; i < enemies.size(); ++i) enemies[i] = {static_cast<uint64_t>(i), 40.f, static_cast<uint8_t>(i & 1)};
+    host.SendEnemyStates(enemies);
+    client.SendEnemyDamage({0xabcdef0123456789ull, 12.5f});
+    for (int i = 0; i < 400 && !(gotEnemies >= 170 && gotDamage); ++i) { host.Poll(); client.Poll(); Sleep(5); }
+    CHECK(gotEnemies == 170);
+    CHECK(gotDamage);
 
     // A third player is rejected when MaxPlayers = 2.
     Session extra; std::string why;

@@ -739,3 +739,24 @@ Proposed v1, cheapest first:
 4. Positions diverge with separate AI. If it looks wrong in play, puppet enemies on the partner the way the host
    body is driven (AI off, move-to). That is heavier, so only if needed.
 Not done: none of these natives has been called live yet.
+- **M6 enemy health/death sync, live (2026-10-15 18:24-18:36, user idle 30-40 min, game in the background):**
+  - Natives first: get-object-health on a spawned militia NPC returned 100.0 (raw float bits 0x42c80000).
+    set-object-health 40 then read 40. npc-kill made it dead, and its spawner handle went empty. kill-entity
+    removed the leftover body npc-wat-bank-militia-8 (alive 1 -> process gone). Player health read 83.
+  - Protocol: `EnemyStates` (host -> partners, unreliable, {spawner FNV id, health, flags bit0 dead}, 80 per packet)
+    and `EnemyDamage` (partner -> host, reliable). Loopback unit test: 170 states in 3 packets plus one damage report
+    (59 tests pass).
+  - Host, every 200 ms with a partner connected: every spawned "npc-" spawner except the body, with health and
+    alive. Enemies seen alive and later dead keep being sent as dead. Partner: dead -> npc-kill once; local health
+    below the last host value -> report the drop as a hit; otherwise set health to the host's value, but don't heal
+    back up for 700 ms after a reported hit. Host: a hit lowers health, and npc-kill at 0 or below. `[sync] Enemies`.
+  - Host test (sim as the partner, `--hit`): a 30 hit logged `partner hit ... (100.0 -> 70.0)`, and the sim then
+    received 70.0. An 80 hit logged `(70.0 -> -10.0, killed)`, then the enemy came through as dead, and npcstate
+    showed alive 0.
+  - Partner test (game as client vs `hostline --enemy npc-wat-bank-militia-7 25 10`): `1 health set` at join, then
+    `1 killed` when the host flagged it dead at 10 s; npcstate alive 0. Local hit (set-object-health 100 -> 60 on
+    the partner): `1 hits reported`.
+  - Not covered yet: alert/awareness sync; enemies the host never spawned but the partner did (only host-spawned
+    ones are sent); a client doesn't rejoin a host that restarted (needs a mod reload).
+  - Afterwards: host mode, Ellie's look and companion restored, and test NPCs militia-9/10 removed with kill-entity.
+    Killed test enemies militia-6/7 lie far off at their spawn spots until a checkpoint restart.

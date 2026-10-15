@@ -35,6 +35,20 @@ int main(int argc, char** argv) {
         mode = asHost ? "host" : "client";
     }
     const int addrArg = line ? 8 : walk ? 5 : 2;
+    // M6 test options (after the address):
+    //   --hit <spawner> <amount> <at s>      client: report damage to that enemy at time <at>
+    //   --enemy <spawner> <health> <dead s>  host: send that enemy's state, dead from <dead s> on
+    struct Hit { uint64_t sid; float amount; float at; bool sent = false; };
+    std::vector<Hit> hits;
+    std::string enemyName; float enemyHp = 0, enemyDeadAt = 1e9f;
+    auto fnv = [](const std::string& n) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char c : n) { h ^= c; h *= 0x100000001b3ull; } return h; };
+    for (int i = 1; i + 3 < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--hit") hits.push_back({fnv(argv[i + 1]), static_cast<float>(std::atof(argv[i + 2])), static_cast<float>(std::atof(argv[i + 3]))});
+        if (a == "--enemy") { enemyName = argv[i + 1]; enemyHp = static_cast<float>(std::atof(argv[i + 2])); enemyDeadAt = static_cast<float>(std::atof(argv[i + 3])); }
+    }
+    size_t enemyMsgs = 0, enemyCount = 0, enemyDead = 0;
+    ULONGLONG enemySentAt = 0;
     Session s;
     PlayerState me; me.character = mode == "host" ? CharacterId::Ellie : CharacterId::Dina;
     PlayerState other; bool haveOther = false;
@@ -55,6 +69,14 @@ int main(int argc, char** argv) {
         me.pos = t.pos;
         std::printf("[client] teleported to (%.1f, %.1f)\n", t.pos.x, t.pos.z);
     };
+    cb.onEnemyStates = [&](const std::vector<EnemyState>& v) {
+        ++enemyMsgs; enemyCount = v.size(); enemyDead = 0;
+        for (auto& e : v) {
+            if (e.flags & kEnemyDead) ++enemyDead;
+            for (auto& h : hits) if (h.sid == e.sid && enemyMsgs % 10 == 1) std::printf("[client] enemy %016llx health %.1f%s\n", (unsigned long long)e.sid, e.health, (e.flags & kEnemyDead) ? " dead" : "");
+        }
+    };
+    cb.onEnemyDamage = [](uint8_t slot, const EnemyDamage& d) { std::printf("[host] slot %u hit %016llx for %.1f\n", slot, (unsigned long long)d.sid, d.amount); };
     cb.onObjective = [](const Objective& o) {
         std::printf("[client] objective '%s' at (%.1f, %.1f, %.1f) transition=%u\n", o.label.c_str(), o.pos.x, o.pos.y, o.pos.z, o.isTransition);
     };
@@ -100,6 +122,12 @@ int main(int argc, char** argv) {
             me.pos.x += 8.f * dt;                     // client wanders off
         }
         s.SendPlayerState(me);
+        float tsec = (now - start) / 1000.f;
+        for (auto& h : hits) if (!h.sent && tsec >= h.at && s.connected()) { s.SendEnemyDamage({h.sid, h.amount}); h.sent = true; std::printf("[client] t=%.1f reported a %.1f hit\n", tsec, h.amount); }
+        if (!enemyName.empty() && mode == "host" && now - enemySentAt > 200) {
+            enemySentAt = now;
+            s.SendEnemyStates({{fnv(enemyName), tsec >= enemyDeadAt ? 0.f : enemyHp, static_cast<uint8_t>(tsec >= enemyDeadAt ? kEnemyDead : 0)}});
+        }
 
         if (!walk && mode != "host" && s.connected() && haveOther) {
             TeleportController::Inputs in;
@@ -109,6 +137,6 @@ int main(int argc, char** argv) {
         }
         Sleep(16);
     }
-    std::printf("done. teleports requested: %d, rtt %u ms\n", teleports, s.rttMs(0));
+    std::printf("done. teleports requested: %d, rtt %u ms, enemy packets %zu (last %zu enemies, %zu dead)\n", teleports, s.rttMs(0), enemyMsgs, enemyCount, enemyDead);
     return 0;
 }

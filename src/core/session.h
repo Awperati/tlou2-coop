@@ -36,6 +36,8 @@ public:
         std::function<void(const TeleportTo&)> onTeleportTo;
         std::function<void(uint8_t slot, CharacterId)> onCharacterSelect;
         std::function<void(uint8_t slot, const WorldEvent&)> onWorldEvent;
+        std::function<void(const std::vector<EnemyState>&)> onEnemyStates;
+        std::function<void(uint8_t slot, const EnemyDamage&)> onEnemyDamage;
     };
 
     Session();
@@ -58,6 +60,8 @@ public:
     void SendTeleportTo(uint8_t slot, const TeleportTo& t); // host only
     void SendCharacterSelect(CharacterId c);
     void SendWorldEvent(const WorldEvent& e);
+    void SendEnemyStates(const std::vector<EnemyState>& v);   // host only; split into packets
+    void SendEnemyDamage(const EnemyDamage& d);               // client only
 
     // Blocking LAN scan; returns hosts that answered within timeoutMs.
     static std::vector<FoundHost> Discover(uint32_t timeoutMs, uint16_t discoveryPort = kDiscoveryPort);

@@ -161,6 +161,9 @@ void CoopMain() {
     std::string bodyAuto = Lower(cfg.get("body", "Auto", "client"));
     std::string bodyLook = cfg.get("body", "HostLook", "ellie-seattle");
     ULONGLONG bodyCheckAt = 0;
+    // M6: enemy health/death follows the host ([sync] Enemies).
+    bool syncEnemies = cfg.getBool("sync", "Enemies", true);
+    ULONGLONG enemySnapAt = 0;
     bridge.bodyFile_ = dir + L"tlou2-coop\\body.txt";
     // Partner's own setup on joining ([character] AutoLook): wear their character's look,
     // and hide the story companion when they are playing that companion. Applied in the loop.
@@ -231,6 +234,8 @@ void CoopMain() {
         OverlayCue(1);
     };
     cb.onCharacterSelect = [&](uint8_t slot, CharacterId c) { Log("player %u is %s", slot, CharacterName(c)); };
+    cb.onEnemyStates = [&](const std::vector<EnemyState>& v) { if (syncEnemies) bridge.ApplyEnemyStates(v); };
+    cb.onEnemyDamage = [&](uint8_t, const EnemyDamage& d) { if (syncEnemies) bridge.ApplyEnemyDamage(d); };
     session.setCallbacks(cb);
 
     if (isHost) {
@@ -275,6 +280,12 @@ void CoopMain() {
         last = now;
         ++tick;
         session.Poll();
+        if (syncEnemies) {
+            ULONGLONG nowE = GetTickCount64();
+            if (isHost && session.peerCount() > 0 && nowE - enemySnapAt > 200) { enemySnapAt = nowE; bridge.QueueEnemySnapshot(); }
+            if (auto v = bridge.TakeEnemyOut(); !v.empty()) session.SendEnemyStates(v);
+            for (const auto& d : bridge.TakeDamageOut()) session.SendEnemyDamage(d);
+        }
 
         auto self = bridge.ReadLocalPlayer(tick);
         if (self) {

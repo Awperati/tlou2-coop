@@ -1,4 +1,5 @@
 #include "core/session.h"
+#include <algorithm>
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -306,6 +307,16 @@ void Session::handlePacket(uint32_t ip, uint16_t port, const uint8_t* data, size
         if (role_ == Role::Host && Read(r, in) && cb_.onInput) cb_.onInput(fromSlot, in);
         break;
     }
+    case MsgType::EnemyStates: {
+        std::vector<EnemyState> v;
+        if (role_ == Role::Client && Read(r, v) && cb_.onEnemyStates) cb_.onEnemyStates(v);
+        break;
+    }
+    case MsgType::EnemyDamage: {
+        EnemyDamage d;
+        if (role_ == Role::Host && Read(r, d) && cb_.onEnemyDamage) cb_.onEnemyDamage(fromSlot, d);
+        break;
+    }
     case MsgType::Objective: {
         Objective o;
         if (role_ == Role::Client && Read(r, o) && cb_.onObjective) cb_.onObjective(o);
@@ -356,6 +367,20 @@ void Session::SendPlayerState(const PlayerState& s) {
 void Session::SendInput(const InputFrame& in) {
     if (role_ != Role::Client || !connected()) return;
     sendUnreliable(peers_[0], MsgType::Input, Body(in));
+}
+
+void Session::SendEnemyStates(const std::vector<EnemyState>& v) {
+    if (role_ != Role::Host) return;
+    for (size_t i = 0; i < v.size(); i += kEnemiesPerPacket) {
+        std::vector<EnemyState> part(v.begin() + i, v.begin() + (std::min)(v.size(), i + kEnemiesPerPacket));
+        auto b = Body(part);
+        for (auto& [slot, p] : peers_) sendUnreliable(p, MsgType::EnemyStates, b);
+    }
+}
+
+void Session::SendEnemyDamage(const EnemyDamage& d) {
+    if (role_ != Role::Client || !connected()) return;
+    sendReliable(peers_[0], MsgType::EnemyDamage, Body(d));
 }
 
 void Session::SendObjective(const Objective& o) {

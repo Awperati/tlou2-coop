@@ -32,6 +32,8 @@ enum class MsgType : uint8_t {
     Ping,
     Pong,
     Bye,
+    EnemyStates,      // unreliable, host -> clients: health/death of enemies (M6)
+    EnemyDamage,      // reliable, client -> host: damage the client dealt locally
 };
 
 struct Vec3 { float x = 0, y = 0, z = 0; };
@@ -99,6 +101,11 @@ struct Hello { std::string playerName; CharacterId wanted = CharacterId::None; }
 struct Welcome { uint8_t slot = 1; CharacterId character = CharacterId::None; uint32_t sessionId = 0; };
 struct TeleportTo { Vec3 pos; float yaw = 0; uint32_t objectiveId = 0; };
 struct WorldEvent { uint32_t eventId = 0; std::vector<uint8_t> args; };
+// Enemies are keyed by their spawner name's FNV-1a id: both PCs load the same level, and
+// the engine's script natives take that same id (M6, 2026-10-15).
+struct EnemyState { uint64_t sid = 0; float health = 0; uint8_t flags = 0; };   // flags bit0 dead
+constexpr uint8_t kEnemyDead = 1;
+struct EnemyDamage { uint64_t sid = 0; float amount = 0; };
 
 // --- serialization ---------------------------------------------------------
 class Writer {
@@ -106,6 +113,7 @@ public:
     void u8(uint8_t v) { buf_.push_back(v); }
     void u16(uint16_t v) { raw(&v, 2); }
     void u32(uint32_t v) { raw(&v, 4); }
+    void u64(uint64_t v) { raw(&v, 8); }
     void f32(float v) { raw(&v, 4); }
     void i8(int8_t v) { u8(static_cast<uint8_t>(v)); }
     void vec(const Vec3& v) { f32(v.x); f32(v.y); f32(v.z); }
@@ -124,6 +132,7 @@ public:
     uint8_t u8();
     uint16_t u16();
     uint32_t u32();
+    uint64_t u64();
     float f32();
     int8_t i8() { return static_cast<int8_t>(u8()); }
     Vec3 vec() { Vec3 v; v.x = f32(); v.y = f32(); v.z = f32(); return v; }
@@ -138,6 +147,11 @@ private:
 void Write(Writer& w, const Header& h);
 bool Read(Reader& r, Header& h);
 void Write(Writer& w, const PlayerState& s);
+void Write(Writer& w, const std::vector<EnemyState>& v);
+bool Read(Reader& r, std::vector<EnemyState>& v);
+void Write(Writer& w, const EnemyDamage& d);
+bool Read(Reader& r, EnemyDamage& d);
+constexpr size_t kEnemiesPerPacket = 80;   // 13 bytes each, stays under kMaxPacket
 bool Read(Reader& r, PlayerState& s);
 void Write(Writer& w, const InputFrame& s);
 bool Read(Reader& r, InputFrame& s);

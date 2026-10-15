@@ -29,6 +29,7 @@ bool Reader::take(void* out, size_t n) {
 uint8_t Reader::u8() { uint8_t v; take(&v, 1); return v; }
 uint16_t Reader::u16() { uint16_t v; take(&v, 2); return v; }
 uint32_t Reader::u32() { uint32_t v; take(&v, 4); return v; }
+uint64_t Reader::u64() { uint64_t v; take(&v, 8); return v; }
 float Reader::f32() {
     float v; take(&v, 4);
     if (!std::isfinite(v)) { ok_ = false; return 0.f; }
@@ -78,6 +79,20 @@ bool Read(Reader& r, InputFrame& s) {
     s.tick = r.u32(); s.moveX = r.i8(); s.moveY = r.i8(); s.lookYaw = r.f32(); s.lookPitch = r.f32(); s.buttons = r.u32();
     return r.ok();
 }
+
+void Write(Writer& w, const std::vector<EnemyState>& v) {
+    w.u16(static_cast<uint16_t>(v.size()));
+    for (auto& e : v) { w.u64(e.sid); w.f32(e.health); w.u8(e.flags); }
+}
+bool Read(Reader& r, std::vector<EnemyState>& v) {
+    uint16_t n = r.u16();
+    if (!r.ok() || n > kEnemiesPerPacket) return false;
+    v.resize(n);
+    for (auto& e : v) { e.sid = r.u64(); e.health = r.f32(); e.flags = r.u8(); }
+    return r.ok();
+}
+void Write(Writer& w, const EnemyDamage& d) { w.u64(d.sid); w.f32(d.amount); }
+bool Read(Reader& r, EnemyDamage& d) { d.sid = r.u64(); d.amount = r.f32(); return r.ok(); }
 
 void Write(Writer& w, const Objective& s) {
     w.u32(s.id); w.vec(s.pos); w.f32(s.radius); w.u8(s.isTransition); w.str(s.label);

@@ -1928,6 +1928,126 @@ void GameBridge::QueueAutoBody(const std::string& look) {
     });
 }
 
+// ---- M6 enemy sync (2026-10-15) -------------------------------------------------
+// Natives (rva): get-object-health 0x40F7A0 and set-object-health 0x4230A0 (float as raw
+// bits), npc-alive? 0x62D110, npc-kill 0x63D260. Verified live on a spawned militia NPC:
+// 100 -> set 40 -> read 40; npc-kill made it dead (its spawner handle then goes empty).
+namespace {
+float NativeFloat(uint32_t rva, uint64_t sid) {
+    uint64_t argv[8] = {sid};
+    uint64_t ret[4] = {};
+    if (!SafeNative(BuildRva(rva), 1, argv, ret)) return -1.f;
+    float f; uint32_t bits = static_cast<uint32_t>(ret[0]); std::memcpy(&f, &bits, 4);
+    return f;
+}
+bool NativeAlive(uint64_t sid) {
+    uint64_t argv[8] = {sid};
+    uint64_t ret[4] = {};
+    return SafeNative(BuildRva(0x62D110), 1, argv, ret) && (ret[0] & 0xFF);
+}
+void NativeSetHealth(uint64_t sid, float h) {
+    uint32_t bits; std::memcpy(&bits, &h, 4);
+    uint64_t argv[8] = {sid, bits};
+    uint64_t ret[4] = {};
+    SafeNative(BuildRva(0x4230A0), 2, argv, ret);
+}
+void NativeKill(uint64_t sid) {
+    uint64_t argv[8] = {sid};
+    uint64_t ret[4] = {};
+    SafeNative(BuildRva(0x63D260), 1, argv, ret);
+}
+} // namespace
+
+void GameBridge::QueueEnemySnapshot() {
+    if (enemySnapBusy_.exchange(true)) return;
+    RunInScriptContext([this] {
+        std::vector<EnemyState> out;
+        for (auto& [lsid, level] : readLevels()) {
+            auto tab = Read<uintptr_t>(level + 256);
+            if (!tab || !*tab) continue;
+            auto arr = Read<uintptr_t>(*tab + 8);
+            auto cnt = Read<int32_t>(*tab + 16);
+            if (!arr || !*arr || !cnt || *cnt <= 0 || *cnt > 20000) continue;
+            for (int32_t i = 0; i < *cnt; ++i) {
+                auto sp = Read<uintptr_t>(*arr + 8ull * i);
+                if (!sp || !*sp) continue;
+                auto np = Read<uintptr_t>(*sp + 0x30);
+                std::string name = np && *np ? TextAt(*np) : std::string();
+                if (name.rfind("npc-", 0) != 0 || name == puppetSpawner_) continue;
+                uint64_t sid = Fnv1a(name);
+                auto hid = Read<uint32_t>(*sp + 104);
+                bool spawned = hid && *hid;
+                auto known = enemyAlive_.find(sid);
+                if (!spawned && known == enemyAlive_.end()) continue;   // never spawned
+                bool alive = spawned && NativeAlive(sid);
+                if (alive) enemyAlive_[sid] = true;
+                else if (known == enemyAlive_.end()) continue;          // spawned dead/corpse, never seen alive
+                else known->second = false;
+                out.push_back({sid, alive ? NativeFloat(0x40F7A0, sid) : 0.f, static_cast<uint8_t>(alive ? 0 : kEnemyDead)});
+            }
+        }
+        {
+            std::lock_guard lk(enemyMu_);
+            enemyOut_ = std::move(out);
+        }
+        enemySnapBusy_ = false;
+    });
+}
+
+std::vector<EnemyState> GameBridge::TakeEnemyOut() {
+    std::lock_guard lk(enemyMu_);
+    return std::exchange(enemyOut_, {});
+}
+
+std::vector<EnemyDamage> GameBridge::TakeDamageOut() {
+    std::lock_guard lk(enemyMu_);
+    return std::exchange(damageOut_, {});
+}
+
+void GameBridge::ApplyEnemyStates(const std::vector<EnemyState>& v) {
+    RunInScriptContext([this, v] {
+        int set = 0, killed = 0, reported = 0;
+        for (const auto& e : v) {
+            bool alive = NativeAlive(e.sid);
+            if (e.flags & kEnemyDead) {
+                if (alive && !enemyKilledHere_.count(e.sid)) { NativeKill(e.sid); enemyKilledHere_.insert(e.sid); ++killed; }
+                enemyHostHp_.erase(e.sid);
+                continue;
+            }
+            if (!alive) continue;
+            float h = NativeFloat(0x40F7A0, e.sid);
+            auto last = enemyHostHp_.find(e.sid);
+            if (last != enemyHostHp_.end() && h < last->second - 0.5f) {
+                // Hit on this PC: tell the host, which owns health. Keep the local value until
+                // the host's next state includes the damage.
+                std::lock_guard lk(enemyMu_);
+                damageOut_.push_back({e.sid, last->second - h});
+                last->second = h;
+                enemyHitAt_[e.sid] = GetTickCount64();
+                ++reported;
+                continue;
+            }
+            // States sent before the host applied our hit still carry the old health: don't
+            // heal the enemy back up for the round trip after a reported hit.
+            auto hit = enemyHitAt_.find(e.sid);
+            if (hit != enemyHitAt_.end() && e.health > h && GetTickCount64() - hit->second < 700) continue;
+            if (std::fabs(h - e.health) > 0.5f) { NativeSetHealth(e.sid, e.health); ++set; }
+            enemyHostHp_[e.sid] = e.health;
+        }
+        if (set || killed || reported) Log("enemies: %zu states, %d health set, %d killed, %d hits reported", v.size(), set, killed, reported);
+    });
+}
+
+void GameBridge::ApplyEnemyDamage(const EnemyDamage& d) {
+    RunInScriptContext([d] {
+        if (!NativeAlive(d.sid)) return;
+        float h = NativeFloat(0x40F7A0, d.sid);
+        float n = h - d.amount;
+        if (n <= 0.f) NativeKill(d.sid); else NativeSetHealth(d.sid, n);
+        Log("enemies: partner hit %016llx for %.1f (%.1f -> %.1f%s)", static_cast<unsigned long long>(d.sid), d.amount, h, n, n <= 0.f ? ", killed" : "");
+    });
+}
+
 // npcstate: why one body walks and another doesn't. Logs faction (get-object-faction,
 // rva 0x40F700), script mode (0x6382C0), current behavior (0x635FE0), demeanor (0x636130),
 // position. A faction >= 0 is set first (set-object-faction, rva 0x422FB0).
