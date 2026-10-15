@@ -135,7 +135,8 @@ public:
     void QueueNpcState(const std::string& name, int faction);   // npcstate <npc> [faction]
     bool companionHidden_ = false, companionLogged_ = false;
     // Make the local player wear a No Return look (e.g. dina-player): load its packages, poll the request.
-    void StartLookSwap(const std::string& look);
+    // Packages from looks.ini (tools/looks.py); empty = the built-in Dina table.
+    void StartLookSwap(const std::string& look, const std::vector<std::string>& packages = {});
     void PollLookSwap();
     std::string lookSwap_;
     unsigned long long lookSwapStart_ = 0, lookSwapLast_ = 0, lookShowAt_ = 0, lookTeleAt_ = 0;

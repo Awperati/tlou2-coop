@@ -13,5 +13,6 @@ fc /b "build\version.dll" "%GAME%\version.dll" >nul 2>&1 || (
 )
 for %%f in (coop.ini roster.ini) do if not exist "%GAME%\tlou2-coop\%%f" copy /y "config\%%f" "%GAME%\tlou2-coop\" >nul
 copy /y "config\offsets.ini" "%GAME%\tlou2-coop\" >nul
+copy /y "config\looks.ini" "%GAME%\tlou2-coop\" >nul
 copy /y "build\coop.dll" "%GAME%\tlou2-coop\coop.dll" >nul
 echo Deployed to %GAME%

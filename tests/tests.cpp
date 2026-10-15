@@ -102,12 +102,15 @@ static void TestRoster() {
     ini.LoadText(
         "[character.ellie]\nweapons = pistol, bow\n"
         "[character.dina]\nweapons = pistol\n"
-        "[character.lev]\nweapons = bow\n"
+        "[character.lev]\nweapons = bow\nlook = lev-player\nlook.world-santa-barbara = lev-player-santa-barbara\n"
         "[chapter.world-seattle-arrival]\nprotagonist = ellie\ncompanions = dina\n"
         "[chapter.world-find-nora]\nprotagonist = ellie\ncompanions =\n");
     Roster r; r.Load(ini);
     std::mt19937 rng(1);
     CHECK(r.character(CharacterId::Ellie)->weapons.size() == 2);
+    CHECK(r.character(CharacterId::Lev)->LookFor("world-rogue") == "lev-player");
+    CHECK(r.character(CharacterId::Lev)->LookFor("world-santa-barbara") == "lev-player-santa-barbara");
+    CHECK(r.character(CharacterId::Dina)->LookFor("world-rogue").empty());
     CHECK(r.AssignForSlot("world-seattle-arrival", 1, CharacterId::Lev, rng) == CharacterId::Dina);
     CHECK(r.AssignForSlot("world-find-nora", 1, CharacterId::Lev, rng) == CharacterId::Lev);
     for (int i = 0; i < 20; ++i) {

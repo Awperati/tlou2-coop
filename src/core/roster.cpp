@@ -32,6 +32,9 @@ void Roster::Load(const Ini& ini) {
             c.craftables = SplitList(ini.get(sec, "craftables"));
             c.modelHint = ini.get(sec, "model");
             c.look = ini.get(sec, "look");
+            if (auto* kv = ini.section(sec))
+                for (auto& [k, v] : *kv)
+                    if (k.rfind("look.", 0) == 0) c.chapterLooks[Lower(k.substr(5))] = v;
             chars_.push_back(std::move(c));
         } else if (sec.rfind("chapter.", 0) == 0) {
             ChapterRule r;

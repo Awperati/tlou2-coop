@@ -6,6 +6,7 @@
 #pragma once
 #include "core/config.h"
 #include "core/protocol.h"
+#include <map>
 #include <random>
 #include <string>
 #include <vector>
@@ -19,6 +20,11 @@ struct CharacterInfo {
     std::vector<std::string> craftables;
     std::string modelHint;                // actor/skin name in game data, filled by RE
     std::string look;                     // player look id (dc1/look2/characters.bin), e.g. dina-player
+    std::map<std::string, std::string> chapterLooks;   // "look.<world pack>" overrides
+    const std::string& LookFor(const std::string& worldPack) const {
+        auto it = chapterLooks.find(worldPack);
+        return it != chapterLooks.end() ? it->second : look;
+    }
 };
 
 struct ChapterRule {

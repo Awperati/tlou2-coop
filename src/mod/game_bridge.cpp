@@ -1603,7 +1603,7 @@ void GameBridge::QueueUnwant(const std::string& name, int times) {
 // second: it returns 0 and changes nothing until every package the look needs is loaded.
 // Never use load-level (type 1) on these names: a type-1 want on "dina-player-skel"
 // left that package unloadable for the rest of the session (2026-10-14).
-void GameBridge::StartLookSwap(const std::string& look) {
+void GameBridge::StartLookSwap(const std::string& look, const std::vector<std::string>& packages) {
     // Part lists from bin.psarc dc1/look2/characters.bin (tools/dsar.py), plus the skeleton
     // and backpack-rogue-ellie-base, which the look also needs (it stayed refused without it).
     static const std::map<std::string, std::vector<const char*>> kLooks = {
@@ -1624,16 +1624,23 @@ void GameBridge::StartLookSwap(const std::string& look) {
                          "dina-player-patrol-no-jacket-l-bicep-bandage", "dina-player-patrol-hand", "dina-player-leg-holster-r",
                          "dina-player-side-strand-cloth", "dina-player-vest-zipper-cloth", "dina-player-backpack-zip-cloth"}},
     };
-    auto it = kLooks.find(look);
-    if (it == kLooks.end()) { Log("look: no package list for '%s'", look.c_str()); return; }
-    lookPackages_ = {"dina-player-skel", "backpack-rogue-ellie-base"};
-    for (const char* p : it->second) lookPackages_.push_back(p);
+    lookPackages_.clear();
+    if (!packages.empty()) {
+        // Only actor packages can be wanted (QueueLoadActor refuses the rest), so only
+        // those are waited on.
+        for (const auto& p : packages) if (IsActorPackage(p)) lookPackages_.push_back(p);
+    } else {
+        auto it = kLooks.find(look);
+        if (it == kLooks.end()) { Log("look: no package list for '%s'", look.c_str()); return; }
+        lookPackages_ = {"dina-player-skel", "backpack-rogue-ellie-base"};
+        for (const char* p : it->second) lookPackages_.push_back(p);
+    }
     for (const auto& p : lookPackages_) QueueLoadActor(p);
     lookStable_ = 0;
     lookSwap_ = look;
     lookSwapStart_ = GetTickCount64();
     lookSwapLast_ = 0;
-    Log("look: wanting %zu packages for '%s', polling the look request", it->second.size() + 2, look.c_str());
+    Log("look: wanting %zu packages for '%s'%s, polling the look request", lookPackages_.size(), look.c_str(), packages.empty() ? " (built-in list)" : " (looks.ini)");
 }
 
 // Player look state (RE 2026-10-14, sub_140DBB470/sub_140DBB490/sub_140DAB290):

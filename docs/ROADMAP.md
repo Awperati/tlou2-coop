@@ -633,3 +633,12 @@ Next: find how No Return loads those actor packages and sets the player look, th
   so the reset may predate the look swap. Cause unknown. The auto body never ran because the game stopped ticking.
   coop.ini was put back to Mode=host and companion.off removed. Closing the crashed game was refused by the
   permission classifier, so it still needs a manual restart.
+- **Look tables for every character (2026-10-15 15:20, offline; game down after the GPU reset):** `tools/looks.py`
+  parses characters.bin look records. List entries point to a struct with the name pointer at +0x10. Real looks
+  have a skeleton at +0x10. It writes `config/looks.ini`: 1190 records, each with skel, parts (+cloth), deps and
+  anims. The look swap now takes its package list from looks.ini (skel + parts + deps, filtered to actor97.txt), and
+  falls back to the built-in Dina table. Every player look checked resolves to real actor packages (13-21 each).
+  Only ellie-seattle has one non-package: ellie-seattle-hair-cloth. roster.ini now gives each character a look
+  (lev-player, yara-player, jesse-player, tommy-player, joel-player, manny-player, mel-player, abby-tracking). It also
+  takes `look.<world pack>` overrides (lev -> lev-player-santa-barbara in world-santa-barbara). Unit-tested (57 pass).
+  Not tried in game yet: only the Dina looks have been swapped live.
