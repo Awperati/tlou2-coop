@@ -1864,6 +1864,16 @@ std::string GameBridge::PickBodySpawner() {
     return best;
 }
 
+// A spawned NPC's process name is its spawner name, and the dialog speaker lookup
+// (sub_141B05470) resolves it: "speakermap dina npc-wat-bank-militia-8" made Dina's lines
+// play from that body (log 2026-10-15 18:08).
+void GameBridge::MapHostSpeech(const std::string& bodySpawner) {
+    for (const auto& who : hostSpeakers_) {
+        SetSpeakerMap(Fnv1a(who), Fnv1a(bodySpawner));
+        Log("autobody: '%s' dialogue now plays from '%s'", who.c_str(), bodySpawner.c_str());
+    }
+}
+
 void GameBridge::RunPickBody() { RunInScriptContext([this] { PickBodySpawner(); }); }
 
 // Keep a live remote body: if the current one is missing or dead, spawn a new one beside
@@ -1892,6 +1902,7 @@ void GameBridge::QueueAutoBody(const std::string& look) {
             if (!prev.empty() && aliveNpc(prev)) {
                 Log("autobody: reusing '%s' from the last session", prev.c_str());
                 SetPuppetSpawner(prev);
+                MapHostSpeech(prev);
                 puppetAiOff_ = false;
                 return;
             }
@@ -1910,6 +1921,7 @@ void GameBridge::QueueAutoBody(const std::string& look) {
         if (sp.empty()) return;
         autoBodyAt_ = GetTickCount64();
         QueueRemoteBody(sp, look);
+        MapHostSpeech(sp);
         if (!bodyFile_.empty())
             if (FILE* f = _wfopen(bodyFile_.c_str(), L"wb")) { fwrite(sp.data(), 1, sp.size(), f); fclose(f); }
     });

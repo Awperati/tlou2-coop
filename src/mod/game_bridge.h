@@ -131,6 +131,10 @@ public:
     std::set<std::string> badBodySpawners_;
     std::wstring bodyFile_;   // tlou2-coop\body.txt: spawner of the current body, kept across reloads
     bool bodyFileChecked_ = false;
+    // Partner's PC: speaker names of the host's character ("player", "ellie"). Their lines
+    // are remapped to the body that stands in for the host (dialog facts hook).
+    std::vector<std::string> hostSpeakers_;
+    void MapHostSpeech(const std::string& bodySpawner);
     bool autoBodyBusy_ = false;
     int autoBodyTries_ = 0;
     unsigned long long autoBodyAt_ = 0;

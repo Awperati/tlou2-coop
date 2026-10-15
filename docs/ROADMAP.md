@@ -678,3 +678,12 @@ Next: find how No Return loads those actor packages and sets the player look, th
   `22542302a05c4ea5 speakers 0=dina, plays from 'dina' 114F4BC700`. With `speakermap dina player`:
   `b58a3da844ede06b speakers 0=dina->player, plays from 'Player' 114F1CF600`. sub_1403172A0 and the vox request
   queue resolve the speaker with this same call.
+- **Host's speech from the body (2026-10-15 18:09):** a spawned NPC's process name is its spawner name, and the
+  speaker lookup resolves it. With `speakermap dina npc-wat-bank-militia-8`, Dina's lines logged `plays from
+  'npc-wat-bank-militia-8'`. On the partner's PC, the Welcome now sets the host speakers: "player" plus the chapter's
+  protagonist ("ellie"). `MapHostSpeech` remaps them to the body's spawner whenever a body is spawned or reused. The
+  remap is single-pass, so dina->player and player->body don't chain. Live, client mode vs `coop_lan_sim hostline`:
+  `'player' dialogue now plays from 'npc-wat-bank-militia-8'`. Dina's idle lines logged `0=dina->player, plays from
+  'Player'`. Test requests with speaker player / ellie logged `plays from 'npc-wat-bank-militia-8'`. No natural Ellie
+  line fired while she stood idle, so it is shown with replayed ids only. Afterwards: host mode, Ellie's look and
+  the companion restored. The militia-8 test body is still in the world.

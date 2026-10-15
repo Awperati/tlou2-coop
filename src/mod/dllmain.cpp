@@ -199,6 +199,9 @@ void CoopMain() {
             const CharacterInfo* info = roster.character(myCharacter);
             pendingLook = info ? info->LookFor(Lower(pack)) : std::string();
             pendingCompanionOff = companion;
+            // The host's character speaks from the body that stands in for the host.
+            bridge.hostSpeakers_ = {"player"};
+            if (rule && rule->protagonist != CharacterId::None) bridge.hostSpeakers_.push_back(CharacterName(rule->protagonist));
             Log("autolook: look '%s'%s", pendingLook.c_str(), companion ? ", story companion off" : "");
         }
         OverlayNotify(L"Connected. You are " + Wide(CharacterName(myCharacter)));
