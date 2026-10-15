@@ -703,3 +703,10 @@ Next: find how No Return loads those actor packages and sets the player look, th
      the facts hook. A new `vox_hook` caches each owner's controller by name. When `speakermap` sends that owner
      elsewhere, it queues the request on the target's controller, once the target has spoken at least once and
      the cached controller still belongs to it. Built; `vox_hook = false` in offsets.ini until tested in game.
+- **Bark test, live (2026-10-15 18:17-18:20, user idle 23 min, game in the background):** with `vox_hook = true`
+  and `speakermap dina player`, the hook installed and the game ran 3.5 min with no crash. Dina's idle lines went
+  through the facts hook as before (`0=dina->player, plays from 'Player'`). sub_140331A80 was never called, so
+  there were no barks to redirect. Barks need gameplay: combat, aiming, pickups. The virtual pad does nothing while
+  the game window isn't in front: a 2.5 s stick push moved the player 0 m. `request-vox` / `vox-action-event`
+  are event symbols, not natives, so no way was found to trigger a bark from a script. The vox hook is back off.
+  Needs: the game in front (the user playing, or focus allowed) and some combat or aiming near Dina.
