@@ -798,3 +798,28 @@ Not done: none of these natives has been called live yet.
   no navmesh or collision there: the bank interior is another streamed area. So the make-aware-of target doesn't
   matter. Test enemies must stand on loaded ground; real story enemies are spawned by the game where their area
   is loaded. Test NPCs removed afterwards.
+
+### M7 save/checkpoint and pause: static RE (2026-10-15 19:00)
+| What | Where (rva) | Notes |
+|---|---|---|
+| Checkpoint written | `GameSave::RememberCheckpoint` = sub_141200770(a1, a2, a3, a4) | Asserts g_checkpoint.m_gameplay/m_records/m_bodyManagerState/m_gameClocks/m_tasks/m_stats. Calls NpcManager::SaveCharacterPositionsInCheckpoint (sub_1404B2E60). Five callers (checkpoint triggers): sub_141042750, sub_141043170, sub_1410475B0, sub_14105D470, sub_1411F7EC0. Prologue mov [rsp+10h],rbx; push rbp/rsi/rdi/r12/r13/r14 = 14 bytes, hookable |
+| Restart from checkpoint | `GameRestartCheckpoint(bool, bool)` = sub_14105F4E0 | The pause menu's Restart Checkpoint and the native `task-restart-from-continue` (0x427500, no args, calls it with (0, 1)) end here. Prologue mov [rsp+18h],rdi; push rbp/r14/r15; lea rbp,[rsp-47h] = 15 bytes, no RIP-relative |
+| Permadeath restart | Menu2::RootGame::DoPermadeathRestartCheckpoint (sub_140FDC0D0) | |
+| Auto-save to disk | `auto-save-game` 0x405020 -> sub_141B7FC60(&SaveManager 0x149341460, 0, 0); `auto-save-in-progress` 0xD31EF0; `is-waiting-for-checkpoint-commit?` 0x415E30 | |
+| Dynamic checkpoint | `remember-dynamic-checkpoint` 0xD52BF0 (4 args) | Mid-encounter checkpoints (combat/search/stealth) |
+| Paused? | `game-paused?` 0xD3D240: clock component 1 +0xF8 (time scale == 0) or byte qword_143603768+99; `prog-paused-last-frame?` 0xD50ED0 = byte qword_143603768+96 | Flags readable directly every frame |
+| Game clock | `pause-game-clock` 0x41A060, `unpause-game-clock` 0x427B40 | Freezes gameplay time without opening a menu |
+Proposed M7 v1:
+1. Checkpoints follow the host. Hook RememberCheckpoint on the host and send `CheckpointWritten` (task + chapter).
+   The partner, if it is far from the host, teleports to the host first (the existing teleport), then writes its
+   own checkpoint. Both restart points then match.
+2. Restarts follow the host. Hook GameRestartCheckpoint on the host (death or menu restart) and send
+   `CheckpointRestart`. The partner calls `task-restart-from-continue`. If the partner dies, it asks the host,
+   and the host restarts for both: one shared death, as in most co-op games. The partner's own GameRestartCheckpoint
+   calls are let through only when the host asked for them.
+3. Pause: poll `game-paused?` (raw flags) on both sides. When either player opens the pause menu, the other's
+   gameplay clock is paused with pause-game-clock and an overlay "Partner paused" shows; resume when it clears.
+   Backpack/crafting menus don't pause in TLOU2, so they need nothing.
+4. Save files stay per player. Only the host saves story progress that matters (the partner follows the host's
+   chapter anyway). The partner's autosave could be disabled later if it causes trouble.
+Not done: nothing from M7 has been hooked or called live yet.
