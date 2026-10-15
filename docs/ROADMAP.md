@@ -847,3 +847,8 @@ Not done: nothing from M7 has been hooked or called live yet.
   and 0x141047663). The hook dropped them, so the save ran with garbage. Fixed: both checkpoint hooks forward 12
   integer args unchanged and only bump a counter; the log line moved to the main loop. Deployed at 19:55 into the
   running game. Not proven: no checkpoint has been written since.
+- **Crash 12, 2026-10-15 19:58 (graphics driver, 3rd time today):** tlou-ii.exe.17224.dmp has the same null write at
+  +0x19C5950 via ndgi::AssertDeviceRemoved as crash 10. No checkpoint had been written since the hook fix (19:55),
+  so the M7 hooks didn't run. The mod's overlay is a GDI layered window (WS_EX_LAYERED|TOPMOST), not a D3D hook.
+  The mod has no render hook, so nothing points at it. Device resets so far: 07:57, 19:03, 19:58, all on AMD RX 9070
+  XT driver 26.7.1. The game was relaunched (launcher + pad, Continue) to the Watchtower checkpoint at 20:04.
