@@ -598,6 +598,12 @@ void CoopMain() {
                 std::wstring mk = dir + L"tlou2-coop\\companion.off";
                 if (HANDLE fh = CreateFileW(mk.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr); fh != INVALID_HANDLE_VALUE) CloseHandle(fh);
                 bridge.QueueCompanionHidden(true);
+                // The hidden companion's lines play from the partner's own player instead
+                // (dialog facts hook, sub_1403172A0). Her process name is the character name.
+                auto fnv = [](const std::string& s) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char ch : s) { h ^= ch; h *= 0x100000001b3ull; } return h; };
+                std::string who = CharacterName(myCharacter);
+                SetSpeakerMap(fnv(who), fnv("player"));
+                Log("autolook: '%s' dialogue now plays from the player", who.c_str());
             }
             if (companionOff && now - companionAt > 2000) { companionAt = now; bridge.QueueCompanionHidden(true); }
             if (!keepLoad.empty()) {
