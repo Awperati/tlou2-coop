@@ -376,6 +376,27 @@ int RemapSpeakerFacts(uint64_t facts, const std::pair<uint64_t, uint64_t>* map, 
     } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
     return n;
 }
+uintptr_t g_factsSpeaker = 0;   // sub_140313FB0(int slot, FactDictionary*) -> Process*
+using SpeakerFn = uintptr_t (*)(int, uint64_t);
+using ProcNameFn = const char* (*)(uintptr_t);
+// Process name via vtable +40 (Process::GetName); raw calls only, so __try is allowed.
+bool SpeakerActorRaw(uint64_t facts, uintptr_t* proc, char* name, size_t cap) {
+    __try {
+        *proc = reinterpret_cast<SpeakerFn>(g_factsSpeaker)(0, facts);
+        if (*proc) {
+            const char* n = (*reinterpret_cast<ProcNameFn**>(*proc))[5](*proc);
+            for (size_t i = 0; n && i + 1 < cap && n[i]; ++i) { name[i] = n[i]; name[i + 1] = 0; }
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+std::string SpeakerActorName(uint64_t facts) {
+    uintptr_t proc = 0; char name[64] = {};
+    if (!SpeakerActorRaw(facts, &proc, name, sizeof(name))) return "(fault)";
+    if (!proc) return "(none)";
+    char b[112]; snprintf(b, sizeof(b), "'%s' %p", name, reinterpret_cast<void*>(proc));
+    return b;
+}
 uint64_t HookedDialogFacts(uint64_t mgr, uint64_t dialog, uint64_t facts, uint64_t a4, uint64_t a5, uint8_t a6) {
     if (facts) {
         std::vector<std::pair<uint64_t, uint64_t>> map;
@@ -387,14 +408,20 @@ uint64_t HookedDialogFacts(uint64_t mgr, uint64_t dialog, uint64_t facts, uint64
         if (g_dlgLog) {
             std::string s;
             for (int k = 0; k < 7; ++k) if (seen[k]) s += " " + std::to_string(k) + "=" + SidName(seen[k]) + (now[k] != seen[k] ? "->" + SidName(now[k]) : "");
-            Log("dialog: %s speakers%s%s", SidName(dialog).c_str(), s.c_str(), n < 0 ? " (fault)" : "");
+            // The actor the line plays from: sub_140313FB0(slot, facts) reads the slot's fact
+            // and looks the name up with sub_141B05470 (process by name), as sub_1403172A0
+            // and the vox request do. Logged as proof the remap reaches the actor.
+            std::string actor = g_factsSpeaker ? SpeakerActorName(facts) : std::string();
+            Log("dialog: %s speakers%s%s%s%s", SidName(dialog).c_str(), s.c_str(), n < 0 ? " (fault)" : "",
+                actor.empty() ? "" : ", plays from ", actor.c_str());
         }
     }
     return reinterpret_cast<FactsFn>(g_factsTramp)(mgr, dialog, facts, a4, a5, a6);
 }
 } // namespace
 
-bool DialogFactsHookInstall(uintptr_t target, uintptr_t lockFn, uintptr_t unlockFn, uintptr_t keys) {
+bool DialogFactsHookInstall(uintptr_t target, uintptr_t lockFn, uintptr_t unlockFn, uintptr_t keys, uintptr_t speakerFn) {
+    g_factsSpeaker = speakerFn;
     if (g_factsInstalled || !target || !lockFn || !unlockFn || !keys) return g_factsInstalled;
     std::memcpy(g_speakerKeys, reinterpret_cast<void*>(keys), sizeof(g_speakerKeys));
     g_factsLock = lockFn; g_factsUnlock = unlockFn;

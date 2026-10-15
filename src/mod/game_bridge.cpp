@@ -167,7 +167,7 @@ bool GameBridge::Init(const Ini& ini) {
         if (ini.getBool("engine", "bump_hook", true)) BumpHookInstall(BuildRva(0xB3C330));
         if (ini.getBool("engine", "dialog_hook", true)) DialogHookInstall(BuildRva(0x316C50));
         if (ini.getBool("engine", "dialog_facts_hook", true))
-            DialogFactsHookInstall(BuildRva(0x3172A0), BuildRva(0x12432F0), BuildRva(0x1243A50), BuildRva(0x2B049E0));
+            DialogFactsHookInstall(BuildRva(0x3172A0), BuildRva(0x12432F0), BuildRva(0x1243A50), BuildRva(0x2B049E0), BuildRva(0x313FB0));
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");

@@ -672,3 +672,9 @@ Next: find how No Return loads those actor packages and sets the player look, th
   even for normal lines. `is-vox-busy?` (rva 0x319CF0) returns 1 for both dina and player while a line plays, so it is
   probably global. Dialog ids exist only as hashes (vox-dialog/global2.bin has no names). `request-dialog`
   (rva 0x319F90) replays an id, e.g. `native !319F90 0x22542302a05c4ea5 sid:dina`.
+- **Remap proven at the actor (2026-10-15 18:07):** the speaker actor comes from `sub_140313FB0(slot, facts)`. It reads
+  the slot's fact (binary search; entries are sorted by key, so rewriting values in place is safe) and looks the
+  name up with sub_141B05470 (process by name). The facts hook now logs that actor. Without the remap:
+  `22542302a05c4ea5 speakers 0=dina, plays from 'dina' 114F4BC700`. With `speakermap dina player`:
+  `b58a3da844ede06b speakers 0=dina->player, plays from 'Player' 114F1CF600`. sub_1403172A0 and the vox request
+  queue resolve the speaker with this same call.
