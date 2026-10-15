@@ -21,6 +21,9 @@ int main(int argc, char** argv) {
     std::string mode = argc > 1 ? argv[1] : "host";
     // walk x y z [addr]: a 3 m circle at 1.5 m/s. line x y z heading len speed [addr]: back
     // and forth along a straight line (heading in radians, x += sin, z += cos), 2 s stop at each end.
+    // hostwalk / hostline: the same motion, but the sim is the host (tests the partner's side).
+    bool asHost = mode.rfind("host", 0) == 0 && mode.size() > 4;
+    if (asHost) mode = mode.substr(4);
     bool line = mode == "line";
     bool walk = mode == "walk" || line;
     Vec3 origin;
@@ -29,7 +32,7 @@ int main(int argc, char** argv) {
         if (argc < (line ? 8 : 5)) { std::printf(line ? "line needs x y z heading len speed\n" : "walk needs x y z\n"); return 1; }
         origin = {static_cast<float>(std::atof(argv[2])), static_cast<float>(std::atof(argv[3])), static_cast<float>(std::atof(argv[4]))};
         if (line) { heading = static_cast<float>(std::atof(argv[5])); lineLen = static_cast<float>(std::atof(argv[6])); lineSpeed = static_cast<float>(std::atof(argv[7])); }
-        mode = "client";
+        mode = asHost ? "host" : "client";
     }
     const int addrArg = line ? 8 : walk ? 5 : 2;
     Session s;

@@ -648,3 +648,12 @@ Next: find how No Return loads those actor packages and sets the player look, th
   Lev and walked 8 m on the stick. `look ellie-seattle` (20 packages) swapped back in 2 s, and she walks.
   No freeze, no crash. A game launched this way can be closed by the mod's shell (PROCESS_TERMINATE opens); the
   instance that crashed earlier could not.
+- **Partner side end to end (2026-10-15 17:49, game in client mode vs `coop_lan_sim hostline ...`):** it joined as
+  slot 1 (dina). `autolook` swapped the player to dina-player (accepted 2 s later) and hid the story Dina.
+  `autobody` picked npc-wat-bank-militia-sniper-1, spawned it in Ellie's look 1.5 m away, and took it over. The host
+  walked 8 m legs: gap mean 1.9 m, max 2.4 m, no teleports, 5 snap turns. Clip re/clips/client_test2.mp4.
+  Bug found and fixed: the host is slot 0, and DrivePuppet treated slot 0 as the self puppet (lead point, collider
+  off, player-ignore). It now takes an explicit `selfMode` flag. New sim modes `hostwalk` / `hostline` (the sim is
+  the host). Not cleaned up yet: each mod reload spawns a new body, and earlier ones stay in the world; there is no
+  despawn native, only npc-kill. A checkpoint restart clears them. Afterwards the game was set back to host mode,
+  Ellie's look and the companion shown, then the checkpoint restarted (pad: start, down x6, a, left, a).

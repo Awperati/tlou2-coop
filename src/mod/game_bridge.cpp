@@ -261,16 +261,16 @@ bool GameBridge::TeleportLocalPlayer(const TeleportTo& t) {
 // npc-set-script-mode, in script context), then npc-move-to walks or runs her toward the
 // remote player. Teleport only when she is far behind, the target is unreachable, or
 // she makes no progress. All engine calls run in the task-update phase or a script call.
-bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
+bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) {
     if (!f_.puppet) return false;
     ULONGLONG now = GetTickCount64();
     // Self mode (slot 0) locks the companion onto the hidden player, so it ticks faster.
-    if (now - lastPuppet_ < (slot == 0 ? 150u : 300u) || puppetQueued_) return true;
+    if (now - lastPuppet_ < (selfMode ? 150u : 300u) || puppetQueued_) return true;
     lastPuppet_ = now;
     puppetQueued_ = true;
     Vec3 pos = s.pos; float yaw = s.yaw;
     int stance = s.stance; bool aim = (s.flags & 1) != 0;
-    RunOnGameFiber([this, slot, pos, yaw, stance, aim] {
+    RunOnGameFiber([this, slot, selfMode, pos, yaw, stance, aim] {
         puppetQueued_ = false;
         if (InCinematic()) return;   // never move actors while a cinematic owns them
         uintptr_t b = puppetSpawner_.empty() ? findBuddyOnFiber() : spawnedProcessOnFiber(puppetSpawner_);
@@ -290,7 +290,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             puppetName_ = name;
             puppetAiOff_ = true;
             SetNpcAi(name, false);
-            if (slot == 0) {
+            if (selfMode) {
                 // The hidden player's capsule blocked her about 1 m short of the spot (log
                 // 19:29). npc-disable-character-collider (rva 0x631C70, vtable +6216).
                 RunInScriptContext([name] {
@@ -300,7 +300,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
                 });
                 colliderOff_ = true;
             }
-            Log("puppet: taking over '%s' (AI off%s)", name.c_str(), slot == 0 ? ", collider off" : "");
+            Log("puppet: taking over '%s' (AI off%s)", name.c_str(), selfMode ? ", collider off" : "");
             // A dead NPC takes move orders (ret 1) and never moves: `body` spawns made at the
             // spawner's far-off spot came out dead (npc-alive? rva 0x62D110 = 0, 2026-10-15).
             RunInScriptContext([name] {
@@ -314,7 +314,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
         // not move until it pushed her out (user report). player-ignore-object-collision
         // (rva 0xC9CC10) stores the object's handle in the player's collision state
         // (player+20672 -> +0xE0). Re-sent every 2 s in case the game resets it.
-        if (slot == 0 && GetTickCount64() - lastIgnoreAt_ > 2000) {
+        if (selfMode && GetTickCount64() - lastIgnoreAt_ > 2000) {
             lastIgnoreAt_ = GetTickCount64();
             RunInScriptContext([name] {
                 uint64_t argv[8] = {Fnv1a(name)};
@@ -338,7 +338,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
             });
             if (!navIgnoreLogged_) { navIgnoreLogged_ = true; Log("puppet: '%s' ignores '%s' for pathfinding", name.c_str(), plName.c_str()); }
         }
-        if (slot == 0) if (auto pid = Read<uint32_t>(b + 0x94)) SetNoBumpProcessId(*pid);   // see BumpHookInstall
+        if (selfMode) if (auto pid = Read<uint32_t>(b + 0x94)) SetNoBumpProcessId(*pid);   // see BumpHookInstall
         // Camera fade off for the companion (Character+0x9BC). Rewritten every tick:
         // processes relocate and the game may clear it.
         if (noFade_ || noFadeOn_) {
@@ -392,7 +392,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
         // Remote body: with move-to re-issued every 1 s she "stuck"-teleported about every
         // 3 s while the remote walked (LAN sim 2026-10-14). While the remote moves, only a
         // gap over 6 m counts as stuck.
-        if (slot != 0 && speed > 0.3f && gap < 6.f) stuck = false;
+        if (!selfMode && speed > 0.3f && gap < 6.f) stuck = false;
         if (gap > puppetTeleportDistance_ || stuck) {
             alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
             bool ok = CallNpcTeleport(b, npcTeleportSlot_, fnBindingDefault_, fnBoundFrameCtor_, locator);
@@ -404,7 +404,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s) {
         // Self mode: follow a point ahead of the hidden player (the camera fades NPCs that
         // stand where the player does). Teleporting her every tick made her twitch ("spazzing"
         // in game), so she walks/runs with move-to and only teleports when 4 m+ behind.
-        if (slot == 0) {
+        if (selfMode) {
             ULONGLONG tt = t;
             // Player velocity (selfVel_, above): aiming at the bare player spot left her
             // trailing behind the camera, out of view, whenever the player moved (video

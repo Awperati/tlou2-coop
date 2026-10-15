@@ -606,7 +606,7 @@ void CoopMain() {
             }
         }
         if (selfPuppet && self) {
-            bridge.DrivePuppet(0, *self);
+            bridge.DrivePuppet(0, *self, true);
             // The game re-shows weapons when they are drawn or swapped; re-hide each second.
             if (now - lastHide >= 1000) { lastHide = now; bridge.QueuePlayerVisible(false, true); }
         }

@@ -153,7 +153,8 @@ public:
 
     std::optional<PlayerState> ReadLocalPlayer(uint32_t tick);
     bool TeleportLocalPlayer(const TeleportTo& t);
-    bool DrivePuppet(uint8_t slot, const PlayerState& s);
+    // selfMode: s is the local player (self puppet); otherwise a remote player (any slot, incl. the host = 0).
+    bool DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode = false);
     std::string CurrentWorldPack();
     std::optional<Objective> CurrentObjective();
     bool InCombat();
