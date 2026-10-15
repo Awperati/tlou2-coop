@@ -710,3 +710,32 @@ Next: find how No Return loads those actor packages and sets the player look, th
   the game window isn't in front: a 2.5 s stick push moved the player 0 m. `request-vox` / `vox-action-event`
   are event symbols, not natives, so no way was found to trigger a bark from a script. The vox hook is back off.
   Needs: the game in front (the user playing, or focus allowed) and some combat or aiming near Dina.
+
+### M6 world sync: static RE (2026-10-15 18:30)
+Both PCs run the same level, so every enemy has the same spawner name on both. The spawned process is found
+through spawner+96/+104 (`spawnedProcessOnFiber`), and its process name is the spawner name. That name is the
+sync key. Natives found (rva, args from their decompiles):
+| Need | Native | rva | Notes |
+|---|---|---|---|
+| read health | get-object-health <obj> | 0x40F7A0 | also get-object-max-health 0x40FB50 |
+| set health | set-object-health <obj> <float> | 0x4230A0 | refuses dead characters ("failed to set health of dead character") |
+| kill (death anim, drops) | npc-kill <npc> | 0x63D260 | -> sub_1404ADAD0(component 16, npc) |
+| dead? | npc-killed? <npc> | 0x63D300 | also npc-alive? 0x62D110, npc-is-dead-in-checkpoint? 0x63BA00 |
+| damage with direction | npc-take-damage-from-position | 0x6496F0 | npc, int amount, two floats, a position, a bound frame |
+| despawn anything by name | kill-entity <name> | 0xD4BB40 | Process kill ("kill-entity or terminate"), no corpse. Also fixes the leftover test bodies |
+| awareness | npc-get-awareness 0x635C90, npc-make-aware-of 0x63DDD0, npc-make-aware-of-at 0x63DF70, npc-is-aware-of? 0x63B7D0, npc-in-combat? 0x63AC80 | | alert sync |
+| position | get-object-position 0xD42FE0, npc-teleport 0x649B90 | | |
+| pickups | player-apply-pickup <pickup> | 0xC937A0 | player (sub_140DA8A80) +12424 = pickup controller; vtable +392 applies a pickup. One hook point for every pickup |
+| drops | npc-drop-pickup 0x632880, npc-disable-drop-pickup-on-death 0x631EA0 | | |
+Proposed v1, cheapest first:
+1. Enemies keep their own AI on both PCs. The host is authoritative for health and death only. Every ~200 ms
+   the host sends {spawner name, health, dead, awareness}. The partner applies set-object-health, and on death
+   npc-kill. Damage the partner deals is found by polling: the partner's local health drops below the last host
+   value, so it sends the delta to the host, which lowers health there. No damage hook is needed.
+2. Alerts: if an enemy becomes aware of either player on one PC, npc-make-aware-of the same player
+   proxy on the other (the partner's body on the host = buddy, the host's body on the partner = spawned body).
+3. Pickups: instanced loot (each player loots their own world copy), so no sync. If shared loot is wanted
+   later, hook the vtable +392 apply and kill-entity the same pickup on the other PC.
+4. Positions diverge with separate AI. If it looks wrong in play, puppet enemies on the partner the way the host
+   body is driven (AI off, move-to). That is heavier, so only if needed.
+Not done: none of these natives has been called live yet.
