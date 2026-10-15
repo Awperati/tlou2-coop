@@ -790,3 +790,11 @@ Not done: none of these natives has been called live yet.
   spot didn't fall. Cause unknown. Suspects: hunting a target 30+ m away across unloaded navmesh, or a
   traversal action. Also fixed: lan_sim parsed `--combat`/`--alert` only with a dummy third value.
   Restored afterwards: host mode, Ellie, companion shown (script mode 0), test NPCs removed.
+- **The fall is the spawn spot, not the sync (2026-10-15 18:51-18:52, host mode, natives only):** an enemy at
+  npc-wat-bank-militia-4's spot (-76.6, -7.9, -239.3), made aware (level 3) of the body (bank-militia-2, 35 m away):
+  within 1 s it stepped to x -75.85 and fell (y -8.2, -16, -34, ... -489; dead at -62). The same with the target
+  "player": it stepped to -75.85 and fell (dead at -57). An enemy at bank-militia-1's spot (-74.3, -7.8, -231.5)
+  hunting the body stayed at y -7.84 for 8 s (in combat, demeanor 2). It also didn't move at all, which suggests
+  no navmesh or collision there: the bank interior is another streamed area. So the make-aware-of target doesn't
+  matter. Test enemies must stand on loaded ground; real story enemies are spawned by the game where their area
+  is loaded. Test NPCs removed afterwards.
