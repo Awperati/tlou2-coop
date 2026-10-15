@@ -169,6 +169,7 @@ bool GameBridge::Init(const Ini& ini) {
         if (ini.getBool("engine", "dialog_facts_hook", true))
             DialogFactsHookInstall(BuildRva(0x3172A0), BuildRva(0x12432F0), BuildRva(0x1243A50), BuildRva(0x2B049E0), BuildRva(0x313FB0));
         if (ini.getBool("engine", "vox_hook", true)) VoxRequestHookInstall(BuildRva(0x331A80));
+        if (ini.getBool("engine", "checkpoint_hooks", true)) CheckpointHooksInstall(BuildRva(0x1200770), BuildRva(0x105F4E0));
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
@@ -727,6 +728,16 @@ void GameBridge::IssueMoveInDir(const std::string& name, const Vec3& dir, int mo
         uint64_t ret[4] = {};
         SafeNative(fn, 6, argv, ret);
     });
+}
+
+std::optional<bool> GameBridge::IsPaused() const {
+    if (!componentTable_) return std::nullopt;
+    auto clock = Read<uintptr_t>(componentTable_ + 1 * 8);
+    auto scale = clock && *clock ? Read<float>(*clock + 0xF8) : std::nullopt;
+    auto g = Read<uintptr_t>(BuildRva(0x3603768));
+    auto flag = g && *g ? Read<uint8_t>(*g + 99) : std::nullopt;
+    if (!scale && !flag) return std::nullopt;
+    return (scale && *scale == 0.f) || (flag && *flag);
 }
 
 // From the story task system (see PollTasks): the active chapter's world pack.

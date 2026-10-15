@@ -180,6 +180,11 @@ public:
     // selfMode: s is the local player (self puppet); otherwise a remote player (any slot, incl. the host = 0).
     bool DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode = false);
     std::string CurrentWorldPack();
+    std::string CurrentTask() const { return taskName_; }
+    // game-paused? (native 0xD3D240) without a script call, so it works while scripts are
+    // stopped: clock component 1 +0xF8 time scale is 0, or byte [0x143603768]+99 is set.
+    // std::nullopt if the fields can't be read.
+    std::optional<bool> IsPaused() const;
     std::optional<Objective> CurrentObjective();
     bool InCombat();
     bool GameWindowFocused() const;

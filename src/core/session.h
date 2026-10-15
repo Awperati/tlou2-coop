@@ -38,6 +38,9 @@ public:
         std::function<void(uint8_t slot, const WorldEvent&)> onWorldEvent;
         std::function<void(const std::vector<EnemyState>&)> onEnemyStates;
         std::function<void(uint8_t slot, const EnemyDamage&)> onEnemyDamage;
+        std::function<void(const CheckpointEvent&)> onCheckpointWritten;
+        std::function<void(uint8_t slot, const RestartEvent&)> onCheckpointRestart;
+        std::function<void(uint8_t slot, const PauseEvent&)> onPaused;
     };
 
     Session();
@@ -62,6 +65,9 @@ public:
     void SendWorldEvent(const WorldEvent& e);
     void SendEnemyStates(const std::vector<EnemyState>& v);   // host only; split into packets
     void SendEnemyDamage(const EnemyDamage& d);               // client only
+    void SendCheckpointWritten(const CheckpointEvent& e);     // host only
+    void SendCheckpointRestart(const RestartEvent& e);        // host: to all; client: to host
+    void SendPaused(const PauseEvent& e);                     // host: to all; client: to host
 
     // Blocking LAN scan; returns hosts that answered within timeoutMs.
     static std::vector<FoundHost> Discover(uint32_t timeoutMs, uint16_t discoveryPort = kDiscoveryPort);

@@ -480,6 +480,52 @@ uint64_t HookedVoxRequest(uint64_t ctrl, uint64_t params) {
 }
 } // namespace
 
+// M7 (static RE 2026-10-15): GameSave::RememberCheckpoint (sub_141200770) writes every
+// checkpoint; GameRestartCheckpoint(bool, bool) (sub_14105F4E0) restarts from one (pause
+// menu, death, task-restart-from-continue). Log-only for now: they count calls, which the
+// main loop turns into CheckpointWritten / CheckpointRestart messages.
+namespace {
+using RememberFn = uint64_t (*)(uint64_t, uint64_t, uint32_t, uint64_t);
+using RestartFn = uint8_t (*)(uint8_t, uint8_t);
+uint8_t g_cpSaved[14], g_rsSaved[15];
+uint8_t* g_cpTramp = nullptr;
+uint8_t* g_rsTramp = nullptr;
+uintptr_t g_cpTarget = 0, g_rsTarget = 0;
+bool g_cpInstalled = false, g_rsInstalled = false;
+std::atomic<uint32_t> g_cpCount{0}, g_rsCount{0};
+uint64_t HookedRememberCheckpoint(uint64_t a1, uint64_t a2, uint32_t a3, uint64_t a4) {
+    uint64_t r = reinterpret_cast<RememberFn>(g_cpTramp)(a1, a2, a3, a4);
+    uint32_t n = ++g_cpCount;
+    Log("checkpoint: written (#%u, args %llx %llx %u %llx)", n, static_cast<unsigned long long>(a1), static_cast<unsigned long long>(a2), a3, static_cast<unsigned long long>(a4));
+    return r;
+}
+uint8_t HookedRestartCheckpoint(uint8_t a, uint8_t b) {
+    uint32_t n = ++g_rsCount;
+    Log("checkpoint: restart requested (#%u, args %u %u)", n, a, b);
+    return reinterpret_cast<RestartFn>(g_rsTramp)(a, b);
+}
+} // namespace
+
+bool CheckpointHooksInstall(uintptr_t remember, uintptr_t restart) {
+    // mov [rsp+10h],rbx; push rbp; push rsi; push rdi; push r12; push r13; push r14
+    static const uint8_t cpExpect[14] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56};
+    // mov [rsp+18h],rdi; push rbp; push r14; push r15; lea rbp,[rsp-47h]
+    static const uint8_t rsExpect[15] = {0x48, 0x89, 0x7C, 0x24, 0x18, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x6C, 0x24, 0xB9};
+    if (!g_cpInstalled && remember) {
+        if (InstallTrampoline(remember, cpExpect, sizeof(cpExpect), reinterpret_cast<void*>(&HookedRememberCheckpoint), g_cpSaved, g_cpTramp)) {
+            g_cpTarget = remember; g_cpInstalled = true; Log("checkpoint hook: GameSave::RememberCheckpoint hooked");
+        } else Log("checkpoint hook: RememberCheckpoint prologue changed, not hooking");
+    }
+    if (!g_rsInstalled && restart) {
+        if (InstallTrampoline(restart, rsExpect, sizeof(rsExpect), reinterpret_cast<void*>(&HookedRestartCheckpoint), g_rsSaved, g_rsTramp)) {
+            g_rsTarget = restart; g_rsInstalled = true; Log("checkpoint hook: GameRestartCheckpoint hooked");
+        } else Log("checkpoint hook: GameRestartCheckpoint prologue changed, not hooking");
+    }
+    return g_cpInstalled && g_rsInstalled;
+}
+uint32_t CheckpointWrites() { return g_cpCount.load(); }
+uint32_t CheckpointRestarts() { return g_rsCount.load(); }
+
 bool VoxRequestHookInstall(uintptr_t target) {
     if (g_voxInstalled || !target) return g_voxInstalled;
     // mov [rsp+18h],rbx; push rbp; push rsi; push rdi; push r12; push r13; push r14
@@ -601,6 +647,8 @@ void FiberHookRemove() {
     if (g_dlgInstalled) { RemoveTrampoline(g_dlgTarget, g_dlgSaved, sizeof(g_dlgSaved)); g_dlgInstalled = false; Log("dialog hook: removed"); }
     if (g_factsInstalled) { RemoveTrampoline(g_factsTarget, g_factsSaved, sizeof(g_factsSaved)); g_factsInstalled = false; Log("dialog facts hook: removed"); }
     if (g_voxInstalled) { RemoveTrampoline(g_voxTarget, g_voxSaved, sizeof(g_voxSaved)); g_voxInstalled = false; Log("vox hook: removed"); }
+    if (g_cpInstalled) { RemoveTrampoline(g_cpTarget, g_cpSaved, sizeof(g_cpSaved)); g_cpInstalled = false; Log("checkpoint hook: RememberCheckpoint removed"); }
+    if (g_rsInstalled) { RemoveTrampoline(g_rsTarget, g_rsSaved, sizeof(g_rsSaved)); g_rsInstalled = false; Log("checkpoint hook: GameRestartCheckpoint removed"); }
     g_printMode = 0;
     for (auto& p : g_print) if (p.on) { RemoveTrampoline(p.target, p.saved, sizeof(p.saved)); p.on = false; }
     if (g_nativeInstalled) { RemoveTrampoline(g_nativeTarget, g_nativeSaved, sizeof(g_nativeSaved)); g_nativeInstalled = false; Log("script hook: removed"); }

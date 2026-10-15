@@ -164,6 +164,12 @@ void CoopMain() {
     // M6: enemy health/death follows the host ([sync] Enemies).
     bool syncEnemies = cfg.getBool("sync", "Enemies", true);
     ULONGLONG enemySnapAt = 0;
+    // M7 (log-only for now): checkpoint writes/restarts and pause are sent to the other side,
+    // which only logs them and shows a note. Acting on them (partner restart, game-clock
+    // pause) waits for an in-game test with the user.
+    uint32_t cpWritesSeen = 0, cpRestartsSeen = 0;
+    int pausedSeen = -1;
+    ULONGLONG pauseCheckAt = 0;
     bridge.bodyFile_ = dir + L"tlou2-coop\\body.txt";
     // Partner's own setup on joining ([character] AutoLook): wear their character's look,
     // and hide the story companion when they are playing that companion. Applied in the loop.
@@ -236,6 +242,15 @@ void CoopMain() {
     cb.onCharacterSelect = [&](uint8_t slot, CharacterId c) { Log("player %u is %s", slot, CharacterName(c)); };
     cb.onEnemyStates = [&](const std::vector<EnemyState>& v) { if (syncEnemies) bridge.ApplyEnemyStates(v); };
     cb.onEnemyDamage = [&](uint8_t, const EnemyDamage& d) { if (syncEnemies) bridge.ApplyEnemyDamage(d); };
+    cb.onCheckpointWritten = [&](const CheckpointEvent& e) { Log("m7: host wrote checkpoint #%u (task '%s')", e.seq, e.task.c_str()); };
+    cb.onCheckpointRestart = [&](uint8_t slot, const RestartEvent& e) {
+        Log("m7: slot %u %s (#%u) - not acted on yet", slot, e.reason == RestartReason::HostRestarted ? "host restarted from its checkpoint" : "partner died, asks for a restart", e.seq);
+        OverlayNotify(e.reason == RestartReason::HostRestarted ? L"Host restarted from the checkpoint" : L"Your partner died");
+    };
+    cb.onPaused = [&](uint8_t slot, const PauseEvent& e) {
+        Log("m7: slot %u %s", slot, e.paused ? "paused" : "resumed");
+        OverlayNotify(e.paused ? L"Partner paused" : L"Partner resumed");
+    };
     session.setCallbacks(cb);
 
     if (isHost) {
@@ -285,6 +300,23 @@ void CoopMain() {
             if (isHost && session.peerCount() > 0 && nowE - enemySnapAt > 200) { enemySnapAt = nowE; bridge.QueueEnemySnapshot(); }
             if (auto v = bridge.TakeEnemyOut(); !v.empty()) session.SendEnemyStates(v);
             for (const auto& d : bridge.TakeDamageOut()) session.SendEnemyDamage(d);
+        }
+        if (uint32_t w = CheckpointWrites(); w != cpWritesSeen) {
+            cpWritesSeen = w;
+            if (isHost && session.peerCount() > 0) session.SendCheckpointWritten({w, bridge.CurrentTask()});
+        }
+        if (uint32_t r = CheckpointRestarts(); r != cpRestartsSeen) {
+            cpRestartsSeen = r;
+            if (session.connected()) session.SendCheckpointRestart({r, isHost ? RestartReason::HostRestarted : RestartReason::PartnerDied});
+        }
+        if (GetTickCount64() - pauseCheckAt > 250) {
+            pauseCheckAt = GetTickCount64();
+            if (auto p = bridge.IsPaused(); p && static_cast<int>(*p) != pausedSeen) {
+                bool first = pausedSeen < 0;
+                pausedSeen = *p ? 1 : 0;
+                if (!first) Log("m7: local game %s", *p ? "paused" : "resumed");
+                if (!first && session.connected()) session.SendPaused({static_cast<uint8_t>(pausedSeen)});
+            }
         }
 
         auto self = bridge.ReadLocalPlayer(tick);

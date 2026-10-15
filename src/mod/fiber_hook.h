@@ -33,6 +33,10 @@ bool DialogHookInstall(uintptr_t target);
 // Speaker remap on the path every RequestDialog overload ends in (sub_1403172A0).
 // Barks/callouts: per-actor VoxController requests (sub_140331A80), remapped by owner.
 bool VoxRequestHookInstall(uintptr_t target);
+// M7, log-only: count checkpoint writes (sub_141200770) and restarts (sub_14105F4E0).
+bool CheckpointHooksInstall(uintptr_t remember, uintptr_t restart);
+uint32_t CheckpointWrites();
+uint32_t CheckpointRestarts();
 bool DialogFactsHookInstall(uintptr_t target, uintptr_t lockFn, uintptr_t unlockFn, uintptr_t speakerKeys, uintptr_t speakerFn);
 void SetSpeakerMap(uint64_t from, uint64_t to);
 void ClearSpeakerMap();

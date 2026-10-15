@@ -823,3 +823,13 @@ Proposed M7 v1:
 4. Save files stay per player. Only the host saves story progress that matters (the partner follows the host's
    chapter anyway). The partner's autosave could be disabled later if it causes trouble.
 Not done: nothing from M7 has been hooked or called live yet.
+- **M7 build, log-only (2026-10-15 19:10, not deployed):** protocol messages `CheckpointWritten`
+  {seq, task} (host -> partners), `CheckpointRestart` {seq, reason HostRestarted | PartnerDied} (either way) and
+  `Paused` {0/1} (either way). Tests cover round-trips, an unknown restart reason being rejected, and loopback
+  delivery in both directions (71 tests pass). Hooks: RememberCheckpoint (14-byte prologue) and
+  GameRestartCheckpoint (15 bytes) only count and log calls. The main loop turns new counts into messages: a host
+  checkpoint -> CheckpointWritten; a restart -> CheckpointRestart (HostRestarted on the host, PartnerDied on a
+  partner). Pause is read directly, without a script call (clock component 1 +0xF8 == 0, or byte
+  [0x143603768]+99), every 250 ms; changes go out as Paused. The receiving side only logs and shows an overlay
+  note; it doesn't restart or pause yet. `checkpoint_hooks = false` in offsets.ini until the first in-game test,
+  which waits for the user, since a restart throws away progress since the last checkpoint.

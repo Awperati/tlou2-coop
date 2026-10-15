@@ -94,6 +94,18 @@ bool Read(Reader& r, std::vector<EnemyState>& v) {
 void Write(Writer& w, const EnemyDamage& d) { w.u64(d.sid); w.f32(d.amount); w.u8(d.flags); }
 bool Read(Reader& r, EnemyDamage& d) { d.sid = r.u64(); d.amount = r.f32(); d.flags = r.u8(); return r.ok(); }
 
+void Write(Writer& w, const CheckpointEvent& e) { w.u32(e.seq); w.str(e.task); }
+bool Read(Reader& r, CheckpointEvent& e) { e.seq = r.u32(); e.task = r.str(); return r.ok(); }
+void Write(Writer& w, const RestartEvent& e) { w.u32(e.seq); w.u8(static_cast<uint8_t>(e.reason)); }
+bool Read(Reader& r, RestartEvent& e) {
+    e.seq = r.u32(); uint8_t k = r.u8();
+    if (k > 1) return false;
+    e.reason = static_cast<RestartReason>(k);
+    return r.ok();
+}
+void Write(Writer& w, const PauseEvent& e) { w.u8(e.paused); }
+bool Read(Reader& r, PauseEvent& e) { e.paused = r.u8(); return r.ok(); }
+
 void Write(Writer& w, const Objective& s) {
     w.u32(s.id); w.vec(s.pos); w.f32(s.radius); w.u8(s.isTransition); w.str(s.label);
 }

@@ -318,6 +318,21 @@ void Session::handlePacket(uint32_t ip, uint16_t port, const uint8_t* data, size
         if (role_ == Role::Host && Read(r, in) && cb_.onInput) cb_.onInput(fromSlot, in);
         break;
     }
+    case MsgType::CheckpointWritten: {
+        CheckpointEvent e;
+        if (role_ == Role::Client && Read(r, e) && cb_.onCheckpointWritten) cb_.onCheckpointWritten(e);
+        break;
+    }
+    case MsgType::CheckpointRestart: {
+        RestartEvent e;
+        if (Read(r, e) && cb_.onCheckpointRestart) cb_.onCheckpointRestart(fromSlot, e);
+        break;
+    }
+    case MsgType::Paused: {
+        PauseEvent e;
+        if (Read(r, e) && cb_.onPaused) cb_.onPaused(fromSlot, e);
+        break;
+    }
     case MsgType::EnemyStates: {
         std::vector<EnemyState> v;
         if (role_ == Role::Client && Read(r, v) && cb_.onEnemyStates) cb_.onEnemyStates(v);
@@ -387,6 +402,24 @@ void Session::SendEnemyStates(const std::vector<EnemyState>& v) {
         auto b = Body(part);
         for (auto& [slot, p] : peers_) sendUnreliable(p, MsgType::EnemyStates, b);
     }
+}
+
+void Session::SendCheckpointWritten(const CheckpointEvent& e) {
+    if (role_ != Role::Host) return;
+    auto b = Body(e);
+    for (auto& [slot, p] : peers_) sendReliable(p, MsgType::CheckpointWritten, b);
+}
+
+void Session::SendCheckpointRestart(const RestartEvent& e) {
+    auto b = Body(e);
+    if (role_ == Role::Host) { for (auto& [slot, p] : peers_) sendReliable(p, MsgType::CheckpointRestart, b); }
+    else if (connected()) sendReliable(peers_[0], MsgType::CheckpointRestart, b);
+}
+
+void Session::SendPaused(const PauseEvent& e) {
+    auto b = Body(e);
+    if (role_ == Role::Host) { for (auto& [slot, p] : peers_) sendReliable(p, MsgType::Paused, b); }
+    else if (connected()) sendReliable(peers_[0], MsgType::Paused, b);
 }
 
 void Session::SendEnemyDamage(const EnemyDamage& d) {

@@ -34,6 +34,9 @@ enum class MsgType : uint8_t {
     Bye,
     EnemyStates,      // unreliable, host -> clients: health/death of enemies (M6)
     EnemyDamage,      // reliable, client -> host: damage the client dealt locally
+    CheckpointWritten,  // reliable, host -> clients: the host's game wrote a checkpoint (M7)
+    CheckpointRestart,  // reliable, either way: host restarted / partner asks for a restart
+    Paused,             // reliable, either way: pause menu opened or closed
 };
 
 struct Vec3 { float x = 0, y = 0, z = 0; };
@@ -109,6 +112,12 @@ constexpr uint8_t kEnemyCombat = 2;   // flags bit1: in combat (npc-in-combat?)
 // Partner -> host: damage dealt on the partner's PC, and/or "this enemy spotted me".
 struct EnemyDamage { uint64_t sid = 0; float amount = 0; uint8_t flags = 0; };
 constexpr uint8_t kReportAlert = 1;   // flags bit0
+// M7. seq counts the sender's checkpoint writes/restarts this session; task is the host's
+// current story task name (for logs and to tell a stale event).
+struct CheckpointEvent { uint32_t seq = 0; std::string task; };
+enum class RestartReason : uint8_t { HostRestarted = 0, PartnerDied = 1 };
+struct RestartEvent { uint32_t seq = 0; RestartReason reason = RestartReason::HostRestarted; };
+struct PauseEvent { uint8_t paused = 0; };
 
 // --- serialization ---------------------------------------------------------
 class Writer {
@@ -154,6 +163,12 @@ void Write(Writer& w, const std::vector<EnemyState>& v);
 bool Read(Reader& r, std::vector<EnemyState>& v);
 void Write(Writer& w, const EnemyDamage& d);
 bool Read(Reader& r, EnemyDamage& d);
+void Write(Writer& w, const CheckpointEvent& e);
+bool Read(Reader& r, CheckpointEvent& e);
+void Write(Writer& w, const RestartEvent& e);
+bool Read(Reader& r, RestartEvent& e);
+void Write(Writer& w, const PauseEvent& e);
+bool Read(Reader& r, PauseEvent& e);
 constexpr size_t kEnemiesPerPacket = 80;   // 13 bytes each, stays under kMaxPacket
 bool Read(Reader& r, PlayerState& s);
 void Write(Writer& w, const InputFrame& s);

@@ -31,6 +31,11 @@ static void TestProtocolRoundTrip() {
 
     CHECK(SeqNewer(1, 65535));
     CHECK(!SeqNewer(65535, 1));
+
+    // M7 events round-trip; an unknown restart reason is rejected.
+    { Writer w; Write(w, CheckpointEvent{9, "task-x"}); Reader rr(w.data().data(), w.data().size()); CheckpointEvent e; CHECK(Read(rr, e) && e.seq == 9 && e.task == "task-x"); }
+    { Writer w; w.u32(1); w.u8(5); Reader rr(w.data().data(), w.data().size()); RestartEvent e; CHECK(!Read(rr, e)); }
+    { Writer w; Write(w, PauseEvent{1}); Reader rr(w.data().data(), w.data().size()); PauseEvent e; CHECK(Read(rr, e) && e.paused == 1); }
 }
 
 static void TestTeleportHold() {
@@ -123,6 +128,7 @@ static void TestLoopbackSession() {
     Session host, client;
     bool welcomed = false, gotState = false, gotTeleport = false, gotRequest = false;
     size_t gotEnemies = 0; bool gotDamage = false;
+    bool gotCheckpoint = false, gotHostRestart = false, gotDeathAsk = false, gotPauseOnHost = false, gotPauseOnClient = false;
     Session::Callbacks hcb;
     hcb.onPlayerState = [&](uint8_t slot, const PlayerState& s) { gotState = slot == 1 && s.pos.x == 7; };
     hcb.onTeleportRequest = [&](uint8_t slot) {
@@ -131,11 +137,16 @@ static void TestLoopbackSession() {
         host.SendTeleportTo(slot, t);
     };
     hcb.onEnemyDamage = [&](uint8_t slot, const EnemyDamage& d) { gotDamage = slot == 1 && d.sid == 0xabcdef0123456789ull && d.amount == 12.5f; };
+    hcb.onCheckpointRestart = [&](uint8_t slot, const RestartEvent& e) { gotDeathAsk = slot == 1 && e.reason == RestartReason::PartnerDied && e.seq == 3; };
+    hcb.onPaused = [&](uint8_t slot, const PauseEvent& e) { gotPauseOnHost = slot == 1 && e.paused == 1; };
     host.setCallbacks(hcb);
     Session::Callbacks ccb;
     ccb.onWelcome = [&](const Welcome& w) { welcomed = w.slot == 1; };
     ccb.onTeleportTo = [&](const TeleportTo& t) { gotTeleport = t.pos.y == 2; };
     ccb.onEnemyStates = [&](const std::vector<EnemyState>& v) { for (auto& e : v) if (e.health == 40.f && (e.flags & kEnemyDead) == (e.sid & 1)) ++gotEnemies; };
+    ccb.onCheckpointWritten = [&](const CheckpointEvent& e) { gotCheckpoint = e.seq == 7 && e.task == "wat-freeway-checkpoint"; };
+    ccb.onCheckpointRestart = [&](uint8_t slot, const RestartEvent& e) { gotHostRestart = slot == 0 && e.reason == RestartReason::HostRestarted && e.seq == 2; };
+    ccb.onPaused = [&](uint8_t slot, const PauseEvent& e) { gotPauseOnClient = slot == 0 && e.paused == 0; };
     client.setCallbacks(ccb);
 
     CHECK(host.StartHost("test", 47890, 2, false));
@@ -167,6 +178,19 @@ static void TestLoopbackSession() {
     for (int i = 0; i < 400 && !(gotEnemies >= 170 && gotDamage); ++i) { host.Poll(); client.Poll(); Sleep(5); }
     CHECK(gotEnemies == 170);
     CHECK(gotDamage);
+
+    // M7: checkpoint, restart both ways, pause both ways.
+    host.SendCheckpointWritten({7, "wat-freeway-checkpoint"});
+    host.SendCheckpointRestart({2, RestartReason::HostRestarted});
+    host.SendPaused({0});
+    client.SendCheckpointRestart({3, RestartReason::PartnerDied});
+    client.SendPaused({1});
+    for (int i = 0; i < 400 && !(gotCheckpoint && gotHostRestart && gotDeathAsk && gotPauseOnHost && gotPauseOnClient); ++i) { host.Poll(); client.Poll(); Sleep(5); }
+    CHECK(gotCheckpoint);
+    CHECK(gotHostRestart);
+    CHECK(gotDeathAsk);
+    CHECK(gotPauseOnHost);
+    CHECK(gotPauseOnClient);
 
     // The host restarts: the client rejoins on its own.
     host.Stop();
