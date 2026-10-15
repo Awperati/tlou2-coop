@@ -840,3 +840,10 @@ Not done: nothing from M7 has been hooked or called live yet.
   the stack, and the last mod log line was a routine position line 5 s before. The M7 hooks were installed 3 min
   earlier but never fired (no "checkpoint:" lines). The game was relaunched with launcher.exe and the pad
   (Play, intro, Continue) back to the Watchtower checkpoint; both checkpoint hooks installed again.
+- **Crash 11, 2026-10-15 19:15 (likely the M7 hook):** dump tlou-ii.exe.14324.dmp shows a write to 0x224 at
+  +0x139FA20 on a job-system worker (FreeJobArray, ConditionVariable::Wait on the stack). No coop frame in the
+  scanned stack. The user was playing (the game was relaunched by them at 19:50). The RememberCheckpoint hook was
+  declared with 4 args, but its callers also pass stack arguments ([rsp+20h] and up, at 0x1410427F7, 0x1410431EE
+  and 0x141047663). The hook dropped them, so the save ran with garbage. Fixed: both checkpoint hooks forward 12
+  integer args unchanged and only bump a counter; the log line moved to the main loop. Deployed at 19:55 into the
+  running game. Not proven: no checkpoint has been written since.

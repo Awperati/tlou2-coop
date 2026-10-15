@@ -303,10 +303,12 @@ void CoopMain() {
         }
         if (uint32_t w = CheckpointWrites(); w != cpWritesSeen) {
             cpWritesSeen = w;
+            Log("checkpoint: written (#%u, task '%s')", w, bridge.CurrentTask().c_str());
             if (isHost && session.peerCount() > 0) session.SendCheckpointWritten({w, bridge.CurrentTask()});
         }
         if (uint32_t r = CheckpointRestarts(); r != cpRestartsSeen) {
             cpRestartsSeen = r;
+            Log("checkpoint: restart (#%u)", r);
             if (session.connected()) session.SendCheckpointRestart({r, isHost ? RestartReason::HostRestarted : RestartReason::PartnerDied});
         }
         if (GetTickCount64() - pauseCheckAt > 250) {

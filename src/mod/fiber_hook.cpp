@@ -485,24 +485,27 @@ uint64_t HookedVoxRequest(uint64_t ctrl, uint64_t params) {
 // menu, death, task-restart-from-continue). Log-only for now: they count calls, which the
 // main loop turns into CheckpointWritten / CheckpointRestart messages.
 namespace {
-using RememberFn = uint64_t (*)(uint64_t, uint64_t, uint32_t, uint64_t);
-using RestartFn = uint8_t (*)(uint8_t, uint8_t);
+// Forward 12 integer args: the callers of RememberCheckpoint also pass arguments on the
+// stack ([rsp+20h] and up, seen at 0x1410427F7), and a 4-arg hook dropped them. The 19:15
+// crash (null+0x224 in the job system) followed a checkpoint with the 4-arg version.
+// Integer/pointer args only: none of the first four is a float.
+using Fwd12 = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 uint8_t g_cpSaved[14], g_rsSaved[15];
 uint8_t* g_cpTramp = nullptr;
 uint8_t* g_rsTramp = nullptr;
 uintptr_t g_cpTarget = 0, g_rsTarget = 0;
 bool g_cpInstalled = false, g_rsInstalled = false;
 std::atomic<uint32_t> g_cpCount{0}, g_rsCount{0};
-uint64_t HookedRememberCheckpoint(uint64_t a1, uint64_t a2, uint32_t a3, uint64_t a4) {
-    uint64_t r = reinterpret_cast<RememberFn>(g_cpTramp)(a1, a2, a3, a4);
-    uint32_t n = ++g_cpCount;
-    Log("checkpoint: written (#%u, args %llx %llx %u %llx)", n, static_cast<unsigned long long>(a1), static_cast<unsigned long long>(a2), a3, static_cast<unsigned long long>(a4));
+uint64_t HookedRememberCheckpoint(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
+                                  uint64_t a7, uint64_t a8, uint64_t a9, uint64_t a10, uint64_t a11, uint64_t a12) {
+    uint64_t r = reinterpret_cast<Fwd12>(g_cpTramp)(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
+    ++g_cpCount;   // logged from the main loop, not here: keep the save path untouched
     return r;
 }
-uint8_t HookedRestartCheckpoint(uint8_t a, uint8_t b) {
-    uint32_t n = ++g_rsCount;
-    Log("checkpoint: restart requested (#%u, args %u %u)", n, a, b);
-    return reinterpret_cast<RestartFn>(g_rsTramp)(a, b);
+uint64_t HookedRestartCheckpoint(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
+                                 uint64_t a7, uint64_t a8, uint64_t a9, uint64_t a10, uint64_t a11, uint64_t a12) {
+    ++g_rsCount;
+    return reinterpret_cast<Fwd12>(g_rsTramp)(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
 }
 } // namespace
 
