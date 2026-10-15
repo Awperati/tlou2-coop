@@ -642,3 +642,9 @@ Next: find how No Return loads those actor packages and sets the player look, th
   (lev-player, yara-player, jesse-player, tommy-player, joel-player, manny-player, mel-player, abby-tracking). It also
   takes `look.<world pack>` overrides (lev -> lev-player-santa-barbara in world-santa-barbara). Unit-tested (57 pass).
   Not tried in game yet: only the Dina looks have been swapped live.
+- **Generic look swap verified live (2026-10-15 17:44, relaunched game, Watchtower checkpoint):** the game process
+  was gone by 17:35. It was relaunched with `launcher.exe` and pad presses through the menus (`press a` -> Continue).
+  `look lev-player` wanted 21 packages from looks.ini. The request was accepted 4 s later, and the player became
+  Lev and walked 8 m on the stick. `look ellie-seattle` (20 packages) swapped back in 2 s, and she walks.
+  No freeze, no crash. A game launched this way can be closed by the mod's shell (PROCESS_TERMINATE opens); the
+  instance that crashed earlier could not.
