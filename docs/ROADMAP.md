@@ -902,3 +902,11 @@ Not done: nothing from M7 has been hooked or called live yet.
     writing its own checkpoint when the host does is not built; it needs a checkpoint write, the same refused action.
   - Note: the game keeps polling XInput while unfocused (GetState calls keep climbing), so the focus gate is
     inside the game's input handling, not in XInput.
+- **Death -> restart path (static, 2026-10-16 16:45, inconclusive):** GameRestartCheckpoint (sub_14105F4E0) callers:
+  the native task-restart-from-continue (0x427500); the pause-menu message box (Menu2::RootGame::EventHandlerMessageBox,
+  sub_140FE2E70); a yes/no box handler (sub_140FFE9B0, events 0x81E6BFABC11550F7 ...), which also clears the save
+  manager and autosaves; and sub_1403678F0, a data-ref'd handler that restarts and then autosaves after loading an
+  inventory/state set. None is clearly the death reload. The id of task-restart-from-continue doesn't appear in
+  gui2-script-funcs(-game-impl) or nd-script-funcs. So whether a death passes through the restart hook (and
+  reaches the shared-death path) stays unknown until a death happens in a real session; the hook logs it either
+  way. Stopped here: the focus gate and pad driving without focus are off limits.
