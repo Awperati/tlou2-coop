@@ -932,6 +932,10 @@ Not done: nothing from M7 has been hooked or called live yet.
   (buddy on the host, host body on the partner) replays new shots, capped at 3 per update.
 - Verified live: sim `--fire 1.5 none` made Dina aim and fire every 1.5 s on the host; Ellie firing her rifle
   (pad `trigger lr`) logged exactly one shot. A thrown bottle does not count as a shot.
-- Not verified: the target id with a real enemy in the sights, and the damage guard. The guard keeps an enemy's
+- Verified in play (user, 08:33): `player-get-target` returns the aimed-at enemy's spawner name id, the same key
+  as EnemyState (e.g. `npc-wat-watchtower-escape-1-4` = 1e3e277f99db46fb), 0 when nothing is in the sights.
+  The counter went up 3 per shot: `player-is-firing?` stays true about 1 s, so the 300 ms repeat is now off and
+  each trigger pull counts once (automatic weapons undercount).
+- Not verified: the damage guard. The guard keeps an enemy's
   health from before a mirrored shot for 1.5 s, so only the shooter's own PC's hit report counts. A mirrored
   shot that kills outright can't be undone.

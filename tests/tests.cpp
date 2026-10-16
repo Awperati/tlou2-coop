@@ -14,7 +14,9 @@ static int g_fail = 0, g_pass = 0;
 #define CHECK(x) do { if (x) ++g_pass; else { ++g_fail; std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #x); } } while (0)
 
 static void TestShots() {
-    ShotCounter c;
+    ShotCounter one;
+    CHECK(one.Update(true, 0) && !one.Update(true, 400) && !one.Update(true, 900));   // held: one shot
+    ShotCounter c; c.repeatMs = 300;
     CHECK(!c.Update(false, 0));
     CHECK(c.Update(true, 100));          // press
     CHECK(!c.Update(true, 300));         // still held, too soon

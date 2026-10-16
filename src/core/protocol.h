@@ -77,15 +77,17 @@ struct PlayerState {
     uint64_t shotTarget = 0;
 };
 
-// Partner side: turns a polled "is firing" flag into shots. A press counts once; a held
-// trigger (automatic weapons) counts again every repeatMs.
+// Partner side: turns a polled "is firing" flag into shots. A press counts once. With
+// repeatMs > 0 a held trigger counts again every repeatMs; off by default, because
+// player-is-firing? stayed true ~1 s per pistol/rifle shot in play and each shot counted 3
+// times (log 08:33, 2026-10-17).
 struct ShotCounter {
-    uint32_t repeatMs = 300;
+    uint32_t repeatMs = 0;
     bool firing = false;
     unsigned long long lastShotAt = 0;
     uint8_t shots = 0;
     bool Update(bool firingNow, unsigned long long nowMs) {
-        bool shot = firingNow && (!firing || nowMs - lastShotAt >= repeatMs);
+        bool shot = firingNow && (!firing || (repeatMs && nowMs - lastShotAt >= repeatMs));
         firing = firingNow;
         if (shot) { ++shots; lastShotAt = nowMs; }
         return shot;
