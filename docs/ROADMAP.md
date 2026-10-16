@@ -867,3 +867,15 @@ Not done: nothing from M7 has been hooked or called live yet.
   -noStreamline). `-launcher` forces the launcher on. The "Show launcher" checkbox is stored as `ShowLauncher`
   (next to DisableDriverWarn). For automation: `tlou-ii.exe -nolauncher` in the game folder, then the pad to
   get through the intro and pick Continue.
+- **M7 actions verified live (2026-10-16 15:51-15:53):** the user started the game with `-nolauncher`, not as admin,
+  so the mod's shell may now close it. The pad took it Story -> Continue, fresh at the checkpoint.
+  - Host, sim partner `--restart 6 1` (partner died): `partner died, asks for a restart` -> `restart from checkpoint
+    requested` -> the hook's `checkpoint: restart (#1)` went to the partner as HostRestarted, and the sim printed
+    `slot 0 restart #1 reason 0`. The reload showed as a 0.5 s pause.
+  - Partner (client mode), sim host `--restart 8 0`: `host restarted` -> restart requested -> `restart #1 was asked
+    for by the host, not reported back` (no loop). The restart removed the spawned body, and autobody spawned a new
+    one 1 s later.
+  - Pause both ways: a remote pause logged `game clock paused` / `resumed`, with no echo back. Not verified: how
+    much pause-game-clock actually freezes. IsPaused (time scale) did not change, so it may stop the game clock and
+    timers but not the simulation.
+  - Restored: host mode, Ellie, companion shown, test bodies removed.
