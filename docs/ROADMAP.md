@@ -922,3 +922,16 @@ Not done: nothing from M7 has been hooked or called live yet.
     spawned it`, alive 1. It then noticed the player and sent `spotted us` every 5 s (the throttle); a real host
     makes it hunt the buddy once.
   - Restored afterwards: host mode, Ellie, companion; militia-1 and the body (militia-8) removed.
+
+### Partner actions: shots (2026-10-17)
+- `npc-fire-weapon <npc> <n> <flag>` (rva 0x6346A0) fires where the NPC's gun points. `npc-fire-at-object
+  <npc> <target> a b c d` (rva 0x634350) queues a shot at an object whatever way she faces (it fills a fire
+  request at Npc+16336). Live on Dina: muzzle flash; a tracer to the player with no damage to the player.
+- `player-is-firing?` (rva 0xB92990) and `player-get-target` (rva 0xC9C070) on the shooter's PC, polled every
+  100 ms. PlayerState (protocol v2) carries a shot counter and the last target id; the other PC's stand-in
+  (buddy on the host, host body on the partner) replays new shots, capped at 3 per update.
+- Verified live: sim `--fire 1.5 none` made Dina aim and fire every 1.5 s on the host; Ellie firing her rifle
+  (pad `trigger lr`) logged exactly one shot. A thrown bottle does not count as a shot.
+- Not verified: the target id with a real enemy in the sights, and the damage guard. The guard keeps an enemy's
+  health from before a mirrored shot for 1.5 s, so only the shooter's own PC's hit report counts. A mirrored
+  shot that kills outright can't be undone.

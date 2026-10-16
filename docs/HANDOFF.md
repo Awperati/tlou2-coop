@@ -13,6 +13,7 @@ Full running log of findings: [ROADMAP.md](ROADMAP.md). This file is the short v
 | Story companion hidden + passive on the partner's PC | Done: hidden, AI/perception off, invisible to AI, holstered |
 | Host's body on the partner's PC | Done: auto-spawned NPC in the host's look (`[body] Auto=client`), steered by move-in-direction, snap turn, reused after reloads |
 | Dialogue | Companion lines play from the partner's player; host lines from the host body (speaker remap at sub_1403172A0). Proven at the actor level, not by ear |
+| Shots | Partner's shots replayed by their stand-in on the other PC (aim + fire, at the target when known). Verified with the sim and Ellie's rifle; real-enemy target untested |
 | Barks/callouts remap | Built (`vox_hook`), **off**: never observed (needs combat) |
 | Enemies (M6) | Health, death, alerts, and spawning enemies missing on one side all synced by spawner name. Verified with the sim |
 | Checkpoints/pause (M7) | Restart sync both ways and remote pause (opens/closes the real pause menu) verified live. Checkpoint-write forwarding is log-only and untested |

@@ -63,12 +63,14 @@ void Write(Writer& w, const PlayerState& s) {
     w.u32(s.tick); w.vec(s.pos); w.vec(s.vel); w.f32(s.yaw); w.f32(s.pitch);
     w.u16(s.animState); w.u8(s.health); w.u8(s.stance); w.u8(s.flags);
     w.u8(static_cast<uint8_t>(s.character));
+    w.u8(s.shots); w.u64(s.shotTarget);
 }
 bool Read(Reader& r, PlayerState& s) {
     s.tick = r.u32(); s.pos = r.vec(); s.vel = r.vec(); s.yaw = r.f32(); s.pitch = r.f32();
     s.animState = r.u16(); s.health = r.u8(); s.stance = r.u8(); s.flags = r.u8();
     uint8_t c = r.u8();
     s.character = c < static_cast<uint8_t>(CharacterId::Count) ? static_cast<CharacterId>(c) : CharacterId::None;
+    s.shots = r.u8(); s.shotTarget = r.u64();
     return r.ok();
 }
 

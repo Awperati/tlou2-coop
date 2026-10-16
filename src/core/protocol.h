@@ -10,7 +10,7 @@
 namespace coop {
 
 constexpr uint16_t kMagic = 0x5443;          // "CT"
-constexpr uint16_t kProtocolVersion = 1;
+constexpr uint16_t kProtocolVersion = 2;   // 2: PlayerState shots + shotTarget
 constexpr uint16_t kDefaultPort = 47820;     // game traffic
 constexpr uint16_t kDiscoveryPort = 47821;   // LAN broadcast
 constexpr size_t kMaxPacket = 1200;          // stays under typical MTU
@@ -70,7 +70,33 @@ struct PlayerState {
     uint8_t stance = 0;       // 0 stand, 1 crouch, 2 prone
     uint8_t flags = 0;        // bit0 aiming, bit1 firing, bit2 in-combat, bit3 dead
     CharacterId character = CharacterId::None;
+    // Shots the sender fired this session (wraps at 256), and what it aimed at for the
+    // last one: the target's name id (FNV-1a, as EnemyState.sid), 0 when none. The other PC
+    // makes the sender's stand-in NPC fire the same shots.
+    uint8_t shots = 0;
+    uint64_t shotTarget = 0;
 };
+
+// Partner side: turns a polled "is firing" flag into shots. A press counts once; a held
+// trigger (automatic weapons) counts again every repeatMs.
+struct ShotCounter {
+    uint32_t repeatMs = 300;
+    bool firing = false;
+    unsigned long long lastShotAt = 0;
+    uint8_t shots = 0;
+    bool Update(bool firingNow, unsigned long long nowMs) {
+        bool shot = firingNow && (!firing || nowMs - lastShotAt >= repeatMs);
+        firing = firingNow;
+        if (shot) { ++shots; lastShotAt = nowMs; }
+        return shot;
+    }
+};
+// Receiver side: new shots since the last count seen, capped so a long gap (lost packets,
+// a reload) never fires a burst.
+inline int NewShots(uint8_t seen, uint8_t now, int cap = 3) {
+    int d = static_cast<uint8_t>(now - seen);
+    return d > cap ? cap : d;
+}
 
 struct InputFrame {
     uint32_t tick = 0;

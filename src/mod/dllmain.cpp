@@ -309,7 +309,7 @@ void CoopMain() {
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
     uintptr_t lastPlayerObj = 1;
-    ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0, lastHide = 0, lastStance = 0;
+    ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0, lastHide = 0, lastStance = 0, lastFiring = 0;
     bool mainHooked = false, testWasDown = false;
     std::string keepLoad;   // package re-requested every 200 ms (want-loads look rebuilt each frame)
     unsigned long long keepLoadLog = 0;
@@ -673,6 +673,7 @@ void CoopMain() {
         }
         testWasDown = testDown;
 
+        if (now - lastFiring >= 100) { lastFiring = now; bridge.PollFiring(); }
         if (now - lastStance >= 200) {
             lastStance = now; bridge.PollStance(); bridge.PollLookSwap();
             if (!pendingLook.empty()) { bridge.StartLookSwap(pendingLook, lookPackages(pendingLook)); pendingLook.clear(); }

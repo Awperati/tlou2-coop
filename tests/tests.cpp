@@ -13,12 +13,29 @@ using namespace coop;
 static int g_fail = 0, g_pass = 0;
 #define CHECK(x) do { if (x) ++g_pass; else { ++g_fail; std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #x); } } while (0)
 
+static void TestShots() {
+    ShotCounter c;
+    CHECK(!c.Update(false, 0));
+    CHECK(c.Update(true, 100));          // press
+    CHECK(!c.Update(true, 300));         // still held, too soon
+    CHECK(c.Update(true, 400));          // held 300 ms: automatic fire repeats
+    CHECK(!c.Update(false, 500));
+    CHECK(c.Update(true, 520));          // a new press counts at once
+    CHECK(c.shots == 3);
+    CHECK(NewShots(3, 3) == 0);
+    CHECK(NewShots(254, 1) == 3);        // wraps, capped at 3
+    CHECK(NewShots(255, 0) == 1);
+    CHECK(NewShots(0, 200) == 3);
+}
+
 static void TestProtocolRoundTrip() {
     PlayerState s; s.tick = 42; s.pos = {1, 2, 3}; s.yaw = 1.5f; s.health = 77; s.character = CharacterId::Dina;
+    s.shots = 250; s.shotTarget = 0x1122334455667788ull;
     Writer w; Write(w, s);
     Reader r(w.data().data(), w.data().size());
     PlayerState o; CHECK(Read(r, o));
     CHECK(o.tick == 42 && o.pos.z == 3 && o.health == 77 && o.character == CharacterId::Dina);
+    CHECK(o.shots == 250 && o.shotTarget == 0x1122334455667788ull);
 
     // Truncated input must fail cleanly, never read past the end.
     Reader shortR(w.data().data(), 5);
@@ -213,6 +230,7 @@ static void TestLoopbackSession() {
 
 int main() {
     TestProtocolRoundTrip();
+    TestShots();
     TestTeleportHold();
     TestTransitionGate();
     TestTeleportTarget();

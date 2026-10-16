@@ -196,7 +196,7 @@ bool InputScriptAdd(const std::string& line) {
     } else if (verb == "trigger") {
         in >> which >> a >> ms;
         BYTE v = static_cast<BYTE>(a < 0 ? 0 : (a > 255 ? 255 : a));
-        if (which == "l") s.lt = v; else if (which == "r") s.rt = v; else return false;
+        if (which == "l") s.lt = v; else if (which == "r") s.rt = v; else if (which == "lr") s.lt = s.rt = v; else return false;   // lr: aim + fire
     } else if (verb == "wait") {
         in >> ms;
     } else {

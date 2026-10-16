@@ -60,6 +60,18 @@ int main(int argc, char** argv) {
         if (a == "--restart") { restartAt = static_cast<float>(std::atof(argv[i + 1])); restartReason = std::atoi(argv[i + 2]); }
         if (a == "--pause") { pauseFrom = static_cast<float>(std::atof(argv[i + 1])); pauseTo = static_cast<float>(std::atof(argv[i + 2])); }
     }
+    // --fire <every s> [target]: aim and fire a shot every <every s> (target = enemy spawner
+    // name or "none"). --aim <from s> <to s>: aim flag in that window (default: with --fire).
+    float fireEvery = 0.f, aimFrom = 1e9f, aimTo = 1e9f, nextFire = 3.f; uint64_t fireTarget = 0;
+    for (int i = 1; i + 1 < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--fire") {
+            fireEvery = static_cast<float>(std::atof(argv[i + 1]));
+            if (i + 2 < argc && argv[i + 2][0] != '-' && std::string(argv[i + 2]) != "none") fireTarget = fnv(argv[i + 2]);
+            aimFrom = 0.f; aimTo = 1e9f;
+        }
+        if (a == "--aim" && i + 2 < argc) { aimFrom = static_cast<float>(std::atof(argv[i + 1])); aimTo = static_cast<float>(std::atof(argv[i + 2])); }
+    }
     size_t enemyMsgs = 0, enemyCount = 0, enemyDead = 0;
     ULONGLONG enemySentAt = 0;
     Session s;
@@ -137,8 +149,13 @@ int main(int argc, char** argv) {
         } else if (mode != "host") {
             me.pos.x += 8.f * dt;                     // client wanders off
         }
-        s.SendPlayerState(me);
         float tsec = (now - start) / 1000.f;
+        me.flags = (tsec >= aimFrom && tsec < aimTo) ? 1 : 0;
+        if (fireEvery > 0.f && tsec >= nextFire) {
+            nextFire += fireEvery; ++me.shots; me.shotTarget = fireTarget;
+            std::printf("t=%.1f shot %u\n", tsec, me.shots);
+        }
+        s.SendPlayerState(me);
         for (auto& h : hits) if (!h.sent && tsec >= h.at && s.connected()) { s.SendEnemyDamage({h.sid, h.amount, static_cast<uint8_t>(h.alert ? kReportAlert : h.spawned ? kReportSpawned : 0)}); h.sent = true; std::printf("[client] t=%.1f reported a %.1f hit\n", tsec, h.amount); }
         if (!restartSent && tsec >= restartAt && s.connected()) {
             restartSent = true;

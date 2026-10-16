@@ -82,6 +82,22 @@ public:
     std::atomic<int> stance_{0};          // 0 stand, 1 crouch, 2 prone
     std::atomic<bool> aiming_{false}, stanceQueued_{false};
     int lastDemeanor_ = -1;
+    // Shots (2026-10-17): this PC's trigger, counted for PlayerState, and the other PC's
+    // shots replayed by its stand-in NPC (the buddy on the host, the host body on the partner).
+    void PollFiring();
+    void MirrorShots(const std::string& npc, uint64_t target, int n);
+    ShotCounter shotCounter_;
+    std::atomic<bool> firing_{false}, firingQueued_{false};
+    std::atomic<uint8_t> shots_{0};
+    std::atomic<uint64_t> shotTarget_{0};
+    std::map<uint8_t, uint8_t> lastShotsSeen_;   // per remote slot
+    unsigned long long lastShotLog_ = 0, lastTargetLog_ = 0;
+    // A mirrored shot that hits an enemy must not count twice: the shooter's own PC already
+    // reports its hit. Health before the stand-in's shot, kept for kFireGuardMs.
+    std::mutex fireGuardMu_;
+    std::map<uint64_t, std::pair<unsigned long long, float>> fireGuard_;
+    bool FireGuardHp(uint64_t sid, float* hp);
+    void SetFireGuardHp(uint64_t sid, float hp);
     Vec3 selfPrevPos_, selfVel_;
     unsigned long long selfPrevAt_ = 0, lastSelfLog_ = 0;
     float selfLead_ = 1.8f;   // metres ahead of a moving player to aim (move-to arrival slowdown)

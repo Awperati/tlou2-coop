@@ -231,6 +231,9 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
     if (offHealth_) if (auto h = Read<float>(p + offHealth_)) s.health = static_cast<uint8_t>(*h < 0 ? 0 : (*h > 100 ? 100 : *h));
     s.stance = static_cast<uint8_t>(stance_.load());
     if (aiming_) s.flags |= 1;
+    if (firing_) s.flags |= 2;
+    s.shots = shots_;
+    s.shotTarget = shotTarget_;
     if (InCombat()) s.flags |= 4;
     if (s.health == 0) s.flags |= 8;
     return s;
@@ -274,7 +277,8 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
     puppetQueued_ = true;
     Vec3 pos = s.pos; float yaw = s.yaw;
     int stance = s.stance; bool aim = (s.flags & 1) != 0;
-    RunOnGameFiber([this, slot, selfMode, pos, yaw, stance, aim] {
+    uint8_t shots = s.shots; uint64_t shotTarget = s.shotTarget;
+    RunOnGameFiber([this, slot, selfMode, pos, yaw, stance, aim, shots, shotTarget] {
         puppetQueued_ = false;
         if (InCinematic()) return;   // never move actors while a cinematic owns them
         uintptr_t b = puppetSpawner_.empty() ? findBuddyOnFiber() : spawnedProcessOnFiber(puppetSpawner_);
@@ -375,6 +379,12 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
             });
         } else if (!aim) {
             aimingNow_ = false;
+        }
+        // Shots: the first state from a slot only sets the count; later ones fire the new shots.
+        if (!selfMode) {
+            auto seen = lastShotsSeen_.find(slot);
+            if (seen == lastShotsSeen_.end()) lastShotsSeen_[slot] = shots;
+            else if (int n = NewShots(seen->second, shots)) { seen->second = shots; MirrorShots(name, shotTarget, n); }
         }
         float gap = Distance(*cur, pos);
         ULONGLONG t = GetTickCount64();
@@ -1545,6 +1555,25 @@ void GameBridge::PollStance() {
     }, true);
 }
 
+// player-is-firing? (rva 0xB92990) and player-get-target (rva 0xC9C070, the name id of what
+// the player aims at; 0 when nothing). Polled every 100 ms so a single tap is seen.
+void GameBridge::PollFiring() {
+    if (firingQueued_.exchange(true)) return;
+    RunOnGameFiber([this] {
+        firingQueued_ = false;
+        uint64_t argv[4] = {}, ret[4] = {};
+        bool firing = SafeNative(BuildRva(0xB92990), 0, argv, ret) && (ret[0] & 0xFF);
+        firing_ = firing;
+        if (!shotCounter_.Update(firing, GetTickCount64())) return;
+        ret[0] = 0;
+        uint64_t target = SafeNative(BuildRva(0xC9C070), 0, argv, ret) ? ret[0] : 0;
+        shotTarget_ = target;
+        shots_ = shotCounter_.shots;
+        ULONGLONG t = GetTickCount64();
+        if (t - lastTargetLog_ > 1000) { lastTargetLog_ = t; Log("shots: fired (%u so far), target %016llx", shotCounter_.shots, static_cast<unsigned long long>(target)); }
+    }, true);
+}
+
 // load-level (native rva 0xD4D170) takes a C string (the package name): it builds a
 // WantLoadInfo (sub_141AAED90 caches the string, hashes it) and calls
 // LoadRegistry::AddWantLoad. Passing a pointer to the hash instead (2026-10-12) read
@@ -2027,9 +2056,71 @@ void NativeSpawnNpc(uint64_t sid) {
 }
 } // namespace
 
+constexpr unsigned long long kFireGuardMs = 1500;
+
+bool GameBridge::FireGuardHp(uint64_t sid, float* hp) {
+    std::lock_guard lk(fireGuardMu_);
+    auto g = fireGuard_.find(sid);
+    if (g == fireGuard_.end()) return false;
+    if (GetTickCount64() - g->second.first > kFireGuardMs) { fireGuard_.erase(g); return false; }
+    *hp = g->second.second;
+    return true;
+}
+
+void GameBridge::SetFireGuardHp(uint64_t sid, float hp) {
+    std::lock_guard lk(fireGuardMu_);
+    auto g = fireGuard_.find(sid);
+    if (g != fireGuard_.end()) g->second.second = hp;
+}
+
+// npc-fire-at-object <npc> <target> <a> <b> <c> (rva 0x634350) queues a shot at the target
+// whatever way she faces (seen live 2026-10-17: Dina's tracer went to the player, no damage
+// to the player). npc-fire-weapon <npc> <n> <flag> (rva 0x6346A0) fires where her gun points
+// (live: muzzle flash, dust at her feet with the pistol lowered).
+void GameBridge::MirrorShots(const std::string& npc, uint64_t target, int n) {
+    RunInScriptContext([this, npc, target, n] {
+        uint64_t ret[4] = {};
+        bool atTarget = target && NativeAlive(target);
+        if (atTarget) {
+            {
+                std::lock_guard lk(fireGuardMu_);
+                float hp = NativeFloat(0x40F7A0, target);
+                auto g = fireGuard_.find(target);
+                // Keep the older guard while it lasts: its health is from before both shots.
+                if (g == fireGuard_.end() || GetTickCount64() - g->second.first > kFireGuardMs) fireGuard_[target] = {GetTickCount64(), hp};
+                else g->second.first = GetTickCount64();
+            }
+            uint64_t argv[8] = {Fnv1a(npc), target, 1, 1, 0, 0};
+            SafeNative(BuildRva(0x634350), 6, argv, ret);
+        } else {
+            uint64_t argv[8] = {Fnv1a(npc), 1, 0};
+            SafeNative(BuildRva(0x6346A0), 3, argv, ret);
+        }
+        ULONGLONG t = GetTickCount64();
+        if (t - lastShotLog_ > 1000) {
+            lastShotLog_ = t;
+            Log("shots: '%s' fires %d shot(s) %s %016llx", npc.c_str(), n, atTarget ? "at" : "ahead, target", static_cast<unsigned long long>(target));
+        }
+    });
+}
+
 void GameBridge::QueueEnemySnapshot(bool partner) {
     if (enemySnapBusy_.exchange(true)) return;
     RunInScriptContext([this, partner] {
+        // Undo damage a mirrored shot did here; the shooter's PC reports its own hit.
+        std::vector<std::pair<uint64_t, float>> guarded;
+        {
+            std::lock_guard lk(fireGuardMu_);
+            for (auto it = fireGuard_.begin(); it != fireGuard_.end();) {
+                if (GetTickCount64() - it->second.first > kFireGuardMs) it = fireGuard_.erase(it);
+                else { guarded.push_back({it->first, it->second.second}); ++it; }
+            }
+        }
+        for (auto& [gsid, ghp] : guarded) {
+            if (!NativeAlive(gsid)) continue;
+            float h = NativeFloat(0x40F7A0, gsid);
+            if (h < ghp - 0.5f) { NativeSetHealth(gsid, ghp); Log("shots: mirrored shot hit %016llx, health %.1f -> %.1f restored", static_cast<unsigned long long>(gsid), h, ghp); }
+        }
         std::vector<EnemyState> out;
         for (auto& [lsid, level] : readLevels()) {
             auto tab = Read<uintptr_t>(level + 256);
@@ -2121,6 +2212,11 @@ void GameBridge::ApplyEnemyStates(const std::vector<EnemyState>& v) {
             }
             float h = NativeFloat(0x40F7A0, e.sid);
             auto last = enemyHostHp_.find(e.sid);
+            float guardHp;
+            if (last != enemyHostHp_.end() && h < last->second - 0.5f && FireGuardHp(e.sid, &guardHp)) {
+                NativeSetHealth(e.sid, last->second);   // the host body's mirrored shot, not ours
+                continue;
+            }
             if (last != enemyHostHp_.end() && h < last->second - 0.5f) {
                 // Hit on this PC: tell the host, which owns health. Keep the local value until
                 // the host's next state includes the damage.
@@ -2166,7 +2262,11 @@ void GameBridge::ApplyEnemyDamage(const EnemyDamage& d) {
             if (d.amount <= 0.f) return;
         }
         float h = NativeFloat(0x40F7A0, d.sid);
+        float guardHp;
+        bool guarded = FireGuardHp(d.sid, &guardHp);
+        if (guarded) h = guardHp;   // ignore what the buddy's mirrored shot did here
         float n = h - d.amount;
+        if (guarded) SetFireGuardHp(d.sid, n);
         if (n <= 0.f) NativeKill(d.sid); else NativeSetHealth(d.sid, n);
         Log("enemies: partner hit %016llx for %.1f (%.1f -> %.1f%s)", static_cast<unsigned long long>(d.sid), d.amount, h, n, n <= 0.f ? ", killed" : "");
     });
