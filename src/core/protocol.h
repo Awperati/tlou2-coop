@@ -112,6 +112,7 @@ constexpr uint8_t kEnemyCombat = 2;   // flags bit1: in combat (npc-in-combat?)
 // Partner -> host: damage dealt on the partner's PC, and/or "this enemy spotted me".
 struct EnemyDamage { uint64_t sid = 0; float amount = 0; uint8_t flags = 0; };
 constexpr uint8_t kReportAlert = 1;   // flags bit0
+constexpr uint8_t kReportSpawned = 2; // flags bit1: alive on the partner, never listed by the host
 // M7. seq counts the sender's checkpoint writes/restarts this session; task is the host's
 // current story task name (for logs and to tell a stale event).
 struct CheckpointEvent { uint32_t seq = 0; std::string task; };

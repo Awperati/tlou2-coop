@@ -910,3 +910,15 @@ Not done: nothing from M7 has been hooked or called live yet.
   gui2-script-funcs(-game-impl) or nd-script-funcs. So whether a death passes through the restart hook (and
   reaches the shared-death path) stays unknown until a death happens in a real session; the hook logs it either
   way. Stopped here: the focus gate and pad driving without focus are off limits.
+- **M6: enemies missing on one side get spawned (2026-10-16 18:37):**
+  - Partner: an enemy the host lists as alive but that has no live NPC here is spawned with c-spawn-npc
+    (0x626240; the game refuses if it's already spawned), at most every 10 s per enemy.
+  - Partner, every 2 s once the host's list has arrived: enemies alive here that the host never listed are
+    reported once (EnemyDamage flag bit1 `kReportSpawned`). The host spawns them unless it has seen that enemy
+    alive before, so a dead one is never respawned.
+  - lan_sim `--spawned <spawner> <at>`.
+  - Live, host: `--spawned npc-wat-bank-militia-1` -> `exists on the partner's PC, spawned it here`, alive 1 at its
+    spot. Live, partner (client vs `hostline --enemy npc-wat-bank-militia-1`): `alive on the host but not here,
+    spawned it`, alive 1. It then noticed the player and sent `spotted us` every 5 s (the throttle); a real host
+    makes it hunt the buddy once.
+  - Restored afterwards: host mode, Ellie, companion; militia-1 and the body (militia-8) removed.

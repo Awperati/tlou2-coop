@@ -2017,9 +2017,19 @@ void NativeKill(uint64_t sid) {
 }
 } // namespace
 
-void GameBridge::QueueEnemySnapshot() {
+// c-spawn-npc <spawner> (rva 0x626240): fails by itself if the spawner already has a
+// live NPC ("not a multispawner and object already spawned"). Retried at most every 10 s.
+namespace {
+void NativeSpawnNpc(uint64_t sid) {
+    uint64_t argv[8] = {sid, 0, 0};
+    uint64_t ret[4] = {};
+    SafeNative(BuildRva(0x626240), 3, argv, ret);
+}
+} // namespace
+
+void GameBridge::QueueEnemySnapshot(bool partner) {
     if (enemySnapBusy_.exchange(true)) return;
-    RunInScriptContext([this] {
+    RunInScriptContext([this, partner] {
         std::vector<EnemyState> out;
         for (auto& [lsid, level] : readLevels()) {
             auto tab = Read<uintptr_t>(level + 256);
@@ -2046,7 +2056,17 @@ void GameBridge::QueueEnemySnapshot() {
                 out.push_back({sid, alive ? NativeFloat(0x40F7A0, sid) : 0.f, flags});
             }
         }
-        {
+        if (partner) {
+            if (enemyHostKnown_.empty()) { enemySnapBusy_ = false; return; }   // wait for the host's list
+            int n = 0;
+            std::lock_guard lk(enemyMu_);
+            for (const auto& e : out)
+                if (!(e.flags & kEnemyDead) && !enemyHostKnown_.count(e.sid) && enemySpawnReported_.insert(e.sid).second) {
+                    damageOut_.push_back({e.sid, 0.f, kReportSpawned});
+                    ++n;
+                }
+            if (n) Log("enemies: %d enemies alive here that the host never listed, reported", n);
+        } else {
             std::lock_guard lk(enemyMu_);
             enemyOut_ = std::move(out);
         }
@@ -2068,7 +2088,15 @@ void GameBridge::ApplyEnemyStates(const std::vector<EnemyState>& v) {
     RunInScriptContext([this, v] {
         int set = 0, killed = 0, reported = 0;
         for (const auto& e : v) {
+            enemyHostKnown_.insert(e.sid);
             bool alive = NativeAlive(e.sid);
+            // Alive on the host but never spawned here: spawn it, so both PCs have it.
+            if (!alive && !(e.flags & kEnemyDead) && !enemyKilledHere_.count(e.sid) && GetTickCount64() - enemySpawnTried_[e.sid] > 10000) {
+                enemySpawnTried_[e.sid] = GetTickCount64();
+                NativeSpawnNpc(e.sid);
+                Log("enemies: %016llx is alive on the host but not here, spawned it", static_cast<unsigned long long>(e.sid));
+                continue;
+            }
             if (e.flags & kEnemyDead) {
                 if (alive && !enemyKilledHere_.count(e.sid)) { NativeKill(e.sid); enemyKilledHere_.insert(e.sid); ++killed; }
                 enemyHostHp_.erase(e.sid);
@@ -2116,6 +2144,16 @@ void GameBridge::ApplyEnemyStates(const std::vector<EnemyState>& v) {
 
 void GameBridge::ApplyEnemyDamage(const EnemyDamage& d) {
     RunInScriptContext([this, d] {
+        if (d.flags & kReportSpawned) {
+            // Alive on the partner, missing here: spawn it so the host owns it from now on.
+            // Never respawn one the host has seen alive (it died or was removed here).
+            if (!enemyAlive_.count(d.sid) && !NativeAlive(d.sid) && GetTickCount64() - enemySpawnTried_[d.sid] > 10000) {
+                enemySpawnTried_[d.sid] = GetTickCount64();
+                NativeSpawnNpc(d.sid);
+                Log("enemies: %016llx exists on the partner's PC, spawned it here", static_cast<unsigned long long>(d.sid));
+            }
+            return;
+        }
         if (!NativeAlive(d.sid)) return;
         if (d.flags & kReportAlert) {
             // The partner's stand-in here is the buddy (their character's companion).

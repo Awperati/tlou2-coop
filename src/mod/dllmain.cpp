@@ -330,6 +330,7 @@ void CoopMain() {
         if (syncEnemies) {
             ULONGLONG nowE = GetTickCount64();
             if (isHost && session.peerCount() > 0 && nowE - enemySnapAt > 200) { enemySnapAt = nowE; bridge.QueueEnemySnapshot(); }
+            if (!isHost && session.connected() && nowE - enemySnapAt > 2000) { enemySnapAt = nowE; bridge.QueueEnemySnapshot(true); }
             if (auto v = bridge.TakeEnemyOut(); !v.empty()) session.SendEnemyStates(v);
             for (const auto& d : bridge.TakeDamageOut()) session.SendEnemyDamage(d);
         }

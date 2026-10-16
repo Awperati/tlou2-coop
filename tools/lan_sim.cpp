@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
     // M6 test options (after the address):
     //   --hit <spawner> <amount> <at s>      client: report damage to that enemy at time <at>
     //   --enemy <spawner> <health> <dead s>  host: send that enemy's state, dead from <dead s> on
-    struct Hit { uint64_t sid; float amount; float at; bool sent = false; bool alert = false; };
+    struct Hit { uint64_t sid; float amount; float at; bool sent = false; bool alert = false; bool spawned = false; };
     std::vector<Hit> hits;
     std::string enemyName; float enemyHp = 0, enemyDeadAt = 1e9f, combatFrom = 1e9f, combatTo = 1e9f;
     auto fnv = [](const std::string& n) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char c : n) { h ^= c; h *= 0x100000001b3ull; } return h; };
@@ -50,6 +50,8 @@ int main(int argc, char** argv) {
         if (a == "--combat") { combatFrom = static_cast<float>(std::atof(argv[i + 1])); combatTo = static_cast<float>(std::atof(argv[i + 2])); }
         // --alert <spawner> <at s>: client reports that enemy spotted it
         if (a == "--alert") hits.push_back({fnv(argv[i + 1]), 0.f, static_cast<float>(std::atof(argv[i + 2])), false, true});
+        // --spawned <spawner> <at s>: client reports that enemy as alive only on its PC
+        if (a == "--spawned") hits.push_back({fnv(argv[i + 1]), 0.f, static_cast<float>(std::atof(argv[i + 2])), false, false, true});
     }
     // M7: --restart <at s> <0 host restarted | 1 partner died>, --pause <from s> <to s>
     float restartAt = 1e9f, pauseFrom = 1e9f, pauseTo = 1e9f; int restartReason = 0; bool restartSent = false; int pauseSent = 0;
@@ -137,7 +139,7 @@ int main(int argc, char** argv) {
         }
         s.SendPlayerState(me);
         float tsec = (now - start) / 1000.f;
-        for (auto& h : hits) if (!h.sent && tsec >= h.at && s.connected()) { s.SendEnemyDamage({h.sid, h.amount, static_cast<uint8_t>(h.alert ? kReportAlert : 0)}); h.sent = true; std::printf("[client] t=%.1f reported a %.1f hit\n", tsec, h.amount); }
+        for (auto& h : hits) if (!h.sent && tsec >= h.at && s.connected()) { s.SendEnemyDamage({h.sid, h.amount, static_cast<uint8_t>(h.alert ? kReportAlert : h.spawned ? kReportSpawned : 0)}); h.sent = true; std::printf("[client] t=%.1f reported a %.1f hit\n", tsec, h.amount); }
         if (!restartSent && tsec >= restartAt && s.connected()) {
             restartSent = true;
             s.SendCheckpointRestart({1, restartReason ? RestartReason::PartnerDied : RestartReason::HostRestarted});
