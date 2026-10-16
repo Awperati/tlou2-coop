@@ -891,3 +891,14 @@ Not done: nothing from M7 has been hooked or called live yet.
   frame-difference motion (ffmpeg tblend + signalstats YAVG) was 0.5-0.65 before, 0.00-0.04 while paused (6-13 s), and
   0.6-1.2 after resume. The contact sheet shows the menu open, then gone. The game-clock pause (16:04 clip) never
   dropped below 0.49, so it really didn't freeze anything.
+- **M7 status (2026-10-16 16:35):**
+  - Working, verified live: host restart -> partner restart; partner restart -> host restarts both, no echo loop;
+    remote pause opens and closes the real pause menu, checked from clip motion.
+  - Built, not verified: a checkpoint written on the host goes to the partner as CheckpointWritten (log only), and
+    the RememberCheckpoint hook now forwards all args. Test skipped. The game window wasn't in front for pad
+    driving, and writing a checkpoint in place through the game's trigger callback (sub_1410475B0(0, 5) ->
+    RememberCheckpoint) was refused because it would overwrite the user's save point.
+  - Open: whether a death runs GameRestartCheckpoint, so it reaches the shared-death path. Also, the partner
+    writing its own checkpoint when the host does is not built; it needs a checkpoint write, the same refused action.
+  - Note: the game keeps polling XInput while unfocused (GetState calls keep climbing), so the focus gate is
+    inside the game's input handling, not in XInput.
