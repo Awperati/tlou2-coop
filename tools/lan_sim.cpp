@@ -51,6 +51,13 @@ int main(int argc, char** argv) {
         // --alert <spawner> <at s>: client reports that enemy spotted it
         if (a == "--alert") hits.push_back({fnv(argv[i + 1]), 0.f, static_cast<float>(std::atof(argv[i + 2])), false, true});
     }
+    // M7: --restart <at s> <0 host restarted | 1 partner died>, --pause <from s> <to s>
+    float restartAt = 1e9f, pauseFrom = 1e9f, pauseTo = 1e9f; int restartReason = 0; bool restartSent = false; int pauseSent = 0;
+    for (int i = 1; i + 2 < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--restart") { restartAt = static_cast<float>(std::atof(argv[i + 1])); restartReason = std::atoi(argv[i + 2]); }
+        if (a == "--pause") { pauseFrom = static_cast<float>(std::atof(argv[i + 1])); pauseTo = static_cast<float>(std::atof(argv[i + 2])); }
+    }
     size_t enemyMsgs = 0, enemyCount = 0, enemyDead = 0;
     ULONGLONG enemySentAt = 0;
     Session s;
@@ -81,6 +88,9 @@ int main(int argc, char** argv) {
         }
     };
     cb.onEnemyDamage = [](uint8_t slot, const EnemyDamage& d) { std::printf("[host] slot %u hit %016llx for %.1f%s\n", slot, (unsigned long long)d.sid, d.amount, (d.flags & kReportAlert) ? " (alert)" : ""); };
+    cb.onCheckpointWritten = [](const CheckpointEvent& e) { std::printf("[client] host checkpoint #%u '%s'\n", e.seq, e.task.c_str()); };
+    cb.onCheckpointRestart = [](uint8_t slot, const RestartEvent& e) { std::printf("slot %u restart #%u reason %d\n", slot, e.seq, (int)e.reason); };
+    cb.onPaused = [](uint8_t slot, const PauseEvent& e) { std::printf("slot %u %s\n", slot, e.paused ? "paused" : "resumed"); };
     cb.onObjective = [](const Objective& o) {
         std::printf("[client] objective '%s' at (%.1f, %.1f, %.1f) transition=%u\n", o.label.c_str(), o.pos.x, o.pos.y, o.pos.z, o.isTransition);
     };
@@ -128,6 +138,17 @@ int main(int argc, char** argv) {
         s.SendPlayerState(me);
         float tsec = (now - start) / 1000.f;
         for (auto& h : hits) if (!h.sent && tsec >= h.at && s.connected()) { s.SendEnemyDamage({h.sid, h.amount, static_cast<uint8_t>(h.alert ? kReportAlert : 0)}); h.sent = true; std::printf("[client] t=%.1f reported a %.1f hit\n", tsec, h.amount); }
+        if (!restartSent && tsec >= restartAt && s.connected()) {
+            restartSent = true;
+            s.SendCheckpointRestart({1, restartReason ? RestartReason::PartnerDied : RestartReason::HostRestarted});
+            std::printf("t=%.1f sent restart (reason %d)\n", tsec, restartReason);
+        }
+        int wantPause = tsec >= pauseFrom && tsec < pauseTo ? 1 : (tsec >= pauseTo ? 2 : 0);
+        if (wantPause != pauseSent && s.connected()) {
+            pauseSent = wantPause;
+            s.SendPaused({static_cast<uint8_t>(wantPause == 1)});
+            std::printf("t=%.1f sent %s\n", tsec, wantPause == 1 ? "pause" : "resume");
+        }
         if (!enemyName.empty() && mode == "host" && now - enemySentAt > 200) {
             enemySentAt = now;
             s.SendEnemyStates({{fnv(enemyName), tsec >= enemyDeadAt ? 0.f : enemyHp, static_cast<uint8_t>(tsec >= enemyDeadAt ? kEnemyDead : (tsec >= combatFrom && tsec < combatTo ? kEnemyCombat : 0))}});

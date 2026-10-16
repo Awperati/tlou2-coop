@@ -181,6 +181,11 @@ public:
     bool DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode = false);
     std::string CurrentWorldPack();
     std::string CurrentTask() const { return taskName_; }
+    // M7 actions. task-restart-from-continue (native 0x427500, no args) runs
+    // GameRestartCheckpoint(0, 1), like the pause menu's Restart Checkpoint.
+    // pause-game-clock 0x41A060 / unpause-game-clock 0x427B40 freeze gameplay time.
+    void QueueRestartFromCheckpoint();
+    void QueueGameClock(bool paused);
     // game-paused? (native 0xD3D240) without a script call, so it works while scripts are
     // stopped: clock component 1 +0xF8 time scale is 0, or byte [0x143603768]+99 is set.
     // std::nullopt if the fields can't be read.

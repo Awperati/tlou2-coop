@@ -168,6 +168,13 @@ void CoopMain() {
     // which only logs them and shows a note. Acting on them (partner restart, game-clock
     // pause) waits for an in-game test with the user.
     uint32_t cpWritesSeen = 0, cpRestartsSeen = 0;
+    // [sync] Checkpoints: the partner restarts when the host does; a partner's death makes the
+    // host restart both. [sync] Pause: either side pausing freezes the other's game clock.
+    const bool syncCheckpoints = cfg.getBool("sync", "Checkpoints", true);
+    const bool syncPause = cfg.getBool("sync", "Pause", true);
+    uint32_t restartsToIgnore = 0;      // restarts we caused ourselves: don't report them back
+    ULONGLONG ownRestartAt = 0;         // partner: when it last restarted (death or ours)
+    bool remotePauseApplied = false;    // our clock is paused because the other side paused
     int pausedSeen = -1;
     ULONGLONG pauseCheckAt = 0;
     bridge.bodyFile_ = dir + L"tlou2-coop\\body.txt";
@@ -244,12 +251,25 @@ void CoopMain() {
     cb.onEnemyDamage = [&](uint8_t, const EnemyDamage& d) { if (syncEnemies) bridge.ApplyEnemyDamage(d); };
     cb.onCheckpointWritten = [&](const CheckpointEvent& e) { Log("m7: host wrote checkpoint #%u (task '%s')", e.seq, e.task.c_str()); };
     cb.onCheckpointRestart = [&](uint8_t slot, const RestartEvent& e) {
-        Log("m7: slot %u %s (#%u) - not acted on yet", slot, e.reason == RestartReason::HostRestarted ? "host restarted from its checkpoint" : "partner died, asks for a restart", e.seq);
-        OverlayNotify(e.reason == RestartReason::HostRestarted ? L"Host restarted from the checkpoint" : L"Your partner died");
+        bool hostRestarted = e.reason == RestartReason::HostRestarted;
+        Log("m7: slot %u %s (#%u)", slot, hostRestarted ? "host restarted from its checkpoint" : "partner died, asks for a restart", e.seq);
+        OverlayNotify(hostRestarted ? L"Host restarted from the checkpoint" : L"Your partner died - restarting");
+        if (!syncCheckpoints) return;
+        if (!isHost && hostRestarted) {
+            // Our own death restart a moment ago already put us back at the checkpoint.
+            if (GetTickCount64() - ownRestartAt < 8000) { Log("m7: already restarted %llu ms ago, skipped", GetTickCount64() - ownRestartAt); return; }
+            ++restartsToIgnore;
+            bridge.QueueRestartFromCheckpoint();
+        } else if (isHost && !hostRestarted) {
+            bridge.QueueRestartFromCheckpoint();   // reported to the partner by the restart hook
+        }
     };
     cb.onPaused = [&](uint8_t slot, const PauseEvent& e) {
         Log("m7: slot %u %s", slot, e.paused ? "paused" : "resumed");
         OverlayNotify(e.paused ? L"Partner paused" : L"Partner resumed");
+        if (!syncPause || static_cast<bool>(e.paused) == remotePauseApplied) return;
+        remotePauseApplied = e.paused != 0;
+        bridge.QueueGameClock(remotePauseApplied);
     };
     session.setCallbacks(cb);
 
@@ -309,7 +329,9 @@ void CoopMain() {
         if (uint32_t r = CheckpointRestarts(); r != cpRestartsSeen) {
             cpRestartsSeen = r;
             Log("checkpoint: restart (#%u)", r);
-            if (session.connected()) session.SendCheckpointRestart({r, isHost ? RestartReason::HostRestarted : RestartReason::PartnerDied});
+            if (!isHost) ownRestartAt = GetTickCount64();
+            if (restartsToIgnore) { --restartsToIgnore; Log("m7: restart #%u was asked for by the host, not reported back", r); }
+            else if (session.connected()) session.SendCheckpointRestart({r, isHost ? RestartReason::HostRestarted : RestartReason::PartnerDied});
         }
         if (GetTickCount64() - pauseCheckAt > 250) {
             pauseCheckAt = GetTickCount64();
@@ -317,7 +339,8 @@ void CoopMain() {
                 bool first = pausedSeen < 0;
                 pausedSeen = *p ? 1 : 0;
                 if (!first) Log("m7: local game %s", *p ? "paused" : "resumed");
-                if (!first && session.connected()) session.SendPaused({static_cast<uint8_t>(pausedSeen)});
+                // A pause we applied for the other side is not ours to report (it would bounce).
+                if (!first && session.connected() && !remotePauseApplied) session.SendPaused({static_cast<uint8_t>(pausedSeen)});
             }
         }
 

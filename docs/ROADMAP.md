@@ -852,3 +852,13 @@ Not done: nothing from M7 has been hooked or called live yet.
   so the M7 hooks didn't run. The mod's overlay is a GDI layered window (WS_EX_LAYERED|TOPMOST), not a D3D hook.
   The mod has no render hook, so nothing points at it. Device resets so far: 07:57, 19:03, 19:58, all on AMD RX 9070
   XT driver 26.7.1. The game was relaunched (launcher + pad, Continue) to the Watchtower checkpoint at 20:04.
+- **M7 actions built, not run (2026-10-16 14:20):**
+  - Partner: on HostRestarted it runs `task-restart-from-continue` (rva 0x427500, GameRestartCheckpoint(0, 1)).
+    It skips that if it restarted on its own within 8 s, and doesn't report the restart it was asked for.
+  - Host: on PartnerDied it restarts, and its restart hook then tells the partner.
+  - Pause: either side's Paused freezes the other's game clock (pause-game-clock 0x41A060 /
+    unpause-game-clock 0x427B40). A clock pause applied for the other side isn't reported back, so it can't bounce.
+  - `[sync] Checkpoints` and `Pause` in coop.ini. lan_sim: `--restart <at> <0|1>`, `--pause <from> <to>`.
+  - Live test blocked: launching launcher.exe now ends in "The operation was canceled by the user" (an elevation
+    prompt). The game was last started by the user at 19:50, probably elevated. A game started that way can't
+    be closed from the mod's shell either.

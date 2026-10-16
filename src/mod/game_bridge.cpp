@@ -730,6 +730,24 @@ void GameBridge::IssueMoveInDir(const std::string& name, const Vec3& dir, int mo
     });
 }
 
+void GameBridge::QueueRestartFromCheckpoint() {
+    RunInScriptContext([] {
+        uint64_t argv[8] = {};
+        uint64_t ret[4] = {};
+        bool ok = SafeNative(BuildRva(0x427500), 0, argv, ret);
+        Log("m7: restart from checkpoint %s", ok ? "requested" : "FAULT");
+    });
+}
+
+void GameBridge::QueueGameClock(bool paused) {
+    RunInScriptContext([paused] {
+        uint64_t argv[8] = {};
+        uint64_t ret[4] = {};
+        bool ok = SafeNative(BuildRva(paused ? 0x41A060 : 0x427B40), 0, argv, ret);
+        Log("m7: game clock %s%s", paused ? "paused" : "resumed", ok ? "" : " (FAULT)");
+    });
+}
+
 std::optional<bool> GameBridge::IsPaused() const {
     if (!componentTable_) return std::nullopt;
     auto clock = Read<uintptr_t>(componentTable_ + 1 * 8);
