@@ -879,3 +879,9 @@ Not done: nothing from M7 has been hooked or called live yet.
     much pause-game-clock actually freezes. IsPaused (time scale) did not change, so it may stop the game clock and
     timers but not the simulation.
   - Restored: host mode, Ellie, companion shown, test bodies removed.
+- **Remote pause now opens the real pause menu (2026-10-16 16:06):** with the user watching, pause-game-clock
+  left Dina moving ("they kept moving"). `debug-pause` is a stub in retail, and no writer of the pause flags
+  (byte [0x143603768]+96..99) turned up near its references. So a remote pause now presses Start on the virtual
+  pad to open the pause menu, but only if the game isn't paused already. A remote resume presses Start again,
+  only if that menu is still open. Live: `opened the pause menu for the partner` -> local game paused 0.1 s later ->
+  `closed the pause menu` -> resumed. Needs the game window in front, since the pad is ignored otherwise.

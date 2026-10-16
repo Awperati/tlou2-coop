@@ -268,8 +268,20 @@ void CoopMain() {
         Log("m7: slot %u %s", slot, e.paused ? "paused" : "resumed");
         OverlayNotify(e.paused ? L"Partner paused" : L"Partner resumed");
         if (!syncPause || static_cast<bool>(e.paused) == remotePauseApplied) return;
-        remotePauseApplied = e.paused != 0;
-        bridge.QueueGameClock(remotePauseApplied);
+        // pause-game-clock left characters moving (seen on screen 2026-10-16), so open the
+        // real pause menu with the virtual pad's Start instead, and close it the same way.
+        // Only when it changes something: not if we're already paused (a menu, a load), and
+        // on resume only if the menu we opened is still open.
+        auto localPaused = bridge.IsPaused();
+        if (e.paused) {
+            if (localPaused && *localPaused) { Log("m7: already paused here, nothing to open"); return; }
+            remotePauseApplied = true;
+            InputScriptAdd("press start");
+            Log("m7: opened the pause menu for the partner");
+        } else {
+            remotePauseApplied = false;
+            if (localPaused && *localPaused) { InputScriptAdd("press start"); Log("m7: closed the pause menu"); }
+        }
     };
     session.setCallbacks(cb);
 
