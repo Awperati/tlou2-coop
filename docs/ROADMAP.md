@@ -885,3 +885,4 @@ Not done: nothing from M7 has been hooked or called live yet.
   pad to open the pause menu, but only if the game isn't paused already. A remote resume presses Start again,
   only if that menu is still open. Live: `opened the pause menu for the partner` -> local game paused 0.1 s later ->
   `closed the pause menu` -> resumed. Needs the game window in front, since the pad is ignored otherwise.
+  User confirmed on screen (16:10): the pause menu came up and everything stopped moving. The menu closed on resume.
