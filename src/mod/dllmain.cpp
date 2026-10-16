@@ -280,7 +280,7 @@ void CoopMain() {
             Log("m7: opened the pause menu for the partner");
         } else {
             remotePauseApplied = false;
-            if (localPaused && *localPaused) { InputScriptAdd("press start"); Log("m7: closed the pause menu"); }
+            if (localPaused && *localPaused) { InputScriptAdd("press b"); Log("m7: closed the pause menu (B)"); }   // Start does not close it (clip 16:10)
         }
     };
     session.setCallbacks(cb);

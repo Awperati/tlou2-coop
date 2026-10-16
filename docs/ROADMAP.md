@@ -886,3 +886,8 @@ Not done: nothing from M7 has been hooked or called live yet.
   only if that menu is still open. Live: `opened the pause menu for the partner` -> local game paused 0.1 s later ->
   `closed the pause menu` -> resumed. Needs the game window in front, since the pad is ignored otherwise.
   User confirmed on screen (16:10): the pause menu came up and everything stopped moving. The menu closed on resume.
+- **Pause fix + self-check (2026-10-16 16:12):** a 16:10 clip showed the pause menu still open after "Partner resumed":
+  Start doesn't close it, B does. Resume now presses B. Checked from a recording, not by eye: per-second
+  frame-difference motion (ffmpeg tblend + signalstats YAVG) was 0.5-0.65 before, 0.00-0.04 while paused (6-13 s), and
+  0.6-1.2 after resume. The contact sheet shows the menu open, then gone. The game-clock pause (16:04 clip) never
+  dropped below 0.49, so it really didn't freeze anything.
