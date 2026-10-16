@@ -862,3 +862,8 @@ Not done: nothing from M7 has been hooked or called live yet.
   - Live test blocked: launching launcher.exe now ends in "The operation was canceled by the user" (an elevation
     prompt). The game was last started by the user at 19:50, probably elevated. A game started that way can't
     be closed from the mod's shell either.
+- **Launching without the launcher:** tlou-ii.exe takes `-nolauncher` (its command-line flag list, next to the
+  string at file offset 0x2ECFD78: -nixxes, -benchmark, -nolauncher, -launcher, -d3ddebug, -resetSettings,
+  -noStreamline). `-launcher` forces the launcher on. The "Show launcher" checkbox is stored as `ShowLauncher`
+  (next to DisableDriverWarn). For automation: `tlou-ii.exe -nolauncher` in the game folder, then the pad to
+  get through the intro and pick Continue.
