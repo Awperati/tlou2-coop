@@ -963,3 +963,10 @@ PCs, wearing their character's model.
   end of player-request-set-look-id) built the full body (screenshot 18:20). Order: spawnplayer, playertp, playerlook.
 - Next: find what Player reads its joypad from and point player 1's at our own state; or drive player 1 the way
   Factions drives remote players (network anim state).
+- Input leads (static, 18:25): Player::CreateControllers (0xD9E000) makes the joypad controller at Player+12264 with
+  `sub_140CB6F70(player index at Player+21800)`, so player 1 already asks for joypad 1. XInput is loaded at run time
+  (sub_141A07980 fills XInputGetState/SetState/GetCapabilities pointers at 0x149174D60/68/70). The XInput device class
+  has a probe method (sub_141A07900: GetState(index) -> connected flag at device+185, index at +328/+348) and a read
+  method (sub_141A07A80). Only a device for pad 0 polls today. Next: find where devices are created per index (or
+  rescanned), so a virtual pad 1 becomes joypad 1; failing that, hook player 1's joypad read and fill it from the
+  partner's input.
