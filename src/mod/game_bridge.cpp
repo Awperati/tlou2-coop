@@ -650,7 +650,16 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
         }
         SetSpeedScale(name, 1.f);
         // Remote stopped: move-in-direction keeps her walking, so switch to move-to at once.
-        if (dirActive_) { dirActive_ = false; moveIssuedAt_ = 0; }
+        // Close by: halt on her own spot. Aiming past the spot (below) made her overshoot a
+        // short tap by 2 m and keep walking after the partner let go (2026-10-17).
+        if (dirActive_) {
+            dirActive_ = false; moveIssuedAt_ = 0;
+            if (gap < 1.5f) {
+                IssueMoveTo(name, *cur, yaw, 0);
+                stopTarget_ = pos; stopSince_ = t; parked_ = true;
+                return;
+            }
+        }
         if (gap < 0.5f) { moveIssuedAt_ = 0; progressAt_ = 0; return; }
         // Close but not getting closer (a wall, a prop on the spot): park instead of walking
         // into it every second (she walked into a corner by a vending machine, 2026-10-17).
@@ -662,7 +671,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
         if (moveIssuedAt_ && t - moveIssuedAt_ < 1000 && Distance(lastMoveTarget_, pos) < 0.3f) return;
         int motion = gap > 4.f ? 1 : 0;   // run when behind, walk when close
         // move-to stops ~0.7-1 m short of its goal: aim past the spot along her approach.
-        float k = std::min(0.9f, gap) / gap;
+        float k = gap > 1.5f ? std::min(0.9f, gap) / gap : 0.f;
         Vec3 goal = {pos.x + (pos.x - cur->x) * k, pos.y, pos.z + (pos.z - cur->z) * k};
         IssueMoveTo(name, goal, yaw, motion);
         lastMoveTarget_ = pos;
