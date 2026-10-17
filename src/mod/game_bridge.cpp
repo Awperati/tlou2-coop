@@ -1925,9 +1925,26 @@ void GameBridge::TickCloneDrive() {
             cloneTheta_ = StickTheta(lastStickX_, lastStickY_, *wx, *wz);
         float mx = cloneMoveX_, mz = cloneMoveZ_;
         if (GetTickCount64() - cloneMoveAt_ > 500) mx = mz = 0;   // no news from the other PC: stand still
+        if (cloneWorldStick_) { ActiveUpdateHookInstall(BuildRva(0xAD61E0)); SetCloneWorldStick(true, mx, mz); }
         float sx = 0, sy = 0;
         if (mx * mx + mz * mz > 0.0025f) StickForWorld(mx, mz, cloneTheta_, sx, sy);
-        for (uint32_t off : {0x00u, 0x10u, 0x50u}) { SafeWrite(slot + off, &sx, 4); SafeWrite(slot + off + 4, &sy, 4); }
+        // Writing the stick alone did nothing (engine world stick stayed 0, 09:46): the slot needs
+        // the rest of a live pad's state. Start from player 0's slot, then put in the partner's
+        // stick and clear its buttons, triggers and right stick (buttons drive shared action
+        // groups and crashed the game, 07:50).
+        uintptr_t src = JoypadSlot(2);
+        static uint8_t buf[0x2570];
+        SIZE_T nr = 0;
+        if (src && ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(src), buf, sizeof(buf), &nr) && nr == sizeof(buf)) {
+            auto f = [&](uint32_t off, float v) { std::memcpy(buf + off, &v, 4); };
+            for (uint32_t off : {0x00u, 0x10u, 0x50u}) { f(off, sx); f(off + 4, sy); }
+            float len = std::sqrt(sx * sx + sy * sy);
+            f(0x5C, len * 2.f); f(0x60, len * 2.f);
+            for (uint32_t off : {0x08u, 0x0Cu, 0x18u, 0x1Cu, 0x68u, 0x6Cu, 0x78u, 0x7Cu, 0xF0u, 0xF4u}) f(off, 0.f);
+            for (uint32_t off : {0x130u, 0x134u, 0x138u, 0x13Cu, 0x140u, 0x144u}) std::memset(buf + off, 0, 4);
+            SIZE_T nw = 0;
+            WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(slot), buf, sizeof(buf), &nw);
+        }
         lastStickX_ = sx; lastStickY_ = sy;
         ULONGLONG t = GetTickCount64();
         if (t - lastCloneLog_ > 2000 && (sx != 0 || sy != 0)) {

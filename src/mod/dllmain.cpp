@@ -657,7 +657,7 @@ void CoopMain() {
                             Log("dumpslot: slot %d -> %s.bin (%zu bytes)", sl, nm.c_str(), static_cast<size_t>(n));
                         }
                     }
-                    else if (line == "clonedrive on" || line == "clonedrive off") { bridge.cloneDrive_ = line == "clonedrive on"; Log("clonedrive: %s", bridge.cloneDrive_ ? "on (the other player's stick drives player 1)" : "off"); }
+                    else if (line == "clonedrive on" || line == "clonedrive off") { bridge.cloneDrive_ = line == "clonedrive on"; if (!bridge.cloneDrive_) SetCloneWorldStick(false, 0, 0); Log("clonedrive: %s", bridge.cloneDrive_ ? "on (the other player's stick drives player 1)" : "off"); }
                     else if (line.rfind("clone ", 0) == 0) {   // clone <look>: spawn player 1 beside us wearing <look>
                         cloneLook = Trim(line.substr(6)); cloneStage = 1; cloneAt = GetTickCount64();
                     }

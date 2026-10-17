@@ -48,6 +48,8 @@ void SetUserIdFix(uint64_t id);
 // Player::Active::Update (rva 0xAD61E0): per-player call counts since the last read.
 bool ActiveUpdateHookInstall(uintptr_t target);
 std::string ActiveUpdateCounts();
+// Clone drive: write this world stick into player 1 before each Active::Update (needs the hook).
+void SetCloneWorldStick(bool on, float x, float z);
 // CameraControlStrafe::UpdateCameraAssist (rva 0x8215E0) runs for player 0 only.
 bool CamAssistHookInstall(uintptr_t target);
 uint32_t CamAssistSkips();

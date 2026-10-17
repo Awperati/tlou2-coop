@@ -633,9 +633,21 @@ uint8_t g_actSaved[15];
 uintptr_t g_actTarget = 0;
 std::atomic<uintptr_t> g_actPlayer[4];
 std::atomic<uint32_t> g_actCount[4];
+std::atomic<bool> g_cloneStickOn{false};
+std::atomic<float> g_cloneStickX{0}, g_cloneStickZ{0};
 uint64_t HookedActiveUpdate(uint64_t self) {
     uintptr_t pl = 0;
     __try { pl = *reinterpret_cast<uintptr_t*>(self + 8); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    // Clone drive: the other player's world stick goes straight into player 1's NdPlayerJoypad
+    // world stick (Player+19632 +0xD0, x y z) right before its update reads it.
+    if (pl && g_cloneStickOn.load()) {
+        __try {
+            if (*reinterpret_cast<int*>(pl + 21800) == 1) {
+                float* w = reinterpret_cast<float*>(pl + 19632 + 0xD0);
+                w[0] = g_cloneStickX.load(); w[1] = 0.f; w[2] = g_cloneStickZ.load();
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
     for (int i = 0; i < 4; ++i) {
         uintptr_t cur = g_actPlayer[i].load();
         if (cur == pl) { ++g_actCount[i]; break; }
@@ -657,6 +669,8 @@ bool ActiveUpdateHookInstall(uintptr_t target) {
     Log("active hook: Player::Active::Update hooked");
     return true;
 }
+void SetCloneWorldStick(bool on, float x, float z) { g_cloneStickX = x; g_cloneStickZ = z; g_cloneStickOn = on; }
+
 std::string ActiveUpdateCounts() {
     std::string out;
     for (int i = 0; i < 4; ++i) {

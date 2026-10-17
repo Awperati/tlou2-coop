@@ -996,3 +996,12 @@ PCs, wearing their character's model.
   `clone <look>` spawns, teleports and dresses player 1; `padmirror on` copies slot 2 into slot 3 every tick.
   With the mirror on, the game crashed 13 s later in CameraControlStrafe::UpdateCameraAssist (0x8215E0) run for
   player 1 (null+0x80). Now hooked: it runs only for player index 0. Not retested yet.
+- 09:45-09:56 (clone drive): PC B's world stick (its NdPlayerJoypad +0xD0/+0xD8) reaches PC A in PlayerState. Writing
+  it into slot 3's stick fields, into a copy of slot 2 with the stick replaced, or straight into player 1's
+  NdPlayerJoypad +0xD0 before its Active::Update did not move her: the engine rebuilds the slot from its device
+  input history each frame. Only a full copy of a live slot (padmirror) moved her.
+  Input manager = *(*(rva 0x915A9B8) + 0xB8) (sub_1419D2010, 0x8D0 bytes): devices at +0x590 (20: 0-7 WGI,
+  8-11 XInput, device +0xB9 connected, +0x148 pad index), local player count at +0x828 (1), per-player entries
+  at +0x690, 20 bytes each ([4] = device, player 0 -> 8 = XInput 0). Setting count 2, entry 1 -> device 9, device 9
+  connected, and pushing virtual pad 2 did not move player 1 either (reverted). Next: find who fills joypad slot 3
+  (callers that write slot +0x18C8 history) and which manager field maps a player entry to a slot.

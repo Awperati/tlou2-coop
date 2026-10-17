@@ -210,6 +210,7 @@ public:
     void SetCloneMove(float x, float z);
     void TickCloneDrive();
     bool cloneDrive_ = false;
+    bool cloneWorldStick_ = true;   // also write the world stick before player 1's update
     std::atomic<bool> cloneDriveQueued_{false};
     std::atomic<float> cloneMoveX_{0}, cloneMoveZ_{0};
     std::atomic<unsigned long long> cloneMoveAt_{0};
