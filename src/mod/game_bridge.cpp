@@ -670,8 +670,8 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
         // short tap by 2 m and keep walking after the partner let go (2026-10-17).
         if (dirActive_) {
             dirActive_ = false; moveIssuedAt_ = 0;
+            IssueStop(name);
             if (gap < 1.5f) {
-                IssueMoveTo(name, *cur, yaw, 0);
                 stopTarget_ = pos; stopSince_ = t; parked_ = true;
                 return;
             }
@@ -681,7 +681,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
         // into it every second (she walked into a corner by a vending machine, 2026-10-17).
         if (Distance(stopTarget_, pos) > 0.3f) { stopTarget_ = pos; stopSince_ = t; parked_ = false; }
         if ((parked_ && gap < 3.f) || (gap < 1.6f && t - stopSince_ > 3000)) {
-            if (!parked_) { parked_ = true; IssueMoveTo(name, *cur, yaw, 0); Log("remote: parked %.1f m from the partner's spot", gap); }
+            if (!parked_) { parked_ = true; IssueStop(name); Log("remote: parked %.1f m from the partner's spot", gap); }
             return;
         }
         if (moveIssuedAt_ && t - moveIssuedAt_ < 1000 && Distance(lastMoveTarget_, pos) < 0.3f) return;
@@ -786,6 +786,16 @@ void GameBridge::SetSpeedScale(const std::string& name, float s) {
 
 // npc-move-in-direction (native rva 0x63E7F0): <npc> <vector*> <motion> [goal] [bool] [bool].
 // Keeps her walking/running along a direction with no goal to slow down for.
+// npc-stop <npc> (rva 0x648B60, DcNpcStop). A move-to on her own spot did not cancel a
+// move-in-direction: she kept walking the last way 5 m after the partner stopped (07:33 log).
+void GameBridge::IssueStop(const std::string& name) {
+    RunInScriptContext([name] {
+        uint64_t argv[8] = {Fnv1a(name)};
+        uint64_t ret[4] = {};
+        SafeNative(BuildRva(0x648B60), 1, argv, ret);
+    });
+}
+
 void GameBridge::IssueMoveInDir(const std::string& name, const Vec3& dir, int motion) {
     RunInScriptContext([name, dir, motion] {
         uintptr_t fn = BuildRva(0x63E7F0);
