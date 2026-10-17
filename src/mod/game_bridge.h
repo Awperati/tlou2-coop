@@ -82,6 +82,9 @@ public:
     std::atomic<int> stance_{0};          // 0 stand, 1 crouch, 2 prone
     std::atomic<bool> aiming_{false}, stanceQueued_{false};
     int lastDemeanor_ = -1;
+    // standdem <n>: demeanor for a standing partner (-1 = uneasy where the level is tense). Default 0:
+    // uneasy (1) made her flick between crouch and stand every second in the tunnels (recorded 06:49).
+    int standDemeanor_ = 0;
     unsigned long long lastDemeanorAt_ = 0, stopSince_ = 0, lastDemOverrideLog_ = 0;
     uint32_t lastDemOverrides_ = 0;
     Vec3 stopTarget_;

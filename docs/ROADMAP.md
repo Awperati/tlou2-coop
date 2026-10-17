@@ -988,5 +988,6 @@ PCs, wearing their character's model.
   window, so player 1 is updated every frame. Player+19632 is its NdPlayerJoypad: +0x14/+0x18 = 0/1 and +0x1C = engine
   joypad slot 2 (player 0) / 3 (player 1). Next test: poke player 1's +0x14/+0x18 = 0 and +0x1C = 2 (done 06:45), then
   move player 0 and see whether player 1 follows the same stick.
-- Companion idle: standing now maps to demeanor 1 (uneasy, the cautious idle) whenever the level itself asks the
-  companion for 1 or more (our demeanor hook records the game's request), else 0 (user report 06:44).
+- Companion idle: tried demeanor 1 (uneasy, the cautious idle) for a standing partner where the level is tense.
+  Recorded 06:49: she flicked between crouch and stand about once a second. Back to 0 by default (`standdem` to try
+  others). The cautious idle needs another route (likely an idle/animation-set override, not the demeanor).

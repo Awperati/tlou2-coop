@@ -633,6 +633,7 @@ void CoopMain() {
                     else if (line == "lookstate") bridge.QueueLookState();
                     else if (line == "players") bridge.QueuePlayerTable();
                     else if (line == "activecount") bridge.ActiveCount();
+                    else if (line.rfind("standdem ", 0) == 0) { bridge.standDemeanor_ = std::atoi(line.c_str() + 9); Log("standdem: %d", bridge.standDemeanor_); }
                     else if (line.rfind("playerlook ", 0) == 0) {   // playerlook <index> <look>
                         std::istringstream pl(line.substr(11)); unsigned idx = 1; std::string lk; pl >> idx >> lk;
                         if (!lk.empty()) bridge.QueuePlayerLook(idx, lk);
