@@ -978,3 +978,9 @@ PCs, wearing their character's model.
   the CameraManager in xmmword_1492AE950[index], kMaxCameraManagers) or a per-player update that only runs for
   player 0. Next: find who calls the joypad controller's update for each player, and whether player 1 needs a
   camera manager. Alternative: drive player 1 as Factions drives remote players (NetPlayerTracker / AnimNetPlayerInfo).
+- 18:37 live: with player 0's joypad set to 1, the pad still moved player 0, so the joypad field is not what feeds
+  movement. Player::Active::Update (0xAD61E0) calls CameraManager::GetGlobal(player index) (0x1B1B2B0), which asserts
+  unless a CameraManager exists for that index (table xmmword_1492AE950, kMaxCameraManagers = 2). Player 1 has none
+  and the game did not crash, so player 1's Active::Update is not running at all. The engine supports two camera
+  managers (a leftover of a two-local-player mode). Next: find where CameraManager 0 is spawned and spawn one for
+  index 1 (no rendering needed, just the object), then see whether player 1 enters its Active state and reads its pad.
