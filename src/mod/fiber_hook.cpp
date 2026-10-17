@@ -669,6 +669,37 @@ std::string ActiveUpdateCounts() {
     return out.empty() ? std::string(" none") : out;
 }
 
+// CameraControlStrafe::UpdateCameraAssist (0x8215E0; const Player*, ...): with a pad driving
+// it, the second player ran it and crashed on null+0x80 (pad-mirror test, 2026-10-18 07:39).
+// That camera belongs to player 0; skip it for any player whose index (+21800) is not 0.
+namespace {
+uint8_t* g_camTramp = nullptr;
+uint8_t g_camSaved[18];
+uintptr_t g_camTarget = 0;
+std::atomic<uint32_t> g_camSkips{0};
+uint64_t HookedCamAssist(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
+                         uint64_t a7, uint64_t a8, uint64_t a9, uint64_t a10, uint64_t a11, uint64_t a12) {
+    int idx = 0;
+    __try { idx = a1 ? *reinterpret_cast<int*>(a1 + 21800) : 0; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    if (idx != 0) { ++g_camSkips; return 0; }
+    return reinterpret_cast<Fwd12>(g_camTramp)(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
+}
+} // namespace
+
+bool CamAssistHookInstall(uintptr_t target) {
+    if (g_camTarget) return true;
+    // mov rax,rsp; mov [rax+20h],rbx; push rbp/rsi/rdi/r12/r13/r14/r15
+    static const uint8_t expect[18] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x20, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedCamAssist), g_camSaved, g_camTramp)) {
+        Log("camassist hook: prologue changed, not hooking");
+        return false;
+    }
+    g_camTarget = target;
+    Log("camassist hook: CameraControlStrafe::UpdateCameraAssist hooked (player 0 only)");
+    return true;
+}
+uint32_t CamAssistSkips() { return g_camSkips.load(); }
+
 bool UserIdHookInstall(uintptr_t setUserId) {
     if (g_uidTarget) return true;
     static const uint8_t prefix[10] = {0x40, 0x53, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x48};
@@ -811,6 +842,7 @@ void FiberHookRemove() {
     DemeanorHooksRemove();
     if (g_uidTarget) { RemoveTrampoline(g_uidTarget, g_uidSaved, sizeof(g_uidSaved)); g_uidTarget = 0; }
     if (g_actTarget) { RemoveTrampoline(g_actTarget, g_actSaved, sizeof(g_actSaved)); g_actTarget = 0; }
+    if (g_camTarget) { RemoveTrampoline(g_camTarget, g_camSaved, sizeof(g_camSaved)); g_camTarget = 0; }
     if (g_cpInstalled) { RemoveTrampoline(g_cpTarget, g_cpSaved, sizeof(g_cpSaved)); g_cpInstalled = false; Log("checkpoint hook: RememberCheckpoint removed"); }
     if (g_rsInstalled) { RemoveTrampoline(g_rsTarget, g_rsSaved, sizeof(g_rsSaved)); g_rsInstalled = false; Log("checkpoint hook: GameRestartCheckpoint removed"); }
     g_printMode = 0;

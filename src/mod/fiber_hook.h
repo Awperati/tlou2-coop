@@ -48,6 +48,9 @@ void SetUserIdFix(uint64_t id);
 // Player::Active::Update (rva 0xAD61E0): per-player call counts since the last read.
 bool ActiveUpdateHookInstall(uintptr_t target);
 std::string ActiveUpdateCounts();
+// CameraControlStrafe::UpdateCameraAssist (rva 0x8215E0) runs for player 0 only.
+bool CamAssistHookInstall(uintptr_t target);
+uint32_t CamAssistSkips();
 uint32_t CheckpointWrites();
 uint32_t CheckpointRestarts();
 bool DialogFactsHookInstall(uintptr_t target, uintptr_t lockFn, uintptr_t unlockFn, uintptr_t speakerKeys, uintptr_t speakerFn);

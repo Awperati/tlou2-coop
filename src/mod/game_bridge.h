@@ -201,6 +201,12 @@ public:
     // the way spawn-player does it for index 0 but without killing the current player.
     void QueueSpawnPlayer(unsigned index, const std::string& art);
     void QueuePlayerTable();
+    // Engine joypad slots: component 1 + 0x520, 0x2570 bytes each (sub_141D95E60). Slot 2 =
+    // player 0's pad, slot 3 = player 1's. padmirror copies 2 into 3 each tick (input test).
+    uintptr_t JoypadSlot(int slot);
+    void TickPadMirror();
+    bool padMirror_ = false;
+    std::atomic<bool> padMirrorQueued_{false};
     void IssueStop(const std::string& name);
     void ActiveCount();
     uintptr_t PlayerProcess(unsigned index);   // entry i of the player table, game fiber only

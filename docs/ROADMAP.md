@@ -991,3 +991,8 @@ PCs, wearing their character's model.
 - Companion idle: tried demeanor 1 (uneasy, the cautious idle) for a standing partner where the level is tense.
   Recorded 06:49: she flicked between crouch and stand about once a second. Back to 0 by default (`standdem` to try
   others). The cautious idle needs another route (likely an idle/animation-set override, not the demeanor).
+- 07:38: joypad slots live in engine component 1 at +0x520, 0x2570 bytes each (sub_141D95E60); slot 2 = player 0's
+  pad, slot 3 = player 1's; NdPlayerJoypad (Player+19632) +0xD0/+0xE0 = left/right stick in world space.
+  `clone <look>` spawns, teleports and dresses player 1; `padmirror on` copies slot 2 into slot 3 every tick.
+  With the mirror on, the game crashed 13 s later in CameraControlStrafe::UpdateCameraAssist (0x8215E0) run for
+  player 1 (null+0x80). Now hooked: it runs only for player index 0. Not retested yet.

@@ -334,6 +334,7 @@ void CoopMain() {
     }
     ULONGLONG lastJoinWait = GetTickCount64();
     bool selfMovingLogged = false;
+    std::string cloneLook; int cloneStage = 0; ULONGLONG cloneAt = 0;
 
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
@@ -641,6 +642,14 @@ void CoopMain() {
                     else if (line == "lookstate") bridge.QueueLookState();
                     else if (line == "players") bridge.QueuePlayerTable();
                     else if (line == "activecount") bridge.ActiveCount();
+                    else if (line == "padmirror on" || line == "padmirror off") {
+                        bridge.padMirror_ = line == "padmirror on";
+                        uintptr_t s2 = bridge.JoypadSlot(2), s3 = bridge.JoypadSlot(3);
+                        Log("padmirror: %s (slot 2 %p, slot 3 %p)", bridge.padMirror_ ? "on" : "off", reinterpret_cast<void*>(s2), reinterpret_cast<void*>(s3));
+                    }
+                    else if (line.rfind("clone ", 0) == 0) {   // clone <look>: spawn player 1 beside us wearing <look>
+                        cloneLook = Trim(line.substr(6)); cloneStage = 1; cloneAt = GetTickCount64();
+                    }
                     else if (line.rfind("standdem ", 0) == 0) { bridge.standDemeanor_ = std::atoi(line.c_str() + 9); Log("standdem: %d", bridge.standDemeanor_); }
                     else if (line.rfind("playerlook ", 0) == 0) {   // playerlook <index> <look>
                         std::istringstream pl(line.substr(11)); unsigned idx = 1; std::string lk; pl >> idx >> lk;
@@ -736,6 +745,14 @@ void CoopMain() {
         testWasDown = testDown;
 
         if (now - lastFiring >= 100) { lastFiring = now; bridge.PollFiring(); }
+        bridge.TickPadMirror();
+        // clone <look>: spawn, then teleport beside us, then apply the look (it builds the body).
+        if (cloneStage && now >= cloneAt) {
+            if (cloneStage == 1) { bridge.QueueSpawnPlayer(1, cloneLook); cloneStage = 2; cloneAt = now + 1500; }
+            else if (cloneStage == 2) { bridge.QueuePlayerBeside(1, 2.f); cloneStage = 3; cloneAt = now + 1500; }
+            else if (cloneStage == 3) { bridge.QueuePlayerLook(1, cloneLook); cloneStage = 4; cloneAt = now + 2000; }
+            else { bridge.QueuePlayerShow(1); cloneStage = 0; Log("clone: player 1 in '%s' ready", cloneLook.c_str()); }
+        }
         if (!isHost && mySlot && now - lastPackCheck >= 2000) {
             lastPackCheck = now;
             auto pack = bridge.CurrentWorldPack();

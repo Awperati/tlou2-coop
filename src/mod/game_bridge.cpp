@@ -1898,6 +1898,25 @@ void GameBridge::ActiveCount() {
     Log("activecount: calls per player since last time:%s", ActiveUpdateCounts().c_str());
 }
 
+uintptr_t GameBridge::JoypadSlot(int slot) {
+    if (!componentTable_) return 0;
+    auto c1 = Read<uintptr_t>(componentTable_ + 1 * 8);
+    return c1 && *c1 ? *c1 + 0x520 + 0x2570ull * slot : 0;
+}
+
+void GameBridge::TickPadMirror() {
+    if (!padMirror_ || padMirrorQueued_.exchange(true)) return;
+    RunOnGameFiber([this] {
+        padMirrorQueued_ = false;
+        uintptr_t a = JoypadSlot(2), b = JoypadSlot(3);
+        if (!a || !b) return;
+        static uint8_t buf[0x2570];
+        SIZE_T n = 0;
+        if (ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(a), buf, sizeof(buf), &n) && n == sizeof(buf))
+            WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(b), buf, sizeof(buf), &n);
+    }, true);
+}
+
 void GameBridge::QueuePlayerTable() {
     RunOnGameFiber([] {
         uintptr_t tab = BuildRva(0x411A510);
@@ -1922,6 +1941,7 @@ void GameBridge::QueueSpawnPlayer(unsigned index, const std::string& art) {
         if (ci < 0) { Log("spawnplayer: spawn info failed (%d, fault 0x%08lX)", ci, g_faultCode); return; }
         alignas(16) uint8_t out[32] = {};
         if (!UserIdHookInstall(BuildRva(0x133EC60))) { Log("spawnplayer: no SetUserId hook, not spawning (it would assert)"); return; }
+        if (!CamAssistHookInstall(BuildRva(0x8215E0))) { Log("spawnplayer: no camera-assist hook, not spawning (input would crash it)"); return; }
         SetUserIdFix(Fnv1a("player-" + std::to_string(index + 1)));
         int ok = SafeSpawnPlayer(BuildRva(0xDC1440), out, index, art.c_str(), info);
         SetUserIdFix(0);
