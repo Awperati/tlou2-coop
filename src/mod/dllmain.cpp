@@ -304,7 +304,9 @@ void CoopMain() {
         }
         Hello hello; hello.playerName = cfg.get("session", "PlayerName", "Player"); hello.wanted = wanted;
         if (!session.StartClient(addr, hostPort, hello)) Log("could not start client to %s", addr.c_str());
+        else Log("joining host %s:%u", addr.c_str(), hostPort);
     }
+    ULONGLONG lastJoinWait = GetTickCount64();
 
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
@@ -327,6 +329,13 @@ void CoopMain() {
         last = now;
         ++tick;
         session.Poll();
+        // No answer from the host: say so, so a blocked network shows up in the log (a VPN
+        // blocking the LAN looked like nothing at all, 2026-10-17).
+        if (!isHost && !session.connected() && now - lastJoinWait > 10000) {
+            lastJoinWait = now;
+            Log("still no answer from the host at %s (same network? VPN or firewall on the host?)", cfg.get("session", "HostAddress").c_str());
+            OverlaySetStatus(L"Co-op: no answer from the host yet");
+        }
         if (syncEnemies) {
             ULONGLONG nowE = GetTickCount64();
             if (isHost && session.peerCount() > 0 && nowE - enemySnapAt > 200) { enemySnapAt = nowE; bridge.QueueEnemySnapshot(); }
