@@ -15,8 +15,16 @@ std::mutex g_mu;
 
 void LogOpen(const std::wstring& path) {
     std::lock_guard lk(g_mu);
+    if (g_file) return;
+    // Keep the last three logs (x.prev1.log newest): a crash or a game restart used to
+    // wipe the log of the session that crashed.
+    std::wstring stem = path.size() > 4 ? path.substr(0, path.size() - 4) : path;
+    for (int i = 3; i >= 1; --i) {
+        std::wstring from = i == 1 ? path : stem + L".prev" + std::to_wstring(i - 1) + L".log";
+        MoveFileExW(from.c_str(), (stem + L".prev" + std::to_wstring(i) + L".log").c_str(), MOVEFILE_REPLACE_EXISTING);
+    }
     // Shared so the log can be read while the game runs.
-    if (!g_file) g_file = _wfsopen(path.c_str(), L"w", _SH_DENYNO);
+    g_file = _wfsopen(path.c_str(), L"w", _SH_DENYNO);
 }
 
 void Log(const char* fmt, ...) {
