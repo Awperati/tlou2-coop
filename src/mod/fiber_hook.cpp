@@ -1,3 +1,4 @@
+#include <intrin.h>
 #include "mod/fiber_hook.h"
 #include "mod/log.h"
 #define WIN32_LEAN_AND_MEAN
@@ -529,6 +530,76 @@ bool CheckpointHooksInstall(uintptr_t remember, uintptr_t restart) {
 uint32_t CheckpointWrites() { return g_cpCount.load(); }
 uint32_t CheckpointRestarts() { return g_rsCount.load(); }
 
+// Demeanor override (2026-10-17): in the infected tunnels a level script kept the puppet
+// companion crouched; npc-set-demeanor read back 3 half a second after setting 0. Both engine
+// setters (forced sub_141D4A120, normal sub_141D51060; Npc*, demeanor, blend) are hooked: for
+// the puppet NPC the demeanor the partner's stance asks for wins. Their prologue ends in a
+// RIP-relative load (mov rax,[rip+d], the stack cookie), so the trampoline rebuilds it.
+namespace {
+using DemFn = uint64_t (*)(uint64_t npc, int dem, uint32_t blend);
+uint8_t* g_demTramp[2] = {};
+uint8_t g_demSaved[2][15];
+uintptr_t g_demTarget[2] = {};
+std::atomic<uintptr_t> g_demNpc{0};
+std::atomic<int> g_demWant{-1};
+std::atomic<uint32_t> g_demOverrides{0};
+std::atomic<uintptr_t> g_demLastCaller{0};
+uint64_t DemCommon(int i, uint64_t npc, int dem, uint32_t blend, uintptr_t caller) {
+    int want = g_demWant.load();
+    if (want >= 0 && npc && npc == g_demNpc.load() && dem != want) {
+        ++g_demOverrides;
+        g_demLastCaller = caller;
+        dem = want;
+    }
+    return reinterpret_cast<DemFn>(g_demTramp[i])(npc, dem, blend);
+}
+uint64_t HookedDemForce(uint64_t npc, int dem, uint32_t blend) { return DemCommon(0, npc, dem, blend, reinterpret_cast<uintptr_t>(_ReturnAddress())); }
+uint64_t HookedDemNormal(uint64_t npc, int dem, uint32_t blend) { return DemCommon(1, npc, dem, blend, reinterpret_cast<uintptr_t>(_ReturnAddress())); }
+
+bool InstallRipMovTrampoline(int i, uintptr_t target, uint8_t subImm, void* hook) {
+    // push rbx; push rbp; push rdi; sub rsp,imm8; mov rax,[rip+disp32]
+    const uint8_t head[11] = {0x40, 0x53, 0x55, 0x57, 0x48, 0x83, 0xEC, subImm, 0x48, 0x8B, 0x05};
+    auto* t = reinterpret_cast<uint8_t*>(target);
+    if (std::memcmp(t, head, sizeof(head)) != 0) return false;
+    int32_t disp; std::memcpy(&disp, t + 11, 4);
+    uintptr_t abs = target + 15 + disp;
+    uint8_t* tr = static_cast<uint8_t*>(VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+    if (!tr) return false;
+    size_t k = 0;
+    std::memcpy(tr, t, 8); k = 8;                                     // push x3; sub rsp
+    tr[k++] = 0x48; tr[k++] = 0xB8; std::memcpy(tr + k, &abs, 8); k += 8;   // mov rax, abs
+    tr[k++] = 0x48; tr[k++] = 0x8B; tr[k++] = 0x00;                   // mov rax, [rax]
+    uint8_t back[14] = {0xFF, 0x25, 0, 0, 0, 0};
+    uintptr_t ret = target + 15;
+    std::memcpy(back + 6, &ret, 8);
+    std::memcpy(tr + k, back, sizeof(back));
+    std::memcpy(g_demSaved[i], t, 15);
+    uint8_t jmp[15] = {0x48, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xE0, 0x90, 0x90, 0x90};
+    auto h = reinterpret_cast<uintptr_t>(hook);
+    std::memcpy(jmp + 2, &h, 8);
+    g_demTramp[i] = tr;
+    DWORD old;
+    VirtualProtect(t, sizeof(jmp), PAGE_EXECUTE_READWRITE, &old);
+    std::memcpy(t, jmp, sizeof(jmp));
+    VirtualProtect(t, sizeof(jmp), old, &old);
+    FlushInstructionCache(GetCurrentProcess(), t, sizeof(jmp));
+    g_demTarget[i] = target;
+    return true;
+}
+} // namespace
+
+bool DemeanorHooksInstall(uintptr_t forced, uintptr_t normal) {
+    bool a = g_demTarget[0] || InstallRipMovTrampoline(0, forced, 0x40, reinterpret_cast<void*>(&HookedDemForce));
+    bool b = g_demTarget[1] || InstallRipMovTrampoline(1, normal, 0x30, reinterpret_cast<void*>(&HookedDemNormal));
+    Log("demeanor hooks: forced %s, normal %s", a ? "hooked" : "prologue changed", b ? "hooked" : "prologue changed");
+    return a && b;
+}
+void DemeanorHooksRemove() {
+    for (int i = 0; i < 2; ++i) if (g_demTarget[i]) { RemoveTrampoline(g_demTarget[i], g_demSaved[i], 15); g_demTarget[i] = 0; }
+}
+void SetDemeanorOverride(uintptr_t npc, int demeanor) { g_demNpc = npc; g_demWant = demeanor; }
+uint32_t DemeanorOverrides(uintptr_t* lastCaller) { if (lastCaller) *lastCaller = g_demLastCaller.load(); return g_demOverrides.load(); }
+
 bool VoxRequestHookInstall(uintptr_t target) {
     if (g_voxInstalled || !target) return g_voxInstalled;
     // mov [rsp+18h],rbx; push rbp; push rsi; push rdi; push r12; push r13; push r14
@@ -650,6 +721,8 @@ void FiberHookRemove() {
     if (g_dlgInstalled) { RemoveTrampoline(g_dlgTarget, g_dlgSaved, sizeof(g_dlgSaved)); g_dlgInstalled = false; Log("dialog hook: removed"); }
     if (g_factsInstalled) { RemoveTrampoline(g_factsTarget, g_factsSaved, sizeof(g_factsSaved)); g_factsInstalled = false; Log("dialog facts hook: removed"); }
     if (g_voxInstalled) { RemoveTrampoline(g_voxTarget, g_voxSaved, sizeof(g_voxSaved)); g_voxInstalled = false; Log("vox hook: removed"); }
+    SetDemeanorOverride(0, -1);
+    DemeanorHooksRemove();
     if (g_cpInstalled) { RemoveTrampoline(g_cpTarget, g_cpSaved, sizeof(g_cpSaved)); g_cpInstalled = false; Log("checkpoint hook: RememberCheckpoint removed"); }
     if (g_rsInstalled) { RemoveTrampoline(g_rsTarget, g_rsSaved, sizeof(g_rsSaved)); g_rsInstalled = false; Log("checkpoint hook: GameRestartCheckpoint removed"); }
     g_printMode = 0;

@@ -170,6 +170,7 @@ bool GameBridge::Init(const Ini& ini) {
             DialogFactsHookInstall(BuildRva(0x3172A0), BuildRva(0x12432F0), BuildRva(0x1243A50), BuildRva(0x2B049E0), BuildRva(0x313FB0));
         if (ini.getBool("engine", "vox_hook", true)) VoxRequestHookInstall(BuildRva(0x331A80));
         if (ini.getBool("engine", "checkpoint_hooks", true)) CheckpointHooksInstall(BuildRva(0x1200770), BuildRva(0x105F4E0));
+        if (ini.getBool("engine", "demeanor_hooks", true)) DemeanorHooksInstall(BuildRva(0x1D4A120), BuildRva(0x1D51060));
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
@@ -311,11 +312,23 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
             Log("puppet: taking over '%s' (AI off%s)", name.c_str(), selfMode ? ", collider off" : "");
             // A dead NPC takes move orders (ret 1) and never moves: `body` spawns made at the
             // spawner's far-off spot came out dead (npc-alive? rva 0x62D110 = 0, 2026-10-15).
-            RunInScriptContext([name] {
+            // A spawned body that comes out dead (the infected tunnels' militia spawners make
+            // corpses, PC B 2026-10-17) is dropped, removed, and another spawner is tried.
+            std::string spawner = puppetSpawner_;
+            RunInScriptContext([this, name, spawner] {
                 uint64_t argv[8] = {Fnv1a(name)};
                 uint64_t ret[4] = {};
-                if (SafeNative(BuildRva(0x62D110), 1, argv, ret) && (ret[0] & 0xFF) == 0)
+                if (SafeNative(BuildRva(0x62D110), 1, argv, ret) && (ret[0] & 0xFF) == 0) {
                     Log("puppet: WARNING '%s' is dead (npc-alive? = 0); it will not move", name.c_str());
+                    if (!spawner.empty() && spawner == puppetSpawner_) {
+                        badBodySpawners_.insert(spawner);
+                        uint64_t k[8] = {Fnv1a(spawner)};
+                        SafeNative(BuildRva(0xD4BB40), 1, k, ret);   // kill-entity: despawn the corpse
+                        SetPuppetSpawner("");
+                        autoBodyTries_ = 0;
+                        Log("autobody: '%s' spawns dead, removed it; trying another spawner", spawner.c_str());
+                    }
+                }
             });
         }
         // Her collider off was not enough: with her inside the player, the player could
@@ -361,6 +374,14 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
         int demeanor = stance == 2 ? 4 : stance == 1 ? 3 : aim ? 2 : 0;
         // Re-sent every 2 s: level scripts set the companion's demeanor too (she crouch-walked
         // in the infected tunnels while the partner stood, 2026-10-17).
+        SetDemeanorOverride(b, demeanor);   // keeps it against level scripts (fiber_hook.cpp)
+        if (GetTickCount64() - lastDemOverrideLog_ > 5000) {
+            uintptr_t caller = 0;
+            uint32_t n = DemeanorOverrides(&caller);
+            if (n != lastDemOverrides_) Log("puppet: demeanor %d kept on '%s' (%u overrides, last from +0x%llx)", demeanor, name.c_str(), n, caller ? static_cast<unsigned long long>(caller - BuildRva(0)) : 0ull);
+            lastDemOverrides_ = n;
+            lastDemOverrideLog_ = GetTickCount64();
+        }
         if (demeanor != lastDemeanor_ || GetTickCount64() - lastDemeanorAt_ > 2000) {
             lastDemeanor_ = demeanor;
             lastDemeanorAt_ = GetTickCount64();
@@ -634,7 +655,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
         // Close but not getting closer (a wall, a prop on the spot): park instead of walking
         // into it every second (she walked into a corner by a vending machine, 2026-10-17).
         if (Distance(stopTarget_, pos) > 0.3f) { stopTarget_ = pos; stopSince_ = t; parked_ = false; }
-        if (gap < 1.6f && t - stopSince_ > 3000) {
+        if ((parked_ && gap < 3.f) || (gap < 1.6f && t - stopSince_ > 3000)) {
             if (!parked_) { parked_ = true; IssueMoveTo(name, *cur, yaw, 0); Log("remote: parked %.1f m from the partner's spot", gap); }
             return;
         }
@@ -651,6 +672,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
 }
 
 void GameBridge::ReleasePuppet() {
+    SetDemeanorOverride(0, -1);
     if (!puppetAiOff_) return;
     std::string name = puppetName_;
     RunInScriptContext([name] {   // back to ambient before her AI resumes

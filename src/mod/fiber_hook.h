@@ -35,6 +35,12 @@ bool DialogHookInstall(uintptr_t target);
 bool VoxRequestHookInstall(uintptr_t target);
 // M7, log-only: count checkpoint writes (sub_141200770) and restarts (sub_14105F4E0).
 bool CheckpointHooksInstall(uintptr_t remember, uintptr_t restart);
+// Npc demeanor setters (rva 0x1D4A120 forced, 0x1D51060 normal): the puppet NPC keeps the
+// demeanor SetDemeanorOverride asks for (-1 = no override).
+bool DemeanorHooksInstall(uintptr_t forced, uintptr_t normal);
+void DemeanorHooksRemove();
+void SetDemeanorOverride(uintptr_t npc, int demeanor);
+uint32_t DemeanorOverrides(uintptr_t* lastCaller);
 uint32_t CheckpointWrites();
 uint32_t CheckpointRestarts();
 bool DialogFactsHookInstall(uintptr_t target, uintptr_t lockFn, uintptr_t unlockFn, uintptr_t speakerKeys, uintptr_t speakerFn);
