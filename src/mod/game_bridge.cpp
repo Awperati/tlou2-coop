@@ -359,8 +359,11 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
         // Stance: demeanors on companions are 0 ambient, 1 uneasy, 2 aggressive (weapon up),
         // 3 crouch, 4 crawl (prone), 5 search (read from Dina's Npc+7784 table in game).
         int demeanor = stance == 2 ? 4 : stance == 1 ? 3 : aim ? 2 : 0;
-        if (demeanor != lastDemeanor_) {
+        // Re-sent every 2 s: level scripts set the companion's demeanor too (she crouch-walked
+        // in the infected tunnels while the partner stood, 2026-10-17).
+        if (demeanor != lastDemeanor_ || GetTickCount64() - lastDemeanorAt_ > 2000) {
             lastDemeanor_ = demeanor;
+            lastDemeanorAt_ = GetTickCount64();
             RunInScriptContext([name, demeanor] {
                 uint64_t argv[8] = {Fnv1a(name), static_cast<uint64_t>(demeanor), 1};
                 uint64_t ret[4] = {};
@@ -628,6 +631,13 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
         // Remote stopped: move-in-direction keeps her walking, so switch to move-to at once.
         if (dirActive_) { dirActive_ = false; moveIssuedAt_ = 0; }
         if (gap < 0.5f) { moveIssuedAt_ = 0; progressAt_ = 0; return; }
+        // Close but not getting closer (a wall, a prop on the spot): park instead of walking
+        // into it every second (she walked into a corner by a vending machine, 2026-10-17).
+        if (Distance(stopTarget_, pos) > 0.3f) { stopTarget_ = pos; stopSince_ = t; parked_ = false; }
+        if (gap < 1.6f && t - stopSince_ > 3000) {
+            if (!parked_) { parked_ = true; IssueMoveTo(name, *cur, yaw, 0); Log("remote: parked %.1f m from the partner's spot", gap); }
+            return;
+        }
         if (moveIssuedAt_ && t - moveIssuedAt_ < 1000 && Distance(lastMoveTarget_, pos) < 0.3f) return;
         int motion = gap > 4.f ? 1 : 0;   // run when behind, walk when close
         // move-to stops ~0.7-1 m short of its goal: aim past the spot along her approach.
@@ -1909,6 +1919,9 @@ std::string GameBridge::PickBodySpawner() {
     static const char* kSkip[] = {"infected", "runner", "clicker", "stalker", "shambler", "bloater", "dog", "boss",
                                   "buddy", "ellie", "dina", "jesse", "tommy", "abby", "lev", "yara", "joel", "owen",
                                   "manny", "mel", "camera", "dummy", "vox-", "horse"};
+    static const char* kSkipName[] = {"buddy", "ellie", "dina", "jesse", "tommy", "abby", "-lev-", "yara", "joel",
+                                      "owen", "manny", "-mel-", "camera", "dummy", "vox-", "horse", "clicker",
+                                      "runner", "stalker", "shambler-den", "bloater", "dog"};
     uintptr_t pl = follow(player_);
     auto me = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
     std::string best;
@@ -1925,10 +1938,16 @@ std::string GameBridge::PickBodySpawner() {
             auto np = Read<uintptr_t>(*sp + 0x30);
             std::string name = np && *np ? TextAt(*np) : std::string();
             if (name.rfind("npc-", 0) != 0 || badBodySpawners_.count(name)) continue;
-            std::string hay = Lower(StringsIn(*sp, 0x180));
+            // Match the archetype (+0x78, e.g. militia-female-08-gasmask, =infected-shambler=),
+            // not every string: the level name in "npc-wat-infected-tunnels-militia-4" hid every
+            // human spawner in the infected tunnels (2026-10-17), so PC B got no host body.
+            auto ap = Read<uintptr_t>(*sp + 0x78);
+            std::string arch = Lower(ap && *ap ? TextAt(*ap) : std::string());
+            if (arch.empty()) arch = Lower(StringsIn(*sp, 0x180));
             bool want = false, skip = false;
-            for (auto w : kWant) if (hay.find(w) != std::string::npos) want = true;
-            for (auto k : kSkip) if (hay.find(k) != std::string::npos) skip = true;
+            for (auto w : kWant) if (arch.find(w) != std::string::npos) want = true;
+            for (auto k : kSkip) if (arch.find(k) != std::string::npos) skip = true;
+            for (auto k : kSkipName) if (Lower(name).find(k) != std::string::npos) skip = true;
             if (!want || skip) continue;
             if (auto f = Read<uint8_t>(*sp + 128); !f || (*f & 8)) continue;
             if (auto hid = Read<uint32_t>(*sp + 104); hid && *hid) continue;   // spawned before

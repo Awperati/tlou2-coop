@@ -82,6 +82,9 @@ public:
     std::atomic<int> stance_{0};          // 0 stand, 1 crouch, 2 prone
     std::atomic<bool> aiming_{false}, stanceQueued_{false};
     int lastDemeanor_ = -1;
+    unsigned long long lastDemeanorAt_ = 0, stopSince_ = 0;
+    Vec3 stopTarget_;
+    bool parked_ = false;
     // Shots (2026-10-17): this PC's trigger, counted for PlayerState, and the other PC's
     // shots replayed by its stand-in NPC (the buddy on the host, the host body on the partner).
     void PollFiring();
