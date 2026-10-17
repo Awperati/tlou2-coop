@@ -233,6 +233,12 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
     s.stance = static_cast<uint8_t>(stance_.load());
     if (aiming_) s.flags |= 1;
     if (firing_) s.flags |= 2;
+    {   // moving: compare with the position from at least 100 ms ago
+        ULONGLONG now = GetTickCount64();
+        if (!moveRefAt_ || now - moveRefAt_ > 400) { moveRefPos_ = s.pos; moveRefAt_ = now; }
+        else if (now - moveRefAt_ >= 100) { movingNow_ = IsMoving(moveRefPos_, s.pos, static_cast<unsigned>(now - moveRefAt_)); moveRefPos_ = s.pos; moveRefAt_ = now; }
+        if (movingNow_) s.flags |= kMoving;
+    }
     s.shots = shots_;
     s.shotTarget = shotTarget_;
     if (InCombat()) s.flags |= 4;
@@ -273,13 +279,17 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
     if (!f_.puppet) return false;
     ULONGLONG now = GetTickCount64();
     // Self mode (slot 0) locks the companion onto the hidden player, so it ticks faster.
-    if (now - lastPuppet_ < (selfMode ? 150u : 300u) || puppetQueued_) return true;
+    // A stop (or start) skips the 300 ms wait, so the stand-in reacts at once.
+    bool movingFlag = (s.flags & kMoving) != 0;
+    bool moveEdge = !selfMode && movingFlag != lastRemoteMoving_;
+    if ((!moveEdge && now - lastPuppet_ < (selfMode ? 150u : 300u)) || puppetQueued_) return true;
+    lastRemoteMoving_ = movingFlag;
     lastPuppet_ = now;
     puppetQueued_ = true;
     Vec3 pos = s.pos; float yaw = s.yaw;
     int stance = s.stance; bool aim = (s.flags & 1) != 0;
     uint8_t shots = s.shots; uint64_t shotTarget = s.shotTarget;
-    RunOnGameFiber([this, slot, selfMode, pos, yaw, stance, aim, shots, shotTarget] {
+    RunOnGameFiber([this, slot, selfMode, pos, yaw, stance, aim, shots, shotTarget, movingFlag] {
         puppetQueued_ = false;
         if (InCinematic()) return;   // never move actors while a cinematic owns them
         uintptr_t b = puppetSpawner_.empty() ? findBuddyOnFiber() : spawnedProcessOnFiber(puppetSpawner_);
@@ -427,6 +437,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
             } else selfVel_ = {};
         }
         selfPrevPos_ = pos; selfPrevAt_ = t;
+        if (!selfMode && !movingFlag) selfVel_ = {};   // the sender says it stopped: trust it
         float speed = std::sqrt(selfVel_.x * selfVel_.x + selfVel_.z * selfVel_.z);
         // Progress check on her own movement (the target itself moves): if she has
         // not moved 0.5 m in 2.5 s while 2+ m away, the path is blocked.
@@ -599,7 +610,7 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
         herPrevPos_ = *cur; herPrevAt_ = t;
         if (t - lastPuppetLog_ > 1000) {
             lastPuppetLog_ = t;
-            Log("remote: slot %u speed %.1f m/s, her speed %.1f, gap %.1f m, to lead %.1f m, ahead %.1f m, gait %d, scale %.2f, %s", slot, speed, std::sqrt(herVel_.x * herVel_.x + herVel_.z * herVel_.z), gap, g, along, lastGait_, lastScale_, dirActive_ ? "dir" : "move-to");
+            Log("remote: slot %u speed %.1f m/s%s, her speed %.1f, gap %.1f m, to lead %.1f m, ahead %.1f m, gait %d, scale %.2f, %s, '%s' %p", slot, speed, movingFlag ? " (moving)" : "", std::sqrt(herVel_.x * herVel_.x + herVel_.z * herVel_.z), gap, g, along, lastGait_, lastScale_, dirActive_ ? "dir" : "move-to", name.c_str(), reinterpret_cast<void*>(b));
         }
         if (!remoteDir_) {   // 2026-10-14 behaviour: move-to re-issued every 1 s or 1 m
             if (gap < 1.2f) { moveIssuedAt_ = 0; progressAt_ = 0; return; }

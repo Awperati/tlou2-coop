@@ -69,7 +69,7 @@ struct PlayerState {
     uint16_t animState = 0;   // engine animation state hash slice, filled by bridge
     uint8_t health = 100;
     uint8_t stance = 0;       // 0 stand, 1 crouch, 2 prone
-    uint8_t flags = 0;        // bit0 aiming, bit1 firing, bit2 in-combat, bit3 dead
+    uint8_t flags = 0;        // bit0 aiming, bit1 firing, bit2 in-combat, bit3 dead, bit4 moving (see kMoving)
     CharacterId character = CharacterId::None;
     // Shots the sender fired this session (wraps at 256), and what it aimed at for the
     // last one: the target's name id (FNV-1a, as EnemyState.sid), 0 when none. The other PC
@@ -77,6 +77,18 @@ struct PlayerState {
     uint8_t shots = 0;
     uint64_t shotTarget = 0;
 };
+
+// The sender's own player is moving (its position changed faster than kMovingSpeed over the last
+// ~100 ms). Lets the other PC stop the stand-in at once instead of guessing from positions,
+// which kept it walking for most of a second after the key was let go (user, 2026-10-18).
+constexpr uint8_t kMoving = 0x10;
+constexpr float kMovingSpeed = 0.5f;
+// Moving test from two positions taken dtMs apart (horizontal only).
+inline bool IsMoving(const Vec3& a, const Vec3& b, unsigned dtMs) {
+    if (dtMs == 0) return false;
+    float dx = b.x - a.x, dz = b.z - a.z;
+    return (dx * dx + dz * dz) > (kMovingSpeed * dtMs / 1000.f) * (kMovingSpeed * dtMs / 1000.f);
+}
 
 // Partner side: turns a polled "is firing" flag into shots. A press counts once. With
 // repeatMs > 0 a held trigger counts again every repeatMs; off by default, because

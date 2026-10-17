@@ -23,6 +23,13 @@ static void TestTeleportUnknownObjective() {
     CHECK(Distance(t.pos, o.pos) < 5.f);
 }
 
+static void TestMoving() {
+    CHECK(!IsMoving({0, 0, 0}, {0.02f, 0, 0}, 100));   // 0.2 m/s: standing
+    CHECK(IsMoving({0, 0, 0}, {0.15f, 0, 0}, 100));    // 1.5 m/s: walking
+    CHECK(!IsMoving({0, 0, 0}, {0, 3.f, 0}, 100));     // vertical only (a drop): not moving
+    CHECK(!IsMoving({0, 0, 0}, {1, 0, 0}, 0));
+}
+
 static void TestShots() {
     ShotCounter one;
     CHECK(one.Update(true, 0) && !one.Update(true, 400) && !one.Update(true, 900));   // held: one shot
@@ -243,6 +250,7 @@ static void TestLoopbackSession() {
 int main() {
     TestProtocolRoundTrip();
     TestShots();
+    TestMoving();
     TestTeleportUnknownObjective();
     TestTeleportHold();
     TestTransitionGate();
