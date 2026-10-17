@@ -748,7 +748,7 @@ void CoopMain() {
         bridge.TickPadMirror();
         // clone <look>: spawn, then teleport beside us, then apply the look (it builds the body).
         if (cloneStage && now >= cloneAt) {
-            if (cloneStage == 1) { bridge.QueueSpawnPlayer(1, cloneLook); cloneStage = 2; cloneAt = now + 1500; }
+            if (cloneStage == 1) { bridge.QueueSpawnPlayer(1, cloneLook); cloneStage = 2; cloneAt = now + 150; }   // teleport at once: spawned at the world origin it can fall out of the map and die (Watchtower, 07:44)
             else if (cloneStage == 2) { bridge.QueuePlayerBeside(1, 2.f); cloneStage = 3; cloneAt = now + 1500; }
             else if (cloneStage == 3) { bridge.QueuePlayerLook(1, cloneLook); cloneStage = 4; cloneAt = now + 2000; }
             else { bridge.QueuePlayerShow(1); cloneStage = 0; Log("clone: player 1 in '%s' ready", cloneLook.c_str()); }
