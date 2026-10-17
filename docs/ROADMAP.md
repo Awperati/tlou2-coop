@@ -958,5 +958,8 @@ PCs, wearing their character's model.
 - Input: the game polls only XInput pad 0 (pads seen mask 0x1, GetCapabilities never called), so a virtual pad 1
   (`p2 ...` lines, built) is never read. Player 1 needs its input from somewhere else: Player::CreateControllers
   (0xD9E000) and the Factions remote-player path (AnimNetPlayerInfo, NetPlayerTracker) are the leads.
+- Player 1 came up with only head, hair, holster, rifle and backpack (user, screenshot 18:17). Showing its meshes
+  did nothing; re-applying the look on it (`playerlook 1 ellie-seattle`: sub_140DBB470(player, look, 0, 1, 1), the
+  end of player-request-set-look-id) built the full body (screenshot 18:20). Order: spawnplayer, playertp, playerlook.
 - Next: find what Player reads its joypad from and point player 1's at our own state; or drive player 1 the way
   Factions drives remote players (network anim state).

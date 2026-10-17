@@ -625,6 +625,11 @@ void CoopMain() {
                     }
                     else if (line == "lookstate") bridge.QueueLookState();
                     else if (line == "players") bridge.QueuePlayerTable();
+                    else if (line.rfind("playerlook ", 0) == 0) {   // playerlook <index> <look>
+                        std::istringstream pl(line.substr(11)); unsigned idx = 1; std::string lk; pl >> idx >> lk;
+                        if (!lk.empty()) bridge.QueuePlayerLook(idx, lk);
+                    }
+                    else if (line.rfind("playershow ", 0) == 0) bridge.QueuePlayerShow(static_cast<unsigned>(std::atoi(line.c_str() + 11)));
                     else if (line.rfind("playertp ", 0) == 0) bridge.QueuePlayerBeside(static_cast<unsigned>(std::atoi(line.c_str() + 9)), 2.f);
                     else if (line.rfind("spawnplayer ", 0) == 0) {   // spawnplayer <index> <art>
                         std::istringstream sp(line.substr(12)); unsigned idx = 1; std::string art; sp >> idx >> art;
