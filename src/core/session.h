@@ -41,6 +41,7 @@ public:
         std::function<void(const CheckpointEvent&)> onCheckpointWritten;
         std::function<void(uint8_t slot, const RestartEvent&)> onCheckpointRestart;
         std::function<void(uint8_t slot, const PauseEvent&)> onPaused;
+        std::function<void(uint8_t slot, const std::string&)> onLogText;
     };
 
     Session();
@@ -68,6 +69,7 @@ public:
     void SendCheckpointWritten(const CheckpointEvent& e);     // host only
     void SendCheckpointRestart(const RestartEvent& e);        // host: to all; client: to host
     void SendPaused(const PauseEvent& e);                     // host: to all; client: to host
+    void SendLogText(const std::string& text);                // client only, up to 1000 bytes
 
     // Blocking LAN scan; returns hosts that answered within timeoutMs.
     static std::vector<FoundHost> Discover(uint32_t timeoutMs, uint16_t discoveryPort = kDiscoveryPort);

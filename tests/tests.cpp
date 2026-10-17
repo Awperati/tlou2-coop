@@ -13,6 +13,16 @@ using namespace coop;
 static int g_fail = 0, g_pass = 0;
 #define CHECK(x) do { if (x) ++g_pass; else { ++g_fail; std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #x); } } while (0)
 
+static void TestTeleportUnknownObjective() {
+    TeleportConfig cfg;
+    Objective o; o.isTransition = 1;   // spot not mapped: 0,0,0
+    auto t = ComputeTeleportTarget({-366.f, -3.4f, -70.f}, 0.f, &o, 1, cfg);
+    CHECK(Distance(t.pos, {-366.f, -3.4f, -70.f}) < 5.f);
+    o.pos = {10.f, 0.f, 10.f};
+    t = ComputeTeleportTarget({-366.f, -3.4f, -70.f}, 0.f, &o, 1, cfg);
+    CHECK(Distance(t.pos, o.pos) < 5.f);
+}
+
 static void TestShots() {
     ShotCounter one;
     CHECK(one.Update(true, 0) && !one.Update(true, 400) && !one.Update(true, 900));   // held: one shot
@@ -233,6 +243,7 @@ static void TestLoopbackSession() {
 int main() {
     TestProtocolRoundTrip();
     TestShots();
+    TestTeleportUnknownObjective();
     TestTeleportHold();
     TestTransitionGate();
     TestTeleportTarget();

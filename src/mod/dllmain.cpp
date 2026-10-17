@@ -2,6 +2,8 @@
 // and calls CoopStart/CoopStop, so a rebuilt coop.dll hot-reloads in the running game.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <share.h>
+#include <cstdio>
 #include <xinput.h>
 #include <atomic>
 #include <cctype>
@@ -110,6 +112,7 @@ void CoopMain() {
     rosterIni.LoadFile(Narrow(dir + L"tlou2-coop\\roster.ini"));
     offsets.LoadFile(Narrow(dir + L"tlou2-coop\\offsets.ini"));
     LogOpen(dir + Wide(cfg.get("debug", "LogFile", "tlou2-coop.log")));
+    LogCapture(Lower(cfg.get("session", "Mode", "host")) == "client" && cfg.getBool("debug", "SendLogToHost", true));
     Log("TLOU2 Co-op starting. Mode=%s", cfg.get("session", "Mode", "host").c_str());
 
     Roster roster; roster.Load(rosterIni);
@@ -204,14 +207,18 @@ void CoopMain() {
         OverlayNotify(slot == 0 ? L"Host left the session" : L"Your partner left");
         OverlayCue(3);
     };
-    cb.onWelcome = [&](const Welcome& w) {
-        auto pack = bridge.CurrentWorldPack();
-        myCharacter = roster.AssignForSlot(pack, w.slot, wanted, rng);
-        Log("joined as slot %u, character %s (chapter '%s')", w.slot, CharacterName(myCharacter), pack.c_str());
+    // The partner's setup depends on the chapter, so it waits for one: joining from the title
+    // screen picked a random character (tommy) and no look (2026-10-17). Re-run when the chapter changes.
+    uint8_t mySlot = 0;
+    std::string setupPack;
+    auto setupPartner = [&](const std::string& pack) {
+        setupPack = pack;
+        myCharacter = roster.AssignForSlot(pack, mySlot, wanted, rng);
+        Log("partner setup: slot %u, character %s (chapter '%s')", mySlot, CharacterName(myCharacter), pack.c_str());
         session.SendCharacterSelect(myCharacter);
         if (autoLook) {
             const ChapterRule* rule = roster.chapter(pack);
-            bool companion = rule && w.slot >= 1 && w.slot <= rule->companions.size();
+            bool companion = rule && mySlot >= 1 && mySlot <= rule->companions.size();
             const CharacterInfo* info = roster.character(myCharacter);
             pendingLook = info ? info->LookFor(Lower(pack)) : std::string();
             pendingCompanionOff = companion;
@@ -220,7 +227,21 @@ void CoopMain() {
             if (rule && rule->protagonist != CharacterId::None) bridge.hostSpeakers_.push_back(CharacterName(rule->protagonist));
             Log("autolook: look '%s'%s", pendingLook.c_str(), companion ? ", story companion off" : "");
         }
-        OverlayNotify(L"Connected. You are " + Wide(CharacterName(myCharacter)));
+        OverlayNotify(L"You are " + Wide(CharacterName(myCharacter)));
+    };
+    auto inChapter = [](const std::string& pack) { return !pack.empty() && pack != "world-game-start"; };
+    cb.onWelcome = [&](const Welcome& w) {
+        mySlot = w.slot;
+        auto pack = bridge.CurrentWorldPack();
+        Log("joined as slot %u (chapter '%s')", w.slot, pack.c_str());
+        OverlayNotify(L"Connected to the host");
+        if (inChapter(pack)) setupPartner(pack);
+        else Log("partner setup: waiting for a chapter to load");
+    };
+    std::FILE* partnerLog = nullptr;
+    cb.onLogText = [&](uint8_t, const std::string& text) {
+        if (!partnerLog) partnerLog = _wfsopen((dir + L"tlou2-coop.partner.log").c_str(), L"a", _SH_DENYNO);
+        if (partnerLog) { std::fputs(text.c_str(), partnerLog); std::fflush(partnerLog); }
     };
     cb.onRejected = [&](const std::string& why) { Log("rejected: %s", why.c_str()); OverlayNotify(L"Could not join: " + Wide(why)); };
     cb.onPlayerState = [&](uint8_t slot, const PlayerState& s) {
@@ -311,7 +332,7 @@ void CoopMain() {
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
     uintptr_t lastPlayerObj = 1;
-    ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0, lastHide = 0, lastStance = 0, lastFiring = 0;
+    ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0, lastHide = 0, lastStance = 0, lastFiring = 0, lastPackCheck = 0, lastLogSend = 0;
     bool mainHooked = false, testWasDown = false;
     std::string keepLoad;   // package re-requested every 200 ms (want-loads look rebuilt each frame)
     unsigned long long keepLoadLog = 0;
@@ -683,6 +704,21 @@ void CoopMain() {
         testWasDown = testDown;
 
         if (now - lastFiring >= 100) { lastFiring = now; bridge.PollFiring(); }
+        if (!isHost && mySlot && now - lastPackCheck >= 2000) {
+            lastPackCheck = now;
+            auto pack = bridge.CurrentWorldPack();
+            if (inChapter(pack) && pack != setupPack) setupPartner(pack);
+        }
+        // Partner: send this log to the host (tlou2-coop.partner.log there).
+        if (!isHost && session.connected() && now - lastLogSend >= 500) {
+            lastLogSend = now;
+            std::string batch;
+            for (auto& ln : LogTakeLines()) {
+                if (batch.size() + ln.size() > 900) { session.SendLogText(batch); batch.clear(); }
+                batch += ln.substr(0, 250);
+            }
+            if (!batch.empty()) session.SendLogText(batch);
+        }
         if (now - lastStance >= 200) {
             lastStance = now; bridge.PollStance(); bridge.PollLookSwap();
             if (!pendingLook.empty()) { bridge.StartLookSwap(pendingLook, lookPackages(pendingLook)); pendingLook.clear(); }

@@ -42,7 +42,10 @@ TeleportTo ComputeTeleportTarget(const Vec3& anchorPos, float anchorYaw, const O
     float side = (slot % 2 ? 1.f : -1.f) * 0.8f * static_cast<float>((slot + 1) / 2);
     float c = std::cos(anchorYaw), s = std::sin(anchorYaw);
     Vec3 base = anchorPos;
-    if (obj && obj->isTransition) { base = obj->pos; t.objectiveId = obj->id; }
+    // An objective without a known spot comes as 0,0,0 (objective position isn't mapped yet):
+    // using it sent the partner to the world origin, out of the map (2026-10-17).
+    bool objKnown = obj && (obj->pos.x != 0.f || obj->pos.y != 0.f || obj->pos.z != 0.f);
+    if (obj && obj->isTransition && objKnown) { base = obj->pos; t.objectiveId = obj->id; }
     // Engine convention (to confirm in RE): yaw 0 faces +Z, X is right, Y is up.
     t.pos.x = base.x - s * cfg.behindOffset + c * side;
     t.pos.y = base.y;

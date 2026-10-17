@@ -5,12 +5,15 @@
 #include <cstdio>
 #include <share.h>
 #include <mutex>
+#include <utility>
 
 namespace coop {
 
 namespace {
 FILE* g_file = nullptr;
 std::mutex g_mu;
+bool g_capture = false;
+std::vector<std::string> g_lines;
 }
 
 void LogOpen(const std::wstring& path) {
@@ -38,6 +41,14 @@ void Log(const char* fmt, ...) {
     OutputDebugStringA(line);
     std::lock_guard lk(g_mu);
     if (g_file) { fputs(line, g_file); fflush(g_file); }
+    if (g_capture && g_lines.size() < 2000) g_lines.emplace_back(line);
+}
+
+void LogCapture(bool on) { std::lock_guard lk(g_mu); g_capture = on; if (!on) g_lines.clear(); }
+
+std::vector<std::string> LogTakeLines() {
+    std::lock_guard lk(g_mu);
+    return std::exchange(g_lines, {});
 }
 
 void LogClose() {

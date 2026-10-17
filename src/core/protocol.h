@@ -37,6 +37,7 @@ enum class MsgType : uint8_t {
     CheckpointWritten,  // reliable, host -> clients: the host's game wrote a checkpoint (M7)
     CheckpointRestart,  // reliable, either way: host restarted / partner asks for a restart
     Paused,             // reliable, either way: pause menu opened or closed
+    LogText,            // reliable, client -> host: the partner's mod log lines (debugging)
 };
 
 struct Vec3 { float x = 0, y = 0, z = 0; };

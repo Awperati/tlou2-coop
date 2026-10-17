@@ -328,6 +328,13 @@ void Session::handlePacket(uint32_t ip, uint16_t port, const uint8_t* data, size
         if (Read(r, e) && cb_.onCheckpointRestart) cb_.onCheckpointRestart(fromSlot, e);
         break;
     }
+    case MsgType::LogText: {
+        uint16_t n = r.u16();
+        std::string text;
+        if (r.ok() && n <= r.remaining()) { text.resize(n); for (auto& c : text) c = static_cast<char>(r.u8()); }
+        if (r.ok() && role_ == Role::Host && cb_.onLogText) cb_.onLogText(fromSlot, text);
+        break;
+    }
     case MsgType::Paused: {
         PauseEvent e;
         if (Read(r, e) && cb_.onPaused) cb_.onPaused(fromSlot, e);
@@ -414,6 +421,13 @@ void Session::SendCheckpointRestart(const RestartEvent& e) {
     auto b = Body(e);
     if (role_ == Role::Host) { for (auto& [slot, p] : peers_) sendReliable(p, MsgType::CheckpointRestart, b); }
     else if (connected()) sendReliable(peers_[0], MsgType::CheckpointRestart, b);
+}
+
+void Session::SendLogText(const std::string& text) {
+    if (role_ != Role::Client || !connected()) return;
+    std::string t = text.substr(0, 1000);
+    Writer w; w.u16(static_cast<uint16_t>(t.size())); w.raw(t.data(), t.size());
+    sendReliable(peers_[0], MsgType::LogText, w.data());
 }
 
 void Session::SendPaused(const PauseEvent& e) {
