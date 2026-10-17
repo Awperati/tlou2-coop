@@ -2227,9 +2227,13 @@ void GameBridge::QueueAutoBody(const std::string& look) {
             bool alive = spawnedProcessOnFiber(puppetSpawner_) && SafeNative(BuildRva(0x62D110), 1, argv, ret) && (ret[0] & 0xFF);
             if (alive) return;
             if (GetTickCount64() - autoBodyAt_ < 5000) return;   // a fresh spawn may not report alive yet
-            Log("autobody: '%s' is gone or dead", puppetSpawner_.c_str());
+            Log("autobody: '%s' is gone or dead, picking another", puppetSpawner_.c_str());
             badBodySpawners_.insert(puppetSpawner_);
+            SetPuppetSpawner("");
         }
+        // After a reload or a long wait, try again from scratch: a checkpoint load despawns the body,
+        // and the old try count left PC B with no body at all (2026-10-18 07:03).
+        if (autoBodyTries_ > 8 && GetTickCount64() - autoBodyAt_ > 30000) { autoBodyTries_ = 0; Log("autobody: retrying"); }
         if (++autoBodyTries_ > 8) { if (autoBodyTries_ == 9) Log("autobody: giving up after 8 spawns"); return; }
         std::string sp = PickBodySpawner();
         if (sp.empty()) return;
