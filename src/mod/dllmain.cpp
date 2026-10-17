@@ -779,7 +779,7 @@ void CoopMain() {
             // A unique query each time: the cached first download (an old build) kept coming back
             // and replaced newer copies on PC B (2026-10-18). share.py ignores the query.
             std::wstring url = L"http://" + Wide(updateHost) + L":8765/coop.dll?t=" + std::to_wstring(GetTickCount64());
-            std::wstring tmp = dir + L"tlou2-coop\coop.download.dll", cur = dir + L"tlou2-coop\coop.dll";
+            std::wstring tmp = dir + L"tlou2-coop\\coop.download.dll", cur = dir + L"tlou2-coop\\coop.dll";
             DeleteUrlCacheEntryW(url.c_str());
             if (URLDownloadToFileW(nullptr, url.c_str(), tmp.c_str(), 0, nullptr) == S_OK) {
                 auto slurp = [](const std::wstring& f) { std::string b; if (FILE* h = _wfopen(f.c_str(), L"rb")) { char buf[65536]; size_t n; while ((n = fread(buf, 1, sizeof(buf), h)) > 0) b.append(buf, n); fclose(h); } return b; };
