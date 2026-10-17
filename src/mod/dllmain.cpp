@@ -3,6 +3,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <share.h>
+#include <urlmon.h>
+#include <wininet.h>
 #include <cstdio>
 #include <xinput.h>
 #include <atomic>
@@ -306,6 +308,7 @@ void CoopMain() {
     };
     session.setCallbacks(cb);
 
+    std::string updateHost;   // partner: the host's address, for the coop.dll auto-update
     if (isHost) {
         if (!session.StartHost(cfg.get("session", "SessionName", "TLOU2 Co-op"), port,
                                static_cast<uint8_t>(cfg.getInt("session", "MaxPlayers", 2)))) {
@@ -317,6 +320,7 @@ void CoopMain() {
         }
     } else {
         std::string addr = cfg.get("session", "HostAddress");
+        updateHost = addr;
         uint16_t hostPort = port;
         while (addr.empty() && g_run) {
             OverlaySetStatus(L"Searching LAN for a host...");
@@ -324,6 +328,7 @@ void CoopMain() {
             if (!hosts.empty()) { addr = hosts[0].address; hostPort = hosts[0].info.gamePort; Log("found host %s (%s)", addr.c_str(), hosts[0].info.sessionName.c_str()); }
         }
         Hello hello; hello.playerName = cfg.get("session", "PlayerName", "Player"); hello.wanted = wanted;
+        updateHost = addr;
         if (!session.StartClient(addr, hostPort, hello)) Log("could not start client to %s", addr.c_str());
         else Log("joining host %s:%u", addr.c_str(), hostPort);
     }
@@ -332,7 +337,8 @@ void CoopMain() {
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
     uintptr_t lastPlayerObj = 1;
-    ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0, lastHide = 0, lastStance = 0, lastFiring = 0, lastPackCheck = 0, lastLogSend = 0;
+    ULONGLONG lastPosLog = 0, lastCmdPoll = 0, lastLevelPoll = 0, lastHide = 0, lastStance = 0, lastFiring = 0, lastPackCheck = 0, lastLogSend = 0, lastUpdateCheck = 0;
+    const bool autoUpdate = cfg.getBool("session", "AutoUpdateFromHost", true);
     bool mainHooked = false, testWasDown = false;
     std::string keepLoad;   // package re-requested every 200 ms (want-loads look rebuilt each frame)
     unsigned long long keepLoadLog = 0;
@@ -732,6 +738,22 @@ void CoopMain() {
             lastPackCheck = now;
             auto pack = bridge.CurrentWorldPack();
             if (inChapter(pack) && pack != setupPack) setupPartner(pack);
+        }
+        // Partner: take the host's coop.dll from its file drop (tools/share.py, port 8765) when it
+        // differs; the loader then hot-reloads it. Saves copying every build to PC B by hand.
+        if (!isHost && session.connected() && autoUpdate && !updateHost.empty() && now - lastUpdateCheck >= 15000) {
+            // Synchronous on this (mod) thread: a LAN fetch of ~0.7 MB is quick, and a detached
+            // thread could outlive this DLL once the reload unloads it.
+            lastUpdateCheck = now;
+            std::wstring url = L"http://" + Wide(updateHost) + L":8765/coop.dll";
+            std::wstring tmp = dir + L"tlou2-coop\coop.download.dll", cur = dir + L"tlou2-coop\coop.dll";
+            DeleteUrlCacheEntryW(url.c_str());
+            if (URLDownloadToFileW(nullptr, url.c_str(), tmp.c_str(), 0, nullptr) == S_OK) {
+                auto slurp = [](const std::wstring& f) { std::string b; if (FILE* h = _wfopen(f.c_str(), L"rb")) { char buf[65536]; size_t n; while ((n = fread(buf, 1, sizeof(buf), h)) > 0) b.append(buf, n); fclose(h); } return b; };
+                std::string a = slurp(tmp), b = slurp(cur);
+                if (a.size() > 100000 && a != b && CopyFileW(tmp.c_str(), cur.c_str(), FALSE)) Log("autoupdate: new coop.dll from the host (%zu bytes), reloading", a.size());
+                DeleteFileW(tmp.c_str());
+            }
         }
         // Partner: send this log to the host (tlou2-coop.partner.log there).
         if (!isHost && session.connected() && now - lastLogSend >= 500) {

@@ -30,7 +30,7 @@ add_library(coop_mod SHARED
 set_target_properties(coop_mod PROPERTIES OUTPUT_NAME "coop")
 target_link_options(coop_mod PRIVATE /MAP)
 target_compile_definitions(coop_mod PRIVATE UNICODE _UNICODE NOMINMAX)
-target_link_libraries(coop_mod PRIVATE coop_core ole32 user32 gdi32 sapi)
+target_link_libraries(coop_mod PRIVATE coop_core ole32 user32 gdi32 sapi urlmon wininet)
 
 # version.dll: proxy the game loads from its folder; loads coop.dll.
 add_library(coop_loader SHARED
