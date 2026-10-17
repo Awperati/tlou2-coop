@@ -24,4 +24,6 @@ copy /y "config\looks.ini" "%GAME%\tlou2-coop\" >nul
 copy /y "build\coop_inject.dll" "%GAME%\tlou2-coop\" >nul 2>&1
 copy /y "build\coop_launcher.exe" "%GAME%\tlou2-coop\" >nul 2>&1
 copy /y "build\coop.dll" "%GAME%\tlou2-coop\coop.dll" >nul
+rem The partner's mod fetches this copy through tools\share.py ([session] AutoUpdateFromHost).
+if exist "share" copy /y "build\coop.dll" "share\coop.dll" >nul
 echo Deployed to %GAME%
