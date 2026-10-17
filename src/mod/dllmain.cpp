@@ -629,6 +629,10 @@ void CoopMain() {
                         std::istringstream pl(line.substr(11)); unsigned idx = 1; std::string lk; pl >> idx >> lk;
                         if (!lk.empty()) bridge.QueuePlayerLook(idx, lk);
                     }
+                    else if (line.rfind("playerjoy ", 0) == 0) {   // playerjoy <index> <joypad>
+                        std::istringstream pj(line.substr(10)); unsigned idx = 1; int jp = 0; pj >> idx >> jp;
+                        bridge.QueuePlayerJoypad(idx, jp);
+                    }
                     else if (line.rfind("playershow ", 0) == 0) bridge.QueuePlayerShow(static_cast<unsigned>(std::atoi(line.c_str() + 11)));
                     else if (line.rfind("playertp ", 0) == 0) bridge.QueuePlayerBeside(static_cast<unsigned>(std::atoi(line.c_str() + 9)), 2.f);
                     else if (line.rfind("spawnplayer ", 0) == 0) {   // spawnplayer <index> <art>

@@ -970,3 +970,11 @@ PCs, wearing their character's model.
   method (sub_141A07A80). Only a device for pad 0 polls today. Next: find where devices are created per index (or
   rescanned), so a virtual pad 1 becomes joypad 1; failing that, hook player 1's joypad read and fill it from the
   partner's input.
+- 18:35 live: Player+21796 is the player's joypad (net-get-joypad-from-player; engine slot = 2 + (value != 0)) and
+  Player+21800 its index; player 0 = 0/0, the spawned player = 1/1. The joypad controller at Player+12264 keeps its
+  own copy (controller+304 -> +428). `playerjoy 1 0` set both to 0, but player 1 still did not move when the pad
+  moved player 0 (position unchanged, recorded). Its animation does tick (head turns between screenshots).
+  So something else gates input: most likely the local player index (NdGameInfo GetPlayerIndex, which also picks
+  the CameraManager in xmmword_1492AE950[index], kMaxCameraManagers) or a per-player update that only runs for
+  player 0. Next: find who calls the joypad controller's update for each player, and whether player 1 needs a
+  camera manager. Alternative: drive player 1 as Factions drives remote players (NetPlayerTracker / AnimNetPlayerInfo).

@@ -1839,6 +1839,25 @@ void GameBridge::QueuePlayerLook(unsigned index, const std::string& look) {
     });
 }
 
+// Player+21796 = the player's joypad (net-get-joypad-from-player, 0x9B1340: engine joypad slot =
+// 2 + (value != 0)); Player+21800 = player index. Live: player 0 has 0/0, the spawned player 1/1.
+void GameBridge::QueuePlayerJoypad(unsigned index, int joypad) {
+    RunOnGameFiber([this, index, joypad] {
+        uintptr_t p = PlayerProcess(index);
+        if (!p) { Log("playerjoy: no player %u", index); return; }
+        auto was = Read<int32_t>(p + 21796);
+        bool ok = SafeWrite(p + 21796, &joypad, 4);
+        // The joypad controller (Player+12264, made in Player::CreateControllers with the player
+        // index) keeps its own copy: controller+304 -> +428 (sub_140CB6460).
+        auto ctrl = Read<uintptr_t>(p + 12264);
+        auto sub = ctrl && *ctrl ? Read<uintptr_t>(*ctrl + 304) : std::nullopt;
+        auto subWas = sub && *sub ? Read<int32_t>(*sub + 428) : std::nullopt;
+        bool ok2 = sub && *sub && SafeWrite(*sub + 428, &joypad, 4);
+        Log("playerjoy: player %u joypad %d -> %d %s; controller copy %d -> %s", index, was ? *was : -1, joypad, ok ? "set" : "FAILED",
+            subWas ? *subWas : -1, ok2 ? "set" : "not found");
+    }, true);
+}
+
 void GameBridge::QueuePlayerShow(unsigned index) {
     RunInScriptContext([this, index] {
         uintptr_t p = PlayerProcess(index);

@@ -200,6 +200,7 @@ public:
     uintptr_t PlayerProcess(unsigned index);   // entry i of the player table, game fiber only
     void QueuePlayerBeside(unsigned index, float metres);
     void QueuePlayerShow(unsigned index);
+    void QueuePlayerJoypad(unsigned index, int joypad);
     void QueuePlayerLook(unsigned index, const std::string& look);
     // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
     void QueueDemeanorNames();
