@@ -2145,7 +2145,36 @@ std::string GameBridge::PickBodySpawner() {
             if (d < bestD) { bestD = d; best = name; }
         }
     }
-    Log("autobody: picked '%s' (%.0f m away)", best.c_str(), best.empty() ? 0.f : bestD);
+    // Fallback: a companion spawner (cdina-..., archetype "dina"): always a live, friendly buddy.
+    // The infected tunnels have only corpse militia (every one spawned dead, PC B 2026-10-18).
+    bool fallback = false;
+    if (best.empty()) {
+        for (auto& [sid, level] : readLevels()) {
+            auto tab = Read<uintptr_t>(level + 256);
+            if (!tab || !*tab) continue;
+            auto arr = Read<uintptr_t>(*tab + 8);
+            auto cnt = Read<int32_t>(*tab + 16);
+            if (!arr || !*arr || !cnt || *cnt <= 0 || *cnt > 20000) continue;
+            for (int32_t i = 0; i < *cnt; ++i) {
+                auto sp = Read<uintptr_t>(*arr + 8ull * i);
+                if (!sp || !*sp) continue;
+                auto np = Read<uintptr_t>(*sp + 0x30);
+                std::string name = np && *np ? TextAt(*np) : std::string();
+                if (name.size() < 3 || name[0] != 'c' || name.rfind("cc-", 0) == 0 || badBodySpawners_.count(name)) continue;
+                auto ap = Read<uintptr_t>(*sp + 0x78);
+                std::string arch = Lower(ap && *ap ? TextAt(*ap) : std::string());
+                static const char* kBuddies[] = {"dina", "jesse", "tommy", "lev", "yara", "joel", "manny", "owen", "mel"};
+                bool buddy = false;
+                for (auto b : kBuddies) if (arch == b) buddy = true;
+                if (!buddy || name.find(arch) != 1) continue;   // c<archetype>-...
+                if (auto hid = Read<uint32_t>(*sp + 104); hid && *hid) continue;   // spawned (the story one)
+                alignas(32) float w[8] = {};
+                float d = me && SafeSpawnerLocator(*sp, w) ? Distance(Vec3{w[0], w[1], w[2]}, *me) : 1e8f;
+                if (d < bestD) { bestD = d; best = name; fallback = true; }
+            }
+        }
+    }
+    Log("autobody: picked '%s' (%.0f m away%s)", best.c_str(), best.empty() ? 0.f : bestD, fallback ? ", companion spawner" : "");
     return best;
 }
 
@@ -2201,7 +2230,7 @@ void GameBridge::QueueAutoBody(const std::string& look) {
             Log("autobody: '%s' is gone or dead", puppetSpawner_.c_str());
             badBodySpawners_.insert(puppetSpawner_);
         }
-        if (++autoBodyTries_ > 4) { if (autoBodyTries_ == 5) Log("autobody: giving up after 4 spawns"); return; }
+        if (++autoBodyTries_ > 8) { if (autoBodyTries_ == 9) Log("autobody: giving up after 8 spawns"); return; }
         std::string sp = PickBodySpawner();
         if (sp.empty()) return;
         autoBodyAt_ = GetTickCount64();
