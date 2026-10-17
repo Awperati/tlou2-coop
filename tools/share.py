@@ -62,6 +62,10 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Disposition", 'attachment; filename="%s"' % name)
         self.send_header("Content-Length", str(os.path.getsize(full)))
+        # A real modified time, so a downloaded copy gets a fresh timestamp (the mod's loader
+        # reloads coop.dll on a timestamp change).
+        self.send_header("Last-Modified", self.date_time_string(int(os.path.getmtime(full))))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         with open(full, "rb") as f:
             while chunk := f.read(1 << 20):

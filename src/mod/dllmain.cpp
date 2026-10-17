@@ -751,7 +751,13 @@ void CoopMain() {
             if (URLDownloadToFileW(nullptr, url.c_str(), tmp.c_str(), 0, nullptr) == S_OK) {
                 auto slurp = [](const std::wstring& f) { std::string b; if (FILE* h = _wfopen(f.c_str(), L"rb")) { char buf[65536]; size_t n; while ((n = fread(buf, 1, sizeof(buf), h)) > 0) b.append(buf, n); fclose(h); } return b; };
                 std::string a = slurp(tmp), b = slurp(cur);
-                if (a.size() > 100000 && a != b && CopyFileW(tmp.c_str(), cur.c_str(), FALSE)) Log("autoupdate: new coop.dll from the host (%zu bytes), reloading", a.size());
+                // Written, not copied: CopyFile kept the download's timestamp and the loader, which
+                // reloads on a timestamp change, never noticed (PC B, 2026-10-18 07:09).
+                if (a.size() > 100000 && a != b) {
+                    bool ok = false;
+                    if (FILE* h = _wfopen(cur.c_str(), L"wb")) { ok = fwrite(a.data(), 1, a.size(), h) == a.size(); fclose(h); }
+                    Log("autoupdate: new coop.dll from the host (%zu bytes): %s", a.size(), ok ? "written, reloading" : "write FAILED");
+                }
                 DeleteFileW(tmp.c_str());
             }
         }
