@@ -624,6 +624,11 @@ void CoopMain() {
                         if (!sp.empty() && !lk.empty()) bridge.QueueSpawnWithLook(sp, lk);
                     }
                     else if (line == "lookstate") bridge.QueueLookState();
+                    else if (line == "players") bridge.QueuePlayerTable();
+                    else if (line.rfind("spawnplayer ", 0) == 0) {   // spawnplayer <index> <art>
+                        std::istringstream sp(line.substr(12)); unsigned idx = 1; std::string art; sp >> idx >> art;
+                        if (idx >= 1 && idx < 4 && !art.empty()) bridge.QueueSpawnPlayer(idx, art); else Log("spawnplayer: needs an index 1-3 and an art group");
+                    }
                     else if (line.rfind("speakermap", 0) == 0) {   // speakermap <from> <to> | speakermap clear
                         std::istringstream ss(line.substr(10)); std::string a, b; ss >> a >> b;
                         auto fnv = [](const std::string& s) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char ch : s) { h ^= ch; h *= 0x100000001b3ull; } return h; };

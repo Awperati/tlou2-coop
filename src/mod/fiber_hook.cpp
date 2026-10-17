@@ -556,35 +556,60 @@ uint64_t DemCommon(int i, uint64_t npc, int dem, uint32_t blend, uintptr_t calle
 uint64_t HookedDemForce(uint64_t npc, int dem, uint32_t blend) { return DemCommon(0, npc, dem, blend, reinterpret_cast<uintptr_t>(_ReturnAddress())); }
 uint64_t HookedDemNormal(uint64_t npc, int dem, uint32_t blend) { return DemCommon(1, npc, dem, blend, reinterpret_cast<uintptr_t>(_ReturnAddress())); }
 
-bool InstallRipMovTrampoline(int i, uintptr_t target, uint8_t subImm, void* hook) {
-    // push rbx; push rbp; push rdi; sub rsp,imm8; mov rax,[rip+disp32]
-    const uint8_t head[11] = {0x40, 0x53, 0x55, 0x57, 0x48, 0x83, 0xEC, subImm, 0x48, 0x8B, 0x05};
+// Steals `prefixLen` plain bytes plus the mov rax,[rip+disp32] after them, and rebuilds that
+// load from the absolute address. Fills tramp/saved; returns the stolen length (0 = mismatch).
+size_t InstallRipMovTrampolineEx(uintptr_t target, const uint8_t* prefix, size_t prefixLen, void* hook, uint8_t*& tramp, uint8_t* saved) {
     auto* t = reinterpret_cast<uint8_t*>(target);
-    if (std::memcmp(t, head, sizeof(head)) != 0) return false;
-    int32_t disp; std::memcpy(&disp, t + 11, 4);
-    uintptr_t abs = target + 15 + disp;
+    static const uint8_t movRip[3] = {0x48, 0x8B, 0x05};
+    if (std::memcmp(t, prefix, prefixLen) != 0 || std::memcmp(t + prefixLen, movRip, 3) != 0) return 0;
+    size_t stolen = prefixLen + 7;
+    int32_t disp; std::memcpy(&disp, t + prefixLen + 3, 4);
+    uintptr_t abs = target + stolen + disp;
     uint8_t* tr = static_cast<uint8_t*>(VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
-    if (!tr) return false;
+    if (!tr) return 0;
     size_t k = 0;
-    std::memcpy(tr, t, 8); k = 8;                                     // push x3; sub rsp
+    std::memcpy(tr, t, prefixLen); k = prefixLen;
     tr[k++] = 0x48; tr[k++] = 0xB8; std::memcpy(tr + k, &abs, 8); k += 8;   // mov rax, abs
     tr[k++] = 0x48; tr[k++] = 0x8B; tr[k++] = 0x00;                   // mov rax, [rax]
     uint8_t back[14] = {0xFF, 0x25, 0, 0, 0, 0};
-    uintptr_t ret = target + 15;
+    uintptr_t ret = target + stolen;
     std::memcpy(back + 6, &ret, 8);
     std::memcpy(tr + k, back, sizeof(back));
-    std::memcpy(g_demSaved[i], t, 15);
-    uint8_t jmp[15] = {0x48, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xE0, 0x90, 0x90, 0x90};
+    std::memcpy(saved, t, stolen);
+    uint8_t jmp[24];
+    std::memset(jmp, 0x90, sizeof(jmp));
+    jmp[0] = 0x48; jmp[1] = 0xB8;
     auto h = reinterpret_cast<uintptr_t>(hook);
     std::memcpy(jmp + 2, &h, 8);
-    g_demTramp[i] = tr;
+    jmp[10] = 0xFF; jmp[11] = 0xE0;
+    tramp = tr;
     DWORD old;
-    VirtualProtect(t, sizeof(jmp), PAGE_EXECUTE_READWRITE, &old);
-    std::memcpy(t, jmp, sizeof(jmp));
-    VirtualProtect(t, sizeof(jmp), old, &old);
-    FlushInstructionCache(GetCurrentProcess(), t, sizeof(jmp));
+    VirtualProtect(t, stolen, PAGE_EXECUTE_READWRITE, &old);
+    std::memcpy(t, jmp, stolen);
+    VirtualProtect(t, stolen, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), t, stolen);
+    return stolen;
+}
+
+bool InstallRipMovTrampoline(int i, uintptr_t target, uint8_t subImm, void* hook) {
+    const uint8_t prefix[8] = {0x40, 0x53, 0x55, 0x57, 0x48, 0x83, 0xEC, subImm};   // push rbx/rbp/rdi; sub rsp,imm8
+    if (!InstallRipMovTrampolineEx(target, prefix, sizeof(prefix), hook, g_demTramp[i], g_demSaved[i])) return false;
     g_demTarget[i] = target;
     return true;
+}
+
+// Process::SetUserId (sub_14133EC60; process, id, ?, id). Player::Init gives a player with
+// index > 0 the id 0 (only index 0 has an entry, 'player'), which asserts "Invalid user id"
+// (crash 2026-10-17 18:06). While g_userIdFix is set, an id of 0 becomes that id instead.
+using SetUidFn = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t);
+uint8_t* g_uidTramp = nullptr;
+uint8_t g_uidSaved[17];
+uintptr_t g_uidTarget = 0;
+std::atomic<uint64_t> g_userIdFix{0};
+uint64_t HookedSetUserId(uint64_t proc, uint64_t id, uint64_t a3, uint64_t id2) {
+    uint64_t fix = g_userIdFix.load();
+    if (fix && id == 0) { id = fix; id2 = fix; }
+    return reinterpret_cast<SetUidFn>(g_uidTramp)(proc, id, a3, id2);
 }
 } // namespace
 
@@ -597,6 +622,19 @@ bool DemeanorHooksInstall(uintptr_t forced, uintptr_t normal) {
 void DemeanorHooksRemove() {
     for (int i = 0; i < 2; ++i) if (g_demTarget[i]) { RemoveTrampoline(g_demTarget[i], g_demSaved[i], 15); g_demTarget[i] = 0; }
 }
+bool UserIdHookInstall(uintptr_t setUserId) {
+    if (g_uidTarget) return true;
+    static const uint8_t prefix[10] = {0x40, 0x53, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x48};
+    if (InstallRipMovTrampolineEx(setUserId, prefix, sizeof(prefix), reinterpret_cast<void*>(&HookedSetUserId), g_uidTramp, g_uidSaved) != 17) {
+        Log("userid hook: prologue changed, not hooking");
+        return false;
+    }
+    g_uidTarget = setUserId;
+    Log("userid hook: Process::SetUserId hooked");
+    return true;
+}
+void SetUserIdFix(uint64_t id) { g_userIdFix = id; }
+
 void SetDemeanorOverride(uintptr_t npc, int demeanor) { g_demNpc = npc; g_demWant = demeanor; }
 uint32_t DemeanorOverrides(uintptr_t* lastCaller) { if (lastCaller) *lastCaller = g_demLastCaller.load(); return g_demOverrides.load(); }
 
@@ -723,6 +761,7 @@ void FiberHookRemove() {
     if (g_voxInstalled) { RemoveTrampoline(g_voxTarget, g_voxSaved, sizeof(g_voxSaved)); g_voxInstalled = false; Log("vox hook: removed"); }
     SetDemeanorOverride(0, -1);
     DemeanorHooksRemove();
+    if (g_uidTarget) { RemoveTrampoline(g_uidTarget, g_uidSaved, sizeof(g_uidSaved)); g_uidTarget = 0; }
     if (g_cpInstalled) { RemoveTrampoline(g_cpTarget, g_cpSaved, sizeof(g_cpSaved)); g_cpInstalled = false; Log("checkpoint hook: RememberCheckpoint removed"); }
     if (g_rsInstalled) { RemoveTrampoline(g_rsTarget, g_rsSaved, sizeof(g_rsSaved)); g_rsInstalled = false; Log("checkpoint hook: GameRestartCheckpoint removed"); }
     g_printMode = 0;

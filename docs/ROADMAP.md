@@ -939,3 +939,18 @@ Not done: nothing from M7 has been hooked or called live yet.
 - Not verified: the damage guard. The guard keeps an enemy's
   health from before a mirrored shot for 1.5 s, so only the shooter's own PC's hit report counts. A mirrored
   shot that kills outright can't be undone.
+
+### Second player: the Factions code is still in the exe (2026-10-17)
+Goal (user): no story companion; the partner is a real second player (full player animations and actions) on both
+PCs, wearing their character's model.
+- Players live in a table of `{handle node*, id}` at rva 0x411A510: `GetPlayer` (0xDA8A80) = entry 0, `sub_140DA5C30(i)`
+  = entry i. Live on PC A: entry 0 = Ellie, entry 1 empty.
+- `NetPlayerTracker::SpawnPlayerForTracker` (0x99F860) spawns one player per Factions tracker through
+  `sub_140DB4340(tracker, ?, index, ...)`. `SpawnPlayer` (0xDC1440; out, index, art, 0, 0, spawn info) takes the index too.
+  The `spawn-player` script native (0xCAA920) kills player 0 and calls it with index 0; its spawn info is the
+  checkpoint's player data (global 0x35F71A0, 0x2080 per character) plus `sub_140AB04F0`'s 0x6C8 block at +64.
+- `spawnplayer 1 ellie-seattle` (new command, same steps with index 1) ran `Player::Init` for player 1, which then
+  asserted in `Process::SetUserId` (0x133EC60, "Invalid user id"): Init's id table only has index 0 ('player'),
+  so index 1 got id 0. Crash dump 18:06. Fix built: a SetUserId hook turns id 0 into `player-2` during the spawn.
+- Next: spawn again; then which pad drives player 1 (virtual XInput pad 1 fed from the partner's input), which
+  camera follows, and whether story scripts that call GetPlayer() stay on player 0.

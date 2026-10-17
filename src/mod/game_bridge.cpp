@@ -1752,6 +1752,68 @@ void GameBridge::StartLookSwap(const std::string& look, const std::vector<std::s
 //          ready, then cleared. A request whose packages never load stays pending forever.
 //   +21048 keep-state flag, +21049 look locked by a player state (sub_140DBB680, set from
 //          the controller at rva 0xB71D70)
+// The engine keeps players in a table of {Process*, id} at rva 0x411A510 (GetPlayer =
+// entry 0, sub_140DA5C30(i) = entry i). The Factions code spawns one per NetPlayerTracker
+// (sub_140DB4340 stores entry [index]); story mode only fills 0. spawn-player (0xCAA920)
+// builds the spawn info from the checkpoint's player data (global rva 0x35F71A0, 0x2080 per
+// character, index from sub_141B6E4C0/sub_14105E5E0) and calls SpawnPlayer(out, 0, art, 0, 0, info).
+namespace {
+int SafeSpawnPlayer(uintptr_t fn, uint8_t* out, unsigned index, const char* art, uint8_t* info) {
+    using Fn = uint64_t (*)(uint8_t*, unsigned, const char*, uint64_t, uint64_t, uint8_t*);
+    __try { reinterpret_cast<Fn>(fn)(out, index, art, 0, 0, info); return 1; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { g_faultCode = GetExceptionCode(); return 0; }
+}
+int SafeBuildSpawnInfo(uint8_t* dst) {
+    using GetFn = uint64_t (*)(uint64_t, uint64_t, uint64_t);
+    using IdxFn = int (*)(uint64_t, uint64_t);
+    using InitFn = void (*)(uint8_t*);
+    __try {
+        uint64_t mgr = reinterpret_cast<GetFn>(BuildRva(0x1B6E4C0))(BuildRva(0x9334570), 0, 0);
+        int ci = reinterpret_cast<IdxFn>(BuildRva(0x105E5E0))(mgr, 0);
+        uint8_t* table = *reinterpret_cast<uint8_t**>(BuildRva(0x35F71A0));
+        if (!table) return -1;
+        std::memcpy(dst, table + 0x2080ull * ci, 0x2080);
+        alignas(16) uint8_t inv[0x6D0] = {};
+        reinterpret_cast<InitFn>(BuildRva(0xAB04F0))(inv);
+        std::memcpy(dst + 64, inv, 0x6C8);
+        return ci;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { g_faultCode = GetExceptionCode(); return -2; }
+}
+} // namespace
+
+void GameBridge::QueuePlayerTable() {
+    RunOnGameFiber([] {
+        uintptr_t tab = BuildRva(0x411A510);
+        std::string out;
+        for (int i = 0; i < 4; ++i) {
+            auto p = Read<uintptr_t>(tab + 16ull * i);
+            auto id = Read<uint32_t>(tab + 16ull * i + 8);
+            uintptr_t proc = p && *p ? *p : 0;   // the entry is a handle node: process at node+8
+            auto pr = proc ? Read<uintptr_t>(proc + 8) : std::nullopt;
+            char b[160];
+            snprintf(b, sizeof(b), " [%d] node %p id %u proc %p", i, reinterpret_cast<void*>(proc), id ? *id : 0, reinterpret_cast<void*>(pr ? *pr : 0));
+            out += b;
+        }
+        Log("players:%s", out.c_str());
+    }, true);
+}
+
+void GameBridge::QueueSpawnPlayer(unsigned index, const std::string& art) {
+    RunInScriptContext([this, index, art] {
+        static uint8_t info[0x2080 + 64];
+        int ci = SafeBuildSpawnInfo(info);
+        if (ci < 0) { Log("spawnplayer: spawn info failed (%d, fault 0x%08lX)", ci, g_faultCode); return; }
+        alignas(16) uint8_t out[32] = {};
+        if (!UserIdHookInstall(BuildRva(0x133EC60))) { Log("spawnplayer: no SetUserId hook, not spawning (it would assert)"); return; }
+        SetUserIdFix(Fnv1a("player-" + std::to_string(index + 1)));
+        int ok = SafeSpawnPlayer(BuildRva(0xDC1440), out, index, art.c_str(), info);
+        SetUserIdFix(0);
+        uint64_t h0, h1; std::memcpy(&h0, out, 8); std::memcpy(&h1, out + 8, 8);
+        Log("spawnplayer: index %u art '%s' (char %d) -> %s, out %016llx %016llx", index, art.c_str(), ci, ok ? "returned" : "FAULT", static_cast<unsigned long long>(h0), static_cast<unsigned long long>(h1));
+        QueuePlayerTable();
+    });
+}
+
 void GameBridge::QueueLookState() {
     RunOnGameFiber([this] {
         uintptr_t pl = follow(player_);

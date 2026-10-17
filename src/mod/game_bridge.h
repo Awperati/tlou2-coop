@@ -193,6 +193,10 @@ public:
     int lookStable_ = 0;
     bool LookPackagesLoaded();
     void QueueLookState();
+    // Second player research (2026-10-17): SpawnPlayer (rva 0xDC1440) with a player index > 0,
+    // the way spawn-player does it for index 0 but without killing the current player.
+    void QueueSpawnPlayer(unsigned index, const std::string& art);
+    void QueuePlayerTable();
     // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
     void QueueDemeanorNames();
     // Player stance, sampled on a game fiber (player-is-crouched?/prone?/aiming? natives).
