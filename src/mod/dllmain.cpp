@@ -253,7 +253,8 @@ void CoopMain() {
             bodyCheckAt = GetTickCount64();
             bridge.QueueAutoBody(bodyLook);
         }
-        bridge.DrivePuppet(slot, s);
+        bridge.SetCloneMove(s.moveX, s.moveZ);
+        if (!bridge.cloneDrive_) bridge.DrivePuppet(slot, s);
     };
     cb.onObjective = [&](const Objective& o) { objective = o; };
     cb.onTeleportRequest = [&](uint8_t slot) {
@@ -398,7 +399,7 @@ void CoopMain() {
         auto self = bridge.ReadLocalPlayer(tick);
         if (self) {
             self->character = myCharacter;
-            if (bool mv = (self->flags & kMoving) != 0; mv != selfMovingLogged) { selfMovingLogged = mv; Log("self: %s", mv ? "moving" : "stopped"); }
+            if (bool mv = (self->flags & kMoving) != 0; mv != selfMovingLogged) { selfMovingLogged = mv; Log("self: %s (stick world %.2f %.2f)", mv ? "moving" : "stopped", self->moveX, self->moveZ); }
             if (now - lastSend >= 50) { session.SendPlayerState(*self); lastSend = now; }
             if (isHost) gate.ReportPosition(0, self->pos);
         }
@@ -647,6 +648,16 @@ void CoopMain() {
                         uintptr_t s2 = bridge.JoypadSlot(2), s3 = bridge.JoypadSlot(3);
                         Log("padmirror: %s (slot 2 %p, slot 3 %p)", bridge.padMirror_ ? "on" : "off", reinterpret_cast<void*>(s2), reinterpret_cast<void*>(s3));
                     }
+                    else if (line.rfind("dumpslot ", 0) == 0) {   // dumpslot <slot> <name>: raw joypad slot to tlou2-coop\<name>.bin
+                        std::istringstream ds(line.substr(9)); int sl = 2; std::string nm; ds >> sl >> nm;
+                        uintptr_t a = bridge.JoypadSlot(sl);
+                        static uint8_t buf[0x2570]; SIZE_T n = 0;
+                        if (a && !nm.empty() && ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(a), buf, sizeof(buf), &n)) {
+                            if (FILE* f = _wfopen((dir + L"tlou2-coop\\" + Wide(nm) + L".bin").c_str(), L"wb")) { fwrite(buf, 1, n, f); fclose(f); }
+                            Log("dumpslot: slot %d -> %s.bin (%zu bytes)", sl, nm.c_str(), static_cast<size_t>(n));
+                        }
+                    }
+                    else if (line == "clonedrive on" || line == "clonedrive off") { bridge.cloneDrive_ = line == "clonedrive on"; Log("clonedrive: %s", bridge.cloneDrive_ ? "on (the other player's stick drives player 1)" : "off"); }
                     else if (line.rfind("clone ", 0) == 0) {   // clone <look>: spawn player 1 beside us wearing <look>
                         cloneLook = Trim(line.substr(6)); cloneStage = 1; cloneAt = GetTickCount64();
                     }
@@ -746,6 +757,7 @@ void CoopMain() {
 
         if (now - lastFiring >= 100) { lastFiring = now; bridge.PollFiring(); }
         bridge.TickPadMirror();
+        bridge.TickCloneDrive();
         // clone <look>: spawn, then teleport beside us, then apply the look (it builds the body).
         if (cloneStage && now >= cloneAt) {
             if (cloneStage == 1) { bridge.QueueSpawnPlayer(1, cloneLook); cloneStage = 2; cloneAt = now + 150; }   // teleport at once: spawned at the world origin it can fall out of the map and die (Watchtower, 07:44)

@@ -206,6 +206,15 @@ public:
     uintptr_t JoypadSlot(int slot);
     void TickPadMirror();
     bool padMirror_ = false;
+    // clonedrive on|off: the other player's stick drives player 1 (slot 3).
+    void SetCloneMove(float x, float z);
+    void TickCloneDrive();
+    bool cloneDrive_ = false;
+    std::atomic<bool> cloneDriveQueued_{false};
+    std::atomic<float> cloneMoveX_{0}, cloneMoveZ_{0};
+    std::atomic<unsigned long long> cloneMoveAt_{0};
+    float cloneTheta_ = 0, lastStickX_ = 0, lastStickY_ = 0;
+    unsigned long long lastCloneLog_ = 0;
     std::atomic<bool> padMirrorQueued_{false};
     void IssueStop(const std::string& name);
     void ActiveCount();

@@ -236,6 +236,8 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
     s.stance = static_cast<uint8_t>(stance_.load());
     if (aiming_) s.flags |= 1;
     if (firing_) s.flags |= 2;
+    if (auto mx = Read<float>(p + 19632 + 0xD0)) s.moveX = *mx;   // NdPlayerJoypad world stick (x, y, z)
+    if (auto mz = Read<float>(p + 19632 + 0xD8)) s.moveZ = *mz;
     {   // moving: compare with the position from at least 100 ms ago
         ULONGLONG now = GetTickCount64();
         if (!moveRefAt_ || now - moveRefAt_ > 400) { moveRefPos_ = s.pos; moveRefAt_ = now; }
@@ -1905,6 +1907,34 @@ uintptr_t GameBridge::JoypadSlot(int slot) {
     if (!componentTable_) return 0;
     auto c1 = Read<uintptr_t>(componentTable_ + 1 * 8);
     return c1 && *c1 ? *c1 + 0x520 + 0x2570ull * slot : 0;
+}
+
+void GameBridge::SetCloneMove(float x, float z) { cloneMoveX_ = x; cloneMoveZ_ = z; cloneMoveAt_ = GetTickCount64(); }
+
+// clonedrive: the other player's world stick drives player 1 through joypad slot 3. The slot
+// stick is rotated into the clone camera's frame; that rotation (theta) is measured each tick
+// from what the engine made of the last stick (Player+19632 +0xD0/+0xD8).
+void GameBridge::TickCloneDrive() {
+    if (!cloneDrive_ || cloneDriveQueued_.exchange(true)) return;
+    RunOnGameFiber([this] {
+        cloneDriveQueued_ = false;
+        uintptr_t p = PlayerProcess(1), slot = JoypadSlot(3);
+        if (!p || !slot) return;
+        auto wx = Read<float>(p + 19632 + 0xD0), wz = Read<float>(p + 19632 + 0xD8);
+        if (wx && wz && (lastStickX_ * lastStickX_ + lastStickY_ * lastStickY_) > 0.04f && (*wx * *wx + *wz * *wz) > 0.01f)
+            cloneTheta_ = StickTheta(lastStickX_, lastStickY_, *wx, *wz);
+        float mx = cloneMoveX_, mz = cloneMoveZ_;
+        if (GetTickCount64() - cloneMoveAt_ > 500) mx = mz = 0;   // no news from the other PC: stand still
+        float sx = 0, sy = 0;
+        if (mx * mx + mz * mz > 0.0025f) StickForWorld(mx, mz, cloneTheta_, sx, sy);
+        for (uint32_t off : {0x00u, 0x10u, 0x50u}) { SafeWrite(slot + off, &sx, 4); SafeWrite(slot + off + 4, &sy, 4); }
+        lastStickX_ = sx; lastStickY_ = sy;
+        ULONGLONG t = GetTickCount64();
+        if (t - lastCloneLog_ > 2000 && (sx != 0 || sy != 0)) {
+            lastCloneLog_ = t;
+            Log("clonedrive: want %.2f %.2f, theta %.2f, stick %.2f %.2f, engine world %.2f %.2f", mx, mz, cloneTheta_, sx, sy, wx ? *wx : 0.f, wz ? *wz : 0.f);
+        }
+    }, true);
 }
 
 void GameBridge::TickPadMirror() {

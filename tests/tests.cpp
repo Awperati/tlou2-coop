@@ -23,6 +23,18 @@ static void TestTeleportUnknownObjective() {
     CHECK(Distance(t.pos, o.pos) < 5.f);
 }
 
+static void TestStickWorld() {
+    for (float th : {0.f, 1.f, -2.5f, 3.f}) {
+        // a stick pushed half right, half forward, seen in the world rotated by th
+        float sx = 0.6f, sy = -0.8f;
+        float re = sx, im = -sy;
+        float wx = re * std::cos(th) - im * std::sin(th), wz = re * std::sin(th) + im * std::cos(th);
+        float t = StickTheta(sx, sy, wx, wz);
+        float ox, oy; StickForWorld(wx, wz, t, ox, oy);
+        CHECK(std::fabs(ox - sx) < 1e-4f && std::fabs(oy - sy) < 1e-4f);
+    }
+}
+
 static void TestMoving() {
     CHECK(!IsMoving({0, 0, 0}, {0.02f, 0, 0}, 100));   // 0.2 m/s: standing
     CHECK(IsMoving({0, 0, 0}, {0.15f, 0, 0}, 100));    // 1.5 m/s: walking
@@ -251,6 +263,7 @@ int main() {
     TestProtocolRoundTrip();
     TestShots();
     TestMoving();
+    TestStickWorld();
     TestTeleportUnknownObjective();
     TestTeleportHold();
     TestTransitionGate();

@@ -1,6 +1,7 @@
 // Wire format for TLOU2 Co-op LAN sessions.
 // Every packet: Header, then one message body. Little-endian, packed by hand.
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -10,7 +11,7 @@
 namespace coop {
 
 constexpr uint16_t kMagic = 0x5443;          // "CT"
-constexpr uint16_t kProtocolVersion = 2;   // 2: PlayerState shots + shotTarget
+constexpr uint16_t kProtocolVersion = 3;   // 2: shots + shotTarget, 3: moveX/moveZ
 constexpr uint16_t kDefaultPort = 47820;     // game traffic
 constexpr uint16_t kDiscoveryPort = 47821;   // LAN broadcast
 constexpr size_t kMaxPacket = 1200;          // stays under typical MTU
@@ -76,7 +77,22 @@ struct PlayerState {
     // makes the sender's stand-in NPC fire the same shots.
     uint8_t shots = 0;
     uint64_t shotTarget = 0;
+    // The sender's left stick as a world-space direction (x, z; length 0..1), read from its own
+    // player's joypad (Player+19632 +0xD0). Drives the other PC's player clone (2026-10-18).
+    float moveX = 0, moveZ = 0;
 };
+
+// Stick for the clone's joypad slot from a wanted world direction. The engine turns a slot
+// stick into a world direction by the clone camera's yaw; theta is that rotation, measured as
+// arg(world) - arg(stick) with stick as (x, -y). Returns slot stick x, y.
+inline void StickForWorld(float wx, float wz, float theta, float& sx, float& sy) {
+    float c = std::cos(-theta), s = std::sin(-theta);
+    float re = wx * c - wz * s, im = wx * s + wz * c;
+    sx = re; sy = -im;
+}
+inline float StickTheta(float sx, float sy, float wx, float wz) {
+    return std::atan2(wz, wx) - std::atan2(-sy, sx);
+}
 
 // The sender's own player is moving (its position changed faster than kMovingSpeed over the last
 // ~100 ms). Lets the other PC stop the stand-in at once instead of guessing from positions,
