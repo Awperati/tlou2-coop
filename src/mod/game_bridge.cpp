@@ -1781,6 +1781,30 @@ int SafeBuildSpawnInfo(uint8_t* dst) {
 }
 } // namespace
 
+uintptr_t GameBridge::PlayerProcess(unsigned index) {
+    uintptr_t tab = BuildRva(0x411A510);
+    auto node = Read<uintptr_t>(tab + 16ull * index);
+    auto id = Read<uint32_t>(tab + 16ull * index + 8);
+    if (!node || !*node || !id || !*id) return 0;
+    auto proc = Read<uintptr_t>(*node + 8);
+    if (!proc || !*proc) return 0;
+    auto pid = Read<uint32_t>(*proc + 148);   // the handle is live while the ids match (GetPlayer does the same)
+    return pid && *pid == *id ? *proc : 0;
+}
+
+void GameBridge::QueuePlayerBeside(unsigned index, float metres) {
+    RunOnGameFiber([this, index, metres] {
+        uintptr_t p0 = PlayerProcess(0), p = PlayerProcess(index);
+        auto me = p0 ? Read<Vec3>(p0 + offPos_) : std::nullopt;
+        auto q = p0 ? Read<Quat>(p0 + offRot_) : std::nullopt;
+        if (!p || !me) { Log("playertp: no player %u or no player 0", index); return; }
+        float yaw = q ? YawFromQuat(*q) : 0.f;
+        Vec3 at = {me->x + std::cos(yaw) * metres, me->y + 0.2f, me->z - std::sin(yaw) * metres};
+        bool ok = engineTeleport(p, at, yaw);
+        Log("playertp: player %u to %.2f %.2f %.2f: %s", index, at.x, at.y, at.z, ok ? "sent" : "FAILED");
+    }, true);
+}
+
 void GameBridge::QueuePlayerTable() {
     RunOnGameFiber([] {
         uintptr_t tab = BuildRva(0x411A510);

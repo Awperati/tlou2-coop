@@ -36,22 +36,25 @@ struct Step {
     SHORT lx = 0, ly = 0, rx = 0, ry = 0;
     DWORD ms = 0;
 };
+// Pad 0: test scripts. Pad 1: the second player (2026-10-17), "p2 <verb> ..." lines.
+constexpr int kPads = 2;
 std::mutex g_mu;
-std::deque<Step> g_steps;
-ULONGLONG g_stepStart = 0;
-std::atomic<bool> g_padVirtual{false};   // once used, pad 0 stays "connected"
-DWORD g_packet = 0;
+std::deque<Step> g_steps[kPads];
+ULONGLONG g_stepStart[kPads] = {};
+std::atomic<bool> g_padVirtual[kPads] = {};   // once used, the pad stays "connected"
+DWORD g_packet[kPads] = {};
 std::atomic<unsigned> g_stateCalls{0}, g_capsCalls{0};
 std::atomic<DWORD> g_lastIndexMask{0}, g_lastResult{0};
 
-bool CurrentStep(Step& out) {
+bool CurrentStep(int pad, Step& out) {
     std::lock_guard lk(g_mu);
     ULONGLONG now = GetTickCount64();
-    while (!g_steps.empty()) {
-        if (!g_stepStart) g_stepStart = now;
-        if (now - g_stepStart < g_steps.front().ms) { out = g_steps.front(); return true; }
-        g_steps.pop_front();
-        g_stepStart = g_steps.empty() ? 0 : now;
+    auto& q = g_steps[pad];
+    while (!q.empty()) {
+        if (!g_stepStart[pad]) g_stepStart[pad] = now;
+        if (now - g_stepStart[pad] < q.front().ms) { out = q.front(); return true; }
+        q.pop_front();
+        g_stepStart[pad] = q.empty() ? 0 : now;
     }
     return false;
 }
@@ -100,18 +103,19 @@ DWORD WINAPI HookGetState(DWORD index, XINPUT_STATE* state) {
     DWORD r = reinterpret_cast<GetStateFn>(g_getState.tramp)(index, state);
     ++g_stateCalls; g_lastIndexMask |= 1u << (index & 7); if (index == 0) g_lastResult = r;
     Step s;
-    bool active = index == 0 && CurrentStep(s);
-    if (index == 0 && (active || g_padVirtual)) {
-        if (r != ERROR_SUCCESS) { std::memset(state, 0, sizeof(*state)); r = ERROR_SUCCESS; }
+    int pad = static_cast<int>(index);
+    bool active = pad < kPads && CurrentStep(pad, s);
+    if (pad < kPads && (active || g_padVirtual[pad])) {
+        if (r != ERROR_SUCCESS || pad > 0) { std::memset(state, 0, sizeof(*state)); r = ERROR_SUCCESS; }
         if (active) {
-            g_padVirtual = true;
+            g_padVirtual[pad] = true;
             state->Gamepad.wButtons |= s.buttons;
             if (s.lt) state->Gamepad.bLeftTrigger = s.lt;
             if (s.rt) state->Gamepad.bRightTrigger = s.rt;
             if (s.lx || s.ly) { state->Gamepad.sThumbLX = s.lx; state->Gamepad.sThumbLY = s.ly; }
             if (s.rx || s.ry) { state->Gamepad.sThumbRX = s.rx; state->Gamepad.sThumbRY = s.ry; }
         }
-        state->dwPacketNumber = ++g_packet;
+        state->dwPacketNumber = ++g_packet[pad];
     }
     --g_inside;
     return r;
@@ -121,7 +125,7 @@ DWORD WINAPI HookGetCaps(DWORD index, DWORD flags, XINPUT_CAPABILITIES* caps) {
     ++g_inside;
     DWORD r = reinterpret_cast<GetCapsFn>(g_getCaps.tramp)(index, flags, caps);
     ++g_capsCalls;
-    if (index == 0 && r != ERROR_SUCCESS && (g_padVirtual || InputScriptBusy())) {
+    if (index < static_cast<DWORD>(kPads) && r != ERROR_SUCCESS && (g_padVirtual[index] || (index == 0 && InputScriptBusy()))) {
         std::memset(caps, 0, sizeof(*caps));
         caps->Type = XINPUT_DEVTYPE_GAMEPAD;
         caps->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
@@ -159,7 +163,7 @@ bool InputInjectInstall() {
     g_installed = true;
     // Present pad 0 as connected from the start: the game only adopts a pad it has
     // already seen plugged in, and ignores presses on the frame it appears.
-    g_padVirtual = true;
+    g_padVirtual[0] = true;
     Log("input: XInput hooks installed (virtual pad 0 connected)");
     return true;
 }
@@ -175,8 +179,11 @@ void InputInjectRemove() {
     Log("input: XInput hooks removed");
 }
 
-bool InputScriptAdd(const std::string& line) {
-    std::istringstream in(Lower(Trim(line)));
+bool InputScriptAdd(const std::string& lineIn) {
+    std::string line = Lower(Trim(lineIn));
+    int pad = 0;
+    if (line.rfind("p2 ", 0) == 0) { pad = 1; line = line.substr(3); }
+    std::istringstream in(line);
     std::string verb; in >> verb;
     Step s;
     int a = 0, b = 0, ms = 0;
@@ -204,19 +211,20 @@ bool InputScriptAdd(const std::string& line) {
     }
     s.ms = static_cast<DWORD>(ms < 1 ? 1 : (ms > 30000 ? 30000 : ms));
     std::lock_guard lk(g_mu);
-    g_steps.push_back(s);
-    if (verb == "press") g_steps.push_back(Step{0, 0, 0, 0, 0, 0, 0, 120});   // release gap
+    g_steps[pad].push_back(s);
+    if (verb == "press") g_steps[pad].push_back(Step{0, 0, 0, 0, 0, 0, 0, 120});   // release gap
+    if (pad > 0 && !g_padVirtual[pad].exchange(true)) Log("input: virtual pad %d connected", pad);
     return true;
 }
 
 void InputLogStats() {
-    Log("input: GetState calls %u (pads seen mask 0x%lX, pad0 real result %lu), GetCapabilities calls %u, virtual=%d",
-        g_stateCalls.load(), g_lastIndexMask.load(), g_lastResult.load(), g_capsCalls.load(), (int)g_padVirtual.load());
+    Log("input: GetState calls %u (pads seen mask 0x%lX, pad0 real result %lu), GetCapabilities calls %u, virtual=%d/%d",
+        g_stateCalls.load(), g_lastIndexMask.load(), g_lastResult.load(), g_capsCalls.load(), (int)g_padVirtual[0].load(), (int)g_padVirtual[1].load());
 }
 
 bool InputScriptBusy() {
     std::lock_guard lk(g_mu);
-    return !g_steps.empty();
+    return !g_steps[0].empty();
 }
 
 } // namespace coop

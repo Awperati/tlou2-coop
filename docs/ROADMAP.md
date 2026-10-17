@@ -952,5 +952,11 @@ PCs, wearing their character's model.
 - `spawnplayer 1 ellie-seattle` (new command, same steps with index 1) ran `Player::Init` for player 1, which then
   asserted in `Process::SetUserId` (0x133EC60, "Invalid user id"): Init's id table only has index 0 ('player'),
   so index 1 got id 0. Crash dump 18:06. Fix built: a SetUserId hook turns id 0 into `player-2` during the spawn.
-- Next: spawn again; then which pad drives player 1 (virtual XInput pad 1 fed from the partner's input), which
-  camera follows, and whether story scripts that call GetPlayer() stay on player 0.
+- 18:11 live, with the hook: `spawnplayer 1 ellie-seattle` returned and the game kept running. Table entry 1 now
+  holds a real `Player` (same vtable as Ellie, id 7206), spawned at the world origin. `playertp 1` (engine teleport
+  event, like our own teleport) put it 1.4 m beside Ellie on the ground.
+- Input: the game polls only XInput pad 0 (pads seen mask 0x1, GetCapabilities never called), so a virtual pad 1
+  (`p2 ...` lines, built) is never read. Player 1 needs its input from somewhere else: Player::CreateControllers
+  (0xD9E000) and the Factions remote-player path (AnimNetPlayerInfo, NetPlayerTracker) are the leads.
+- Next: find what Player reads its joypad from and point player 1's at our own state; or drive player 1 the way
+  Factions drives remote players (network anim state).
