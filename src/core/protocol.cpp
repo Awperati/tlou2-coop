@@ -72,7 +72,9 @@ bool Read(Reader& r, PlayerState& s) {
     uint8_t c = r.u8();
     s.character = c < static_cast<uint8_t>(CharacterId::Count) ? static_cast<CharacterId>(c) : CharacterId::None;
     s.shots = r.u8(); s.shotTarget = r.u64();
-    s.moveX = r.f32(); s.moveZ = r.f32();
+    // Optional tail: an older build sends none (a version bump would have kept it from
+    // connecting, and so from fetching the update).
+    if (r.ok() && r.remaining() >= 8) { s.moveX = r.f32(); s.moveZ = r.f32(); } else { s.moveX = s.moveZ = 0; }
     return r.ok();
 }
 

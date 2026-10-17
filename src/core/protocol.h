@@ -11,7 +11,7 @@
 namespace coop {
 
 constexpr uint16_t kMagic = 0x5443;          // "CT"
-constexpr uint16_t kProtocolVersion = 3;   // 2: shots + shotTarget, 3: moveX/moveZ
+constexpr uint16_t kProtocolVersion = 2;   // 2: shots + shotTarget (moveX/moveZ ride on the end, optional)
 constexpr uint16_t kDefaultPort = 47820;     // game traffic
 constexpr uint16_t kDiscoveryPort = 47821;   // LAN broadcast
 constexpr size_t kMaxPacket = 1200;          // stays under typical MTU

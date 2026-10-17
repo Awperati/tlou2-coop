@@ -772,7 +772,7 @@ void CoopMain() {
         }
         // Partner: take the host's coop.dll from its file drop (tools/share.py, port 8765) when it
         // differs; the loader then hot-reloads it. Saves copying every build to PC B by hand.
-        if (!isHost && session.connected() && autoUpdate && !updateHost.empty() && now - lastUpdateCheck >= 15000) {
+        if (!isHost && autoUpdate && !updateHost.empty() && now - lastUpdateCheck >= 15000) {   // also while not connected: a protocol change must not strand the partner
             // Synchronous on this (mod) thread: a LAN fetch of ~0.7 MB is quick, and a detached
             // thread could outlive this DLL once the reload unloads it.
             lastUpdateCheck = now;
