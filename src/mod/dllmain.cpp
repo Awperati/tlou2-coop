@@ -140,8 +140,8 @@ void CoopMain() {
     auto xinput = LoadXInput();
 
     OverlayOptions oo;
-    oo.speak = cfg.getBool("accessibility", "SpeakPrompts", true);
-    oo.sounds = cfg.getBool("accessibility", "SoundCues", true);
+    oo.speak = cfg.getBool("accessibility", "SpeakPrompts", false);
+    oo.sounds = cfg.getBool("accessibility", "SoundCues", false);
     OverlayStart(oo);
 
     // Let the engine finish booting before scanning memory.

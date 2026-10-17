@@ -40,6 +40,13 @@ add_library(coop_loader SHARED
 set_target_properties(coop_loader PROPERTIES OUTPUT_NAME "version")
 target_compile_definitions(coop_loader PRIVATE UNICODE _UNICODE NOMINMAX)
 
+# coop_inject.dll + coop_launcher.exe: the same loader, attached to a running game by a
+# separate program instead of being loaded by the game.
+add_library(coop_inject SHARED src/loader/loader.cpp)
+target_compile_definitions(coop_inject PRIVATE UNICODE _UNICODE NOMINMAX)
+add_executable(coop_launcher src/launcher/launcher.cpp)
+target_compile_definitions(coop_launcher PRIVATE UNICODE _UNICODE NOMINMAX)
+
 enable_testing()
 add_executable(coop_tests tests/tests.cpp)
 target_link_libraries(coop_tests PRIVATE coop_core)

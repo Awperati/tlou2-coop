@@ -1,5 +1,6 @@
 // version.dll: forwards the real VERSION exports (version_proxy.cpp) and
-// hosts coop.dll with hot reload. It loads a shadow copy of
+// hosts coop.dll with hot reload. Built alone as coop_inject.dll, which
+// coop_launcher.exe loads into a game that is already running. It loads a shadow copy of
 // <game>\tlou2-coop\coop.dll, and when that file changes it stops the old
 // copy, frees it, and starts the new one. No game restart per iteration.
 #define WIN32_LEAN_AND_MEAN
@@ -74,6 +75,11 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(mod);
         if (IsGameProcess()) {
+            // One loader per game: version.dll and coop_inject.dll (coop_launcher.exe) both
+            // build from this file. The launcher also checks this name before injecting.
+            std::wstring name = L"Local\\TLOU2Coop.Loader." + std::to_wstring(GetCurrentProcessId());
+            HANDLE m = CreateMutexW(nullptr, FALSE, name.c_str());   // held for the life of the process
+            if (!m || GetLastError() == ERROR_ALREADY_EXISTS) return TRUE;
             // Remove shadow copies left by earlier runs.
             WIN32_FIND_DATAW fd;
             std::wstring dir = GameDir() + L"tlou2-coop\\";

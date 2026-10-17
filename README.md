@@ -10,13 +10,19 @@ Fall too far behind and you **hold T** (or Back on a controller) to teleport to 
 
 ## Install
 
-1. Build (below), or take `version.dll` from a release.
-2. Copy `build\version.dll` into the game folder, next to `tlou-ii.exe`.
-3. Copy the `config` folder there too and rename it `tlou2-coop`.
-4. Host: set `Mode = host` in `tlou2-coop\coop.ini`. Partner: `Mode = client`.
+1. Build (below).
+2. In the game folder, next to `tlou-ii.exe`, make a `tlou2-coop` folder. Copy the files from `config` into it,
+   plus `build\coop.dll`, `build\coop_inject.dll` and `build\coop_launcher.exe`. (`deploy.cmd` does all of this.)
+3. Host: set `Mode = host` in `tlou2-coop\coop.ini`. Partner: `Mode = client`.
+4. Run `tlou2-coop\coop_launcher.exe`, before or after starting the game. It waits for the game, attaches the
+   mod about 8 s after the game window appears, and keeps watching so a restarted game gets it again.
+   Close the launcher window to stop attaching; a game it already attached keeps the mod until it exits.
 5. Play in **borderless or windowed** mode so the prompt overlay shows.
 
-Uninstall: delete `version.dll` and the `tlou2-coop` folder.
+Old way: `buildersion.dll` next to `tlou-ii.exe` makes the game load the mod by itself, with no launcher
+(`set COOP_AUTOLOAD=1` before `deploy.cmd`). Don't use both: the launcher skips a game that already has the mod.
+
+Uninstall: delete the `tlou2-coop` folder (and `version.dll` if you used the old way).
 
 ## Settings ([config/coop.ini](config/coop.ini))
 
