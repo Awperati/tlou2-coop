@@ -517,6 +517,13 @@ void CoopMain() {
                                   WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(dst), buf, n, &put) && put == n;
                         Log("copymem %llx <- %llx (%zu bytes): %s", static_cast<unsigned long long>(dst), static_cast<unsigned long long>(src), n, ok ? "ok" : "FAILED");
                     }
+                    else if (line.rfind("poke32 ", 0) == 0) {   // poke32 <hex addr> <value>: research only
+                        std::istringstream ss(line.substr(7)); std::string a, v; ss >> a >> v;
+                        uintptr_t addr = std::stoull(a, nullptr, 16); uint32_t val = static_cast<uint32_t>(std::stoul(v, nullptr, 0));
+                        SIZE_T n = 0;
+                        bool ok = WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(addr), &val, 4, &n) && n == 4;
+                        Log("poke32 %llx = %u: %s", static_cast<unsigned long long>(addr), val, ok ? "ok" : "FAILED");
+                    }
                     else if (line.rfind("peek ", 0) == 0) {   // peek <hex addr> [bytes]: read-only memory dump
                         std::istringstream ss(line.substr(5)); std::string a; size_t n = 64; ss >> a >> n;
                         uintptr_t addr = std::stoull(a, nullptr, 16); n = std::min<size_t>(n, 512);
@@ -625,6 +632,7 @@ void CoopMain() {
                     }
                     else if (line == "lookstate") bridge.QueueLookState();
                     else if (line == "players") bridge.QueuePlayerTable();
+                    else if (line == "activecount") bridge.ActiveCount();
                     else if (line.rfind("playerlook ", 0) == 0) {   // playerlook <index> <look>
                         std::istringstream pl(line.substr(11)); unsigned idx = 1; std::string lk; pl >> idx >> lk;
                         if (!lk.empty()) bridge.QueuePlayerLook(idx, lk);

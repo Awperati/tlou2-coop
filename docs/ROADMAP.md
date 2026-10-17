@@ -984,3 +984,9 @@ PCs, wearing their character's model.
   (0x1B1C840) spawns both at start-up, and live both exist (ids 0x17 and 0x18), so that is not the gate.
   Next: check whether player 1's Active::Update runs at all (hook it, count per player), then follow how the stick
   reaches Player+19632 (get-joypad-stick-ws reads it) for player 0, and fill the same for player 1.
+- 2026-10-18 06:44: `activecount` (hook on Player::Active::Update) counted 282 calls for each player in the same
+  window, so player 1 is updated every frame. Player+19632 is its NdPlayerJoypad: +0x14/+0x18 = 0/1 and +0x1C = engine
+  joypad slot 2 (player 0) / 3 (player 1). Next test: poke player 1's +0x14/+0x18 = 0 and +0x1C = 2 (done 06:45), then
+  move player 0 and see whether player 1 follows the same stick.
+- Companion idle: standing now maps to demeanor 1 (uneasy, the cautious idle) whenever the level itself asks the
+  companion for 1 or more (our demeanor hook records the game's request), else 0 (user report 06:44).

@@ -197,6 +197,7 @@ public:
     // the way spawn-player does it for index 0 but without killing the current player.
     void QueueSpawnPlayer(unsigned index, const std::string& art);
     void QueuePlayerTable();
+    void ActiveCount();
     uintptr_t PlayerProcess(unsigned index);   // entry i of the player table, game fiber only
     void QueuePlayerBeside(unsigned index, float metres);
     void QueuePlayerShow(unsigned index);

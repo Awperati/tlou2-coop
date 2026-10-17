@@ -371,7 +371,11 @@ bool GameBridge::DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode) 
         }
         // Stance: demeanors on companions are 0 ambient, 1 uneasy, 2 aggressive (weapon up),
         // 3 crouch, 4 crawl (prone), 5 search (read from Dina's Npc+7784 table in game).
-        int demeanor = stance == 2 ? 4 : stance == 1 ? 3 : aim ? 2 : 0;
+        // Standing: casual (0) unless the level wants the companion on edge (it asks for 1 or
+        // more, e.g. crouch in the infected tunnels); then uneasy (1), the cautious idle the
+        // partner's own player shows there (user, 2026-10-18).
+        int asked = DemeanorGameAsked();
+        int demeanor = stance == 2 ? 4 : stance == 1 ? 3 : aim ? 2 : (asked >= 1 ? 1 : 0);
         // Re-sent every 2 s: level scripts set the companion's demeanor too (she crouch-walked
         // in the infected tunnels while the partner stood, 2026-10-17).
         SetDemeanorOverride(b, demeanor);   // keeps it against level scripts (fiber_hook.cpp)
@@ -1865,6 +1869,11 @@ void GameBridge::QueuePlayerShow(unsigned index) {
         int r = SafeShowMeshes(p);
         Log("playershow: player %u meshes %s", index, r == 1 ? "set visible" : r == 0 ? "has no draw control" : "FAULT");
     });
+}
+
+void GameBridge::ActiveCount() {
+    if (!ActiveUpdateHookInstall(BuildRva(0xAD61E0))) return;
+    Log("activecount: calls per player since last time:%s", ActiveUpdateCounts().c_str());
 }
 
 void GameBridge::QueuePlayerTable() {

@@ -544,8 +544,10 @@ std::atomic<uintptr_t> g_demNpc{0};
 std::atomic<int> g_demWant{-1};
 std::atomic<uint32_t> g_demOverrides{0};
 std::atomic<uintptr_t> g_demLastCaller{0};
+std::atomic<int> g_demGameAsked{-1};   // what the game last asked for on the puppet NPC
 uint64_t DemCommon(int i, uint64_t npc, int dem, uint32_t blend, uintptr_t caller) {
     int want = g_demWant.load();
+    if (npc && npc == g_demNpc.load()) g_demGameAsked = dem;
     if (want >= 0 && npc && npc == g_demNpc.load() && dem != want) {
         ++g_demOverrides;
         g_demLastCaller = caller;
@@ -622,6 +624,51 @@ bool DemeanorHooksInstall(uintptr_t forced, uintptr_t normal) {
 void DemeanorHooksRemove() {
     for (int i = 0; i < 2; ++i) if (g_demTarget[i]) { RemoveTrampoline(g_demTarget[i], g_demSaved[i], 15); g_demTarget[i] = 0; }
 }
+// Player::Active::Update (0xAD61E0, this = state, player = *(this+8)): counts calls per player,
+// to see whether a spawned second player is updated at all (2026-10-18).
+namespace {
+using ActFn = uint64_t (*)(uint64_t);
+uint8_t* g_actTramp = nullptr;
+uint8_t g_actSaved[15];
+uintptr_t g_actTarget = 0;
+std::atomic<uintptr_t> g_actPlayer[4];
+std::atomic<uint32_t> g_actCount[4];
+uint64_t HookedActiveUpdate(uint64_t self) {
+    uintptr_t pl = 0;
+    __try { pl = *reinterpret_cast<uintptr_t*>(self + 8); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    for (int i = 0; i < 4; ++i) {
+        uintptr_t cur = g_actPlayer[i].load();
+        if (cur == pl) { ++g_actCount[i]; break; }
+        if (cur == 0) { uintptr_t z = 0; if (g_actPlayer[i].compare_exchange_strong(z, pl) || g_actPlayer[i].load() == pl) { ++g_actCount[i]; break; } }
+    }
+    return reinterpret_cast<ActFn>(g_actTramp)(self);
+}
+} // namespace
+
+bool ActiveUpdateHookInstall(uintptr_t target) {
+    if (g_actTarget) return true;
+    // mov [rsp+10h],rbx; mov [rsp+18h],rsi; mov [rsp+20h],rdi
+    static const uint8_t expect[15] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x48, 0x89, 0x7C, 0x24, 0x20};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedActiveUpdate), g_actSaved, g_actTramp)) {
+        Log("active hook: prologue changed, not hooking");
+        return false;
+    }
+    g_actTarget = target;
+    Log("active hook: Player::Active::Update hooked");
+    return true;
+}
+std::string ActiveUpdateCounts() {
+    std::string out;
+    for (int i = 0; i < 4; ++i) {
+        uintptr_t p = g_actPlayer[i].exchange(0);
+        uint32_t n = g_actCount[i].exchange(0);
+        if (!p) continue;
+        char b[64]; snprintf(b, sizeof(b), " %p:%u", reinterpret_cast<void*>(p), n);
+        out += b;
+    }
+    return out.empty() ? std::string(" none") : out;
+}
+
 bool UserIdHookInstall(uintptr_t setUserId) {
     if (g_uidTarget) return true;
     static const uint8_t prefix[10] = {0x40, 0x53, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x48};
@@ -635,7 +682,8 @@ bool UserIdHookInstall(uintptr_t setUserId) {
 }
 void SetUserIdFix(uint64_t id) { g_userIdFix = id; }
 
-void SetDemeanorOverride(uintptr_t npc, int demeanor) { g_demNpc = npc; g_demWant = demeanor; }
+void SetDemeanorOverride(uintptr_t npc, int demeanor) { if (npc != g_demNpc.load()) g_demGameAsked = -1; g_demNpc = npc; g_demWant = demeanor; }
+int DemeanorGameAsked() { return g_demGameAsked.load(); }
 uint32_t DemeanorOverrides(uintptr_t* lastCaller) { if (lastCaller) *lastCaller = g_demLastCaller.load(); return g_demOverrides.load(); }
 
 bool VoxRequestHookInstall(uintptr_t target) {
@@ -762,6 +810,7 @@ void FiberHookRemove() {
     SetDemeanorOverride(0, -1);
     DemeanorHooksRemove();
     if (g_uidTarget) { RemoveTrampoline(g_uidTarget, g_uidSaved, sizeof(g_uidSaved)); g_uidTarget = 0; }
+    if (g_actTarget) { RemoveTrampoline(g_actTarget, g_actSaved, sizeof(g_actSaved)); g_actTarget = 0; }
     if (g_cpInstalled) { RemoveTrampoline(g_cpTarget, g_cpSaved, sizeof(g_cpSaved)); g_cpInstalled = false; Log("checkpoint hook: RememberCheckpoint removed"); }
     if (g_rsInstalled) { RemoveTrampoline(g_rsTarget, g_rsSaved, sizeof(g_rsSaved)); g_rsInstalled = false; Log("checkpoint hook: GameRestartCheckpoint removed"); }
     g_printMode = 0;

@@ -40,10 +40,14 @@ bool CheckpointHooksInstall(uintptr_t remember, uintptr_t restart);
 bool DemeanorHooksInstall(uintptr_t forced, uintptr_t normal);
 void DemeanorHooksRemove();
 void SetDemeanorOverride(uintptr_t npc, int demeanor);
+int DemeanorGameAsked();   // last demeanor the game itself asked for on the puppet (-1 = none yet)
 uint32_t DemeanorOverrides(uintptr_t* lastCaller);
 // Process::SetUserId (rva 0x133EC60): while a fix id is set, a 0 id becomes it (second player).
 bool UserIdHookInstall(uintptr_t setUserId);
 void SetUserIdFix(uint64_t id);
+// Player::Active::Update (rva 0xAD61E0): per-player call counts since the last read.
+bool ActiveUpdateHookInstall(uintptr_t target);
+std::string ActiveUpdateCounts();
 uint32_t CheckpointWrites();
 uint32_t CheckpointRestarts();
 bool DialogFactsHookInstall(uintptr_t target, uintptr_t lockFn, uintptr_t unlockFn, uintptr_t speakerKeys, uintptr_t speakerFn);
