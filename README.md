@@ -19,7 +19,7 @@ Fall too far behind and you **hold T** (or Back on a controller) to teleport to 
    Close the launcher window to stop attaching; a game it already attached keeps the mod until it exits.
 5. Play in **borderless or windowed** mode so the prompt overlay shows.
 
-Old way: `buildersion.dll` next to `tlou-ii.exe` makes the game load the mod by itself, with no launcher
+Old way: `build\version.dll` next to `tlou-ii.exe` makes the game load the mod by itself, with no launcher
 (`set COOP_AUTOLOAD=1` before `deploy.cmd`). Don't use both: the launcher skips a game that already has the mod.
 
 Uninstall: delete the `tlou2-coop` folder (and `version.dll` if you used the old way).

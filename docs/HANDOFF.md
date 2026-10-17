@@ -22,6 +22,9 @@ Full running log of findings: [ROADMAP.md](ROADMAP.md). This file is the short v
 
 ## 2. Dev loop
 
+- **Launcher (2026-10-17):** the mod no longer loads with the game. `tlou2-coop\coop_launcher.exe` attaches it
+  (`coop_inject.dll`, same hot-reload loader). After a game relaunch, start the launcher too. `version.dll` was
+  renamed to `version.disabled.dll`. Spoken prompts and sound cues are now off by default.
 - Build: `cmd /c ".\build.cmd"` (also runs 71 unit tests). Deploy: `cmd /c ".\deploy.cmd"`. coop.dll hot-reloads in
   the running game; touch `tlou2-coop\coop.dll`'s LastWriteTime to force a reload.
 - deploy copies offsets.ini and looks.ini every time. It copies coop.ini and roster.ini **only if missing**, so copy
