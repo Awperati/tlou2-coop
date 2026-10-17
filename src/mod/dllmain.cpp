@@ -747,7 +747,9 @@ void CoopMain() {
             // Synchronous on this (mod) thread: a LAN fetch of ~0.7 MB is quick, and a detached
             // thread could outlive this DLL once the reload unloads it.
             lastUpdateCheck = now;
-            std::wstring url = L"http://" + Wide(updateHost) + L":8765/coop.dll";
+            // A unique query each time: the cached first download (an old build) kept coming back
+            // and replaced newer copies on PC B (2026-10-18). share.py ignores the query.
+            std::wstring url = L"http://" + Wide(updateHost) + L":8765/coop.dll?t=" + std::to_wstring(GetTickCount64());
             std::wstring tmp = dir + L"tlou2-coop\coop.download.dll", cur = dir + L"tlou2-coop\coop.dll";
             DeleteUrlCacheEntryW(url.c_str());
             if (URLDownloadToFileW(nullptr, url.c_str(), tmp.c_str(), 0, nullptr) == S_OK) {
