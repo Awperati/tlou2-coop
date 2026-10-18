@@ -83,6 +83,9 @@ struct PlayerState {
     // The sender's held-button mask from its own raw pad 0 (rva 0x824C860 + 0x528). The other PC
     // passes only an allowlisted part to the clone (item buttons crashed the game, 07:50).
     uint64_t padHeld = 0;
+    // The sender's aim direction through the reticle (camera-get-dir-through-reticle), as yaw
+    // (atan2(x, z)) and pitch (asin(y)) in radians; the other PC points the clone's camera there.
+    float aimYaw = 0, aimPitch = 0;
 };
 
 // Stick for the clone's joypad slot from a wanted world direction. The engine turns a slot

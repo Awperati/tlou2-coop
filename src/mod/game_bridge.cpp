@@ -238,6 +238,7 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
     if (firing_) s.flags |= 2;
     if (auto mx = Read<float>(p + 19632 + 0xD0)) s.moveX = *mx;   // NdPlayerJoypad world stick (x, y, z)
     if (auto mz = Read<float>(p + 19632 + 0xD8)) s.moveZ = *mz;
+    s.aimYaw = aimYaw_; s.aimPitch = aimPitch_;
     if (auto held = Read<uint64_t>(BuildRva(0x824C860) + 0x528)) {
         s.padHeld = *held;
         if (logPadBits_ && *held != lastPadHeld_) { Log("padbits: held %016llx", static_cast<unsigned long long>(*held)); lastPadHeld_ = *held; }
@@ -1640,6 +1641,15 @@ void GameBridge::PollFiring() {
         uint64_t argv[4] = {}, ret[4] = {};
         bool firing = SafeNative(BuildRva(0xB92990), 0, argv, ret) && (ret[0] & 0xFF);
         firing_ = firing;
+        // Aim direction (camera-get-dir-through-reticle 0x407A70: a boxed vector through the
+        // player's camera manager, Player+21800 index), sent to the other PC for the clone's aim.
+        ret[0] = 0;
+        if (SafeNative(BuildRva(0x407A70), 0, argv, ret) && ret[0]) {
+            if (auto d = Read<Vec3>(ret[0])) {
+                float h = std::sqrt(d->x * d->x + d->z * d->z);
+                if (h > 1e-4f || std::fabs(d->y) > 1e-4f) { aimYaw_ = std::atan2(d->x, d->z); aimPitch_ = std::atan2(d->y, h); }
+            }
+        }
         if (!shotCounter_.Update(firing, GetTickCount64())) return;
         ret[0] = 0;
         uint64_t target = SafeNative(BuildRva(0xC9C070), 0, argv, ret) ? ret[0] : 0;
@@ -2002,7 +2012,8 @@ uintptr_t GameBridge::JoypadSlot(int slot) {
     return c1 && *c1 ? *c1 + 0x520 + 0x2570ull * slot : 0;
 }
 
-void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving, int stance) {
+void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving, int stance, float aimYaw, float aimPitch) {
+    cloneAimYaw_ = aimYaw; cloneAimPitch_ = aimPitch;
     cloneMoveX_ = x; cloneMoveZ_ = z; cloneHeld_ = held; cloneMoveAt_ = GetTickCount64();
     if (stance >= 0) cloneWantStance_ = stance;
     if (pos) { std::lock_guard lk(cloneMu_); cloneTarget_ = *pos; cloneTargetYaw_ = yaw; cloneTargetMoving_ = moving; cloneHasTarget_ = true; }
@@ -2067,7 +2078,35 @@ void GameBridge::TickCloneDrive() {
         // Aim turn: while the other player aims (LT), turn the clone's camera with her right stick
         // until her facing matches theirs (a player aiming faces the camera). Sign: [clone] AimSign.
         float rx = 0.f;
-        if ((held & 0x200) && cloneHasTarget_ && offRot_) {
+        // Aim override (camera-aim-override-direction's sub_1407FAAD0(index, a, b) in degrees; two
+        // entries, one per camera manager; sub_1407FA650(index) clears it): point camera 1, the
+        // clone's, along the other player's aim. Read back her own aim for the log.
+        bool aimNow = (held & 0x200) != 0;
+        if (cloneAimOverride_ && aimNow) {
+            float yawD = cloneAimYaw_.load() * 57.29578f, pitchD = cloneAimPitch_.load() * 57.29578f;
+            using AimDirFn = void (*)(unsigned, float, float);
+            if (cloneAimOrder_ == 0) reinterpret_cast<AimDirFn>(BuildRva(0x7FAAD0))(1, pitchD, yawD);
+            else reinterpret_cast<AimDirFn>(BuildRva(0x7FAAD0))(1, yawD, pitchD);
+            cloneAimSet_ = true;
+            unsigned long long tl = GetTickCount64();
+            if (tl - lastAimLog_ > 1000) {
+                lastAimLog_ = tl;
+                RunInScriptContext([this] {   // natives need the script context
+                    uintptr_t cp = PlayerProcess(1);
+                    if (!cp) return;
+                    SetPlayerOverride(cp);
+                    uint64_t a[8] = {}, r[4] = {};
+                    float gy = 0, gp = 0;
+                    if (SafeNative(BuildRva(0x407A70), 0, a, r) && r[0]) if (auto d = Read<Vec3>(r[0])) { gy = std::atan2(d->x, d->z); gp = std::atan2(d->y, std::sqrt(d->x * d->x + d->z * d->z)); }
+                    SetPlayerOverride(0);
+                    Log("cloneaim: want yaw %.2f pitch %.2f, clone aims yaw %.2f pitch %.2f (order %d)", cloneAimYaw_.load(), cloneAimPitch_.load(), gy, gp, cloneAimOrder_);
+                });
+            }
+        } else if (cloneAimSet_) {
+            reinterpret_cast<void (*)(unsigned)>(BuildRva(0x7FA650))(1);
+            cloneAimSet_ = false;
+        }
+        if (!cloneAimOverride_ && aimNow && cloneHasTarget_ && offRot_) {
             float want; { std::lock_guard lk(cloneMu_); want = cloneTargetYaw_; }
             if (auto q = Read<Quat>(p + offRot_)) {
                 float err = std::remainder(want - YawFromQuat(*q), 6.2831853f);

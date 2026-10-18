@@ -96,6 +96,11 @@ public:
     void MirrorShots(const std::string& npc, uint64_t target, int n);
     ShotCounter shotCounter_;
     std::atomic<bool> firing_{false}, firingQueued_{false};
+    std::atomic<float> aimYaw_{0}, aimPitch_{0};   // our aim direction (PollFiring)
+    std::atomic<float> cloneAimYaw_{0}, cloneAimPitch_{0};   // the other player's, for the clone
+    bool cloneAimOverride_ = true;   // [clone] AimOverride: point the clone's camera with the aim override
+    bool cloneAimSet_ = false;
+    int cloneAimOrder_ = 0;          // [clone] AimOrder: 0 = override(pitch, yaw), 1 = override(yaw, pitch)
     std::atomic<uint8_t> shots_{0};
     std::atomic<uint64_t> shotTarget_{0};
     std::map<uint8_t, uint8_t> lastShotsSeen_;   // per remote slot
@@ -216,7 +221,7 @@ public:
     void TickPadMirror();
     bool padMirror_ = false;
     // clonedrive on|off: the other player's stick drives player 1 (slot 3).
-    void SetCloneMove(float x, float z, uint64_t held = 0, const Vec3* pos = nullptr, float yaw = 0, bool moving = false, int stance = -1);
+    void SetCloneMove(float x, float z, uint64_t held = 0, const Vec3* pos = nullptr, float yaw = 0, bool moving = false, int stance = -1, float aimYaw = 0, float aimPitch = 0);
     // Stance sync ([clone] StanceSync): crouch is a toggle, so passing the B button through let the
     // clone's stance drift from the other PC's (crawling on one PC, crouching on the other, 12:06).
     // Instead B is pressed for her until her stance matches the other player's (0 stand, 1 crouch, 2 prone).

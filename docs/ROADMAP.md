@@ -1154,3 +1154,9 @@ Setup: PC B's game started by the user; the mod attaches through `coop_launcher.
 - Aim turn: while the partner holds LT, the clone's right stick turns her until her facing matches the partner's
   (an aiming player faces the camera); `cloneaim:` log lines. [clone] AimSign flips the stick if she turns away.
   Pitch is not handled yet. Triggers still need `clonebuttons 23F0` (not in the default mask).
+- Pitch (built offline): each PC reads its own aim direction with camera-get-dir-through-reticle (0x407A70,
+  through the player's camera manager) and sends yaw/pitch in the PlayerState tail (aimYaw, aimPitch). While the
+  partner holds LT, the clone's camera manager 1 gets the game's aim override, sub_1407FAAD0(1, a, b) in degrees
+  (camera-aim-override-direction uses index 0; the table has 2 entries), cleared with sub_1407FA650(1) on release.
+  `cloneaim:` logs the wanted aim against the clone's own aim read back each second. [clone] AimOrder swaps the two
+  angles if they turn out to be (yaw, pitch); [clone] AimOverride = false falls back to the right-stick turn.
