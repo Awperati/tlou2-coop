@@ -12,6 +12,12 @@ cleanup() { b_cmd "relay off"; a_cmd "relay off"; a_cmd "clonebuttons 1F0"; task
 trap cleanup EXIT
 until powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$D/fg.ps1")" | grep -q "fg: tlou-ii"; do sleep 3; done
 echo "focused at $(date +%T)"
+# After a relaunch the game sits at the title: continue the story with the pad, then wait for the clone.
+if ! tail -n 30 "$G/tlou2-coop.log" | grep -aq "player pos"; then
+  echo "at the menu: continuing the story"; a_cmd "press a"; sleep 4; a_cmd "press a"; sleep 3; a_cmd "press a"
+fi
+for i in $(seq 1 90); do grep -aq "clone: player 1 ready" "$G/tlou2-coop.log" && break; sleep 2; done
+echo "clone: $(grep -a "clone: player 1 ready" "$G/tlou2-coop.log" | tail -1 | cut -c1-80)"; sleep 3
 # --- 1. weapon and aim
 n=$(wc -l < "$G/tlou2-coop.log")
 a_cmd "clonebuttons 23F0"; a_cmd "giveweapon 1 - 30"; sleep 2
