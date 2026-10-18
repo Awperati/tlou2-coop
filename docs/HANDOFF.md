@@ -85,3 +85,10 @@ Full running log of findings: [ROADMAP.md](ROADMAP.md). This file is the short v
   (MoveSpawnerTo moves the spawn spot). Spawned NPC process name = spawner name.
 - Pause read: clock component 1 +0xF8 == 0, or byte [0x143603768]+99.
 - Looks: config/looks.ini, from tools/looks.py over bin.psarc dc1/look2/characters.bin.
+
+## 2026-10-18 12:22 (PC A restarting)
+- Deployed but not verified live: the camera-pick guard (prone clone crash) and clone stance sync (commit 79dbb3a).
+- PC A's game hung on the hot reload at 12:11:16: no game-thread work ran, and the game was in front for 30 s.
+- After the restart: start the game, then `tlou2-coop\coop_launcher.exe`, and load the checkpoint. Then run
+  `bash tools/live/clonetest2.sh` (waits read-only for focus; walk, crouch, 1.3 s prone hold, stand; contact sheet).
+  Pass: `clonestance` lines on both PCs, the same stance on both, and no crash.
