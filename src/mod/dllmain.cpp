@@ -344,7 +344,7 @@ void CoopMain() {
     ULONGLONG lastJoinWait = GetTickCount64();
     bool selfMovingLogged = false;
     std::string cloneLook; int cloneStage = 0; ULONGLONG cloneAt = 0, cloneWaitStart = 0;
-    const bool cloneEnabled = cfg.getBool("clone", "Enabled", false);
+    const bool cloneEnabled = cfg.getBool("clone", "Enabled", true);   // on unless a coop.ini says otherwise (user, 2026-10-18)
     ULONGLONG lastCloneCheck = 0; bool cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
 
     uint32_t tick = 0;
