@@ -226,7 +226,8 @@ public:
     void TickPadMirror();
     bool padMirror_ = false;
     // clonedrive on|off: the other player's stick drives player 1 (slot 3).
-    void SetCloneMove(float x, float z, uint64_t held = 0, const Vec3* pos = nullptr, float yaw = 0, bool moving = false, int stance = -1, float aimYaw = 0, float aimPitch = 0);
+    void SetCloneMove(float x, float z, uint64_t held = 0, const Vec3* pos = nullptr, float yaw = 0, bool moving = false, int stance = -1, float aimYaw = 0, float aimPitch = 0, uint8_t flags = 0);
+    std::atomic<bool> cloneAimingFlag_{false}, cloneFiringFlag_{false};
     // Stance sync ([clone] StanceSync): crouch is a toggle, so passing the B button through let the
     // clone's stance drift from the other PC's (crawling on one PC, crouching on the other, 12:06).
     // Instead B is pressed for her until her stance matches the other player's (0 stand, 1 crouch, 2 prone).

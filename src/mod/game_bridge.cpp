@@ -2034,7 +2034,8 @@ uintptr_t GameBridge::JoypadSlot(int slot) {
     return c1 && *c1 ? *c1 + 0x520 + 0x2570ull * slot : 0;
 }
 
-void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving, int stance, float aimYaw, float aimPitch) {
+void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving, int stance, float aimYaw, float aimPitch, uint8_t flags) {
+    cloneAimingFlag_ = (flags & 1) != 0; cloneFiringFlag_ = (flags & 2) != 0;
     cloneAimYaw_ = aimYaw; cloneAimPitch_ = aimPitch;
     cloneMoveX_ = x; cloneMoveZ_ = z; cloneHeld_ = held; cloneMoveAt_ = GetTickCount64();
     if (stance >= 0) cloneWantStance_ = stance;
@@ -2127,7 +2128,10 @@ void GameBridge::TickCloneDrive() {
                 }
             }
         }
-        uint64_t held = cloneHeld_.load() & cloneButtonMask_;
+        // Mouse and keyboard on the other PC (user 09:18): their raw pad holds no trigger bits, so
+        // take aiming and firing from the state flags (player-is-aiming? / player-is-firing?).
+        uint64_t flagHeld = (cloneAimingFlag_.load() ? 0x200ull : 0) | (cloneFiringFlag_.load() ? 0x2000ull : 0);
+        uint64_t held = (cloneHeld_.load() | flagHeld) & cloneButtonMask_;
         if (catchSprint) held |= 0x100;   // LB: sprint to catch up
         if (cloneStanceSync_) {
             held &= ~0x80ull;   // B (crouch/prone) comes from the stance sync below, not the other pad
@@ -2148,17 +2152,18 @@ void GameBridge::TickCloneDrive() {
         // Aim override (camera-aim-override-direction's sub_1407FAAD0(index, a, b) in degrees; two
         // entries, one per camera manager; sub_1407FA650(index) clears it): point camera 1, the
         // clone's, along the other player's aim. Read back her own aim for the log.
-        bool aimNow = (held & 0x200) != 0;
+        bool aimNow = (held & 0x200) != 0 || cloneAimingFlag_.load();
         // Aim without a camera: answer player 1's aim queries with the other player's aim, from her eyes.
         // Not aiming: the same answer with the other player's body facing, level. She walks in strafe
         // mode, facing her camera's look direction; with no live camera 1 that was a fixed, wrong
         // direction (user 09:14: right way, wrong facing). Writing her rotation instead stopped her
         // stick input (engine world 0 from 09:15), so FaceSync is off by default.
         {
+            // Only while aiming: answering always did not turn her (user 09:18), and her look should
+            // stay the game's own otherwise.
             float ay = cloneAimYaw_.load(), ap = cloneAimPitch_.load();
-            if (!aimNow) { std::lock_guard lk(cloneMu_); ay = cloneTargetYaw_; ap = 0.f; }
             float dx = std::cos(ap) * std::sin(ay), dy = std::sin(ap), dz = std::cos(ap) * std::cos(ay);
-            if (auto cp = Read<Vec3>(p + offPos_); cp && cloneHasTarget_) SetCloneAim(true, dx, dy, dz, cp->x, cp->y + 1.55f, cp->z);
+            if (auto cp = Read<Vec3>(p + offPos_); aimNow && cp) SetCloneAim(true, dx, dy, dz, cp->x, cp->y + 1.55f, cp->z);
             else SetCloneAim(false, 0, 0, 1, 0, 0, 0);
         }
         if (cloneAimOverride_ && aimNow) {

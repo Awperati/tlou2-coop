@@ -274,7 +274,7 @@ void CoopMain() {
             bodyCheckAt = GetTickCount64();
             bridge.QueueAutoBody(bodyLook);
         }
-        bridge.SetCloneMove(s.moveX, s.moveZ, s.padHeld, &s.pos, s.yaw, (s.flags & kMoving) != 0, s.stance, s.aimYaw, s.aimPitch);
+        bridge.SetCloneMove(s.moveX, s.moveZ, s.padHeld, &s.pos, s.yaw, (s.flags & kMoving) != 0, s.stance, s.aimYaw, s.aimPitch, s.flags);
         if (!cloneOnAtStart && !bridge.cloneDrive_) bridge.DrivePuppet(slot, s);   // clone mode never puppets the story companion
     };
     cb.onObjective = [&](const Objective& o) { objective = o; };
@@ -919,7 +919,7 @@ void CoopMain() {
                     // instead of spawning another. Every reload spawned a new player 1 and orphaned the
                     // old one, until a state-script pool ran out and the game crashed (08:37, null+0x10
                     // in SsManager::OnSpawnStateScript after a day of reloads).
-                    if (bridge.HasPlayer(1)) { cloneStage = 3; Log("clone mode: player 1 is still there from before the reload, re-dressing her"); }
+                    if (bridge.HasPlayer(1)) { cloneStage = 0; bridge.QueuePlayerShow(1); Log("clone mode: player 1 is still there from before the reload; keeping her as she is"); }   // re-dressing her on every reload lost her torso mesh (user 09:18)
                     bridge.cloneDrive_ = true;
                     bridge.DropRemoteBody();
                     Log("clone mode: spawning the other player as '%s'", look.c_str());
