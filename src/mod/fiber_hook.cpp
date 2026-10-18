@@ -747,6 +747,18 @@ std::atomic<float> g_cloneStickX{0}, g_cloneStickZ{0};
 // The player whose Player::Active::Update is running on this thread (-1 outside one).
 thread_local int t_updatingPlayer = -1;
 namespace {
+// Clone facing, written right after player 1's own update every frame (2026-10-19): writes from
+// our tick landed between frames and the engine turned her back each frame (jitter, user 09:22).
+std::atomic<bool> g_faceOn{false};
+std::atomic<float> g_faceYaw{0};
+std::atomic<uint32_t> g_faceRotOff{0};
+void WriteCloneFacing(uintptr_t pl) {
+    uint32_t off = g_faceRotOff.load();
+    if (!off) return;
+    float y = g_faceYaw.load();
+    float q[4] = {0.f, std::sin(y * 0.5f), 0.f, std::cos(y * 0.5f)};
+    __try { std::memcpy(reinterpret_cast<void*>(pl + off), q, sizeof(q)); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
 uint64_t HookedActiveUpdate(uint64_t self) {
     uintptr_t pl = 0;
     __try { pl = *reinterpret_cast<uintptr_t*>(self + 8); } __except (EXCEPTION_EXECUTE_HANDLER) {}
@@ -769,7 +781,9 @@ uint64_t HookedActiveUpdate(uint64_t self) {
     if (pl) { __try { idx = *reinterpret_cast<int*>(pl + 21800); } __except (EXCEPTION_EXECUTE_HANDLER) {} }
     int prev = t_updatingPlayer;
     t_updatingPlayer = idx;
+    if (idx == 1 && g_faceOn.load()) WriteCloneFacing(pl);   // before: her update moves from this facing
     uint64_t r = reinterpret_cast<ActFn>(g_actTramp)(self);
+    if (idx == 1 && g_faceOn.load()) WriteCloneFacing(pl);   // after: what is drawn this frame
     t_updatingPlayer = prev;
     return r;
 }
@@ -1109,6 +1123,7 @@ void SetCloneRawStick(bool on, float x, float y) { g_rawX = x; g_rawY = y; g_raw
 void SetCloneRawRightStick(float x, float y) { g_rawRX = x; g_rawRY = y; }
 void SetCloneRawButtons(uint64_t held) { g_rawHeld = held; }
 void SetPlayerOverride(uintptr_t player) { t_playerOverride = player; }
+void SetCloneFacing(bool on, float yaw, uint32_t rotOffset) { g_faceYaw = yaw; g_faceRotOff = rotOffset; g_faceOn = on; }
 uint32_t CloneRawHits() { return g_rawHits.load(); }
 
 bool UserIdHookInstall(uintptr_t setUserId) {

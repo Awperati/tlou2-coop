@@ -78,6 +78,8 @@ bool LevelListenerHooksInstall(uintptr_t add, uintptr_t remove);
 bool CommandGroupHooksInstall(uintptr_t push, uintptr_t pop);
 // GetPlayer() returns this player on the calling thread until reset with 0.
 void SetPlayerOverride(uintptr_t player);
+// Player 1's facing, written around her Player::Active::Update each frame (yaw in radians).
+void SetCloneFacing(bool on, float yaw, uint32_t rotOffset);
 uint32_t CommandGroupSkips();
 std::string LevelListenerSkips();
 uint32_t CamPickSkips();

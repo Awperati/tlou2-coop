@@ -2114,20 +2114,13 @@ void GameBridge::TickCloneDrive() {
         // swaps the other player's stick in at that copy (writes from outside were overwritten).
         // Facing ([clone] FaceSync, 2026-10-19): she walked the right way but faced the wrong way
         // (user). Her body turns with her idle camera, so set her rotation to the other player's
-        // facing (their body yaw; while aiming, their aim yaw) when it is more than ~8 degrees off.
+        // facing (their body yaw; while aiming, their aim yaw), written around her own update each frame.
         if (cloneFaceSync_ && offRot_ && cloneHasTarget_) {
             float want; { std::lock_guard lk(cloneMu_); want = cloneTargetYaw_; }
-            if (cloneHeld_.load() & 0x200) want = cloneAimYaw_.load();
-            if (auto q = Read<Quat>(p + offRot_)) {
-                float err = std::remainder(want - YawFromQuat(*q), 6.2831853f);
-                if (std::fabs(err) > 0.15f) {
-                    Quat nq{}; nq.x = 0; nq.y = std::sin(want * 0.5f); nq.z = 0; nq.w = std::cos(want * 0.5f);
-                    SafeWrite(p + offRot_, &nq, sizeof(nq));
-                    unsigned long long tf = GetTickCount64();
-                    if (tf - lastFaceLog_ > 2000) { lastFaceLog_ = tf; Log("cloneface: turned her %.2f rad to yaw %.2f", err, want); }
-                }
-            }
-        }
+            if (cloneAimingFlag_.load() || (cloneHeld_.load() & 0x200)) want = cloneAimYaw_.load();
+            ActiveUpdateHookInstall(BuildRva(0xAD61E0));
+            SetCloneFacing(true, want, offRot_);
+        } else SetCloneFacing(false, 0, 0);
         // Mouse and keyboard on the other PC (user 09:18): their raw pad holds no trigger bits, so
         // take aiming and firing from the state flags (player-is-aiming? / player-is-firing?).
         uint64_t flagHeld = (cloneAimingFlag_.load() ? 0x200ull : 0) | (cloneFiringFlag_.load() ? 0x2000ull : 0);
