@@ -781,7 +781,7 @@ uint64_t HookedActiveUpdate(uint64_t self) {
     if (pl) { __try { idx = *reinterpret_cast<int*>(pl + 21800); } __except (EXCEPTION_EXECUTE_HANDLER) {} }
     int prev = t_updatingPlayer;
     t_updatingPlayer = idx;
-    if (idx == 1 && g_faceOn.load()) WriteCloneFacing(pl);   // before: her update moves from this facing
+    // Only after her update: writing before it too stopped her stick input (engine world 0, 09:36).
     uint64_t r = reinterpret_cast<ActFn>(g_actTramp)(self);
     if (idx == 1 && g_faceOn.load()) WriteCloneFacing(pl);   // after: what is drawn this frame
     t_updatingPlayer = prev;
