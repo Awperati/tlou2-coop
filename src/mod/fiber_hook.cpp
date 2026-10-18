@@ -741,7 +741,9 @@ uint64_t HookedRawCopy(uint64_t slot, uint64_t raw, uint64_t idx) {
             // Button masks: +0x518 pressed this frame, +0x520 released, +0x528 held (sub_140399320).
             // Only the allowlisted bits the other PC holds (SetCloneRawButtons); edges from the last copy.
             static thread_local uint64_t prevHeld = 0;
-            uint64_t held = g_rawHeld.load();
+            // Bit 63 is set on every live pad (padbits log, 10:52); keep the base pad's value.
+            uint64_t base = 0; std::memcpy(&base, buf + 0x528, 8);
+            uint64_t held = g_rawHeld.load() | (base & 0x8000000000000000ull);
             uint64_t pressed = held & ~prevHeld, released = prevHeld & ~held;
             std::memset(buf + 0x518, 0, 0x20);
             std::memcpy(buf + 0x518, &pressed, 8); std::memcpy(buf + 0x520, &released, 8); std::memcpy(buf + 0x528, &held, 8);

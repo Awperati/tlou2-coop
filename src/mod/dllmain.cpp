@@ -183,9 +183,10 @@ void CoopMain() {
     int pausedSeen = -1;
     ULONGLONG pauseCheckAt = 0;
     bridge.bodyFile_ = dir + L"tlou2-coop\\body.txt";
-    // [clone] Buttons: hex mask of the partner's held buttons the clone gets (0 = none). Only
-    // movement buttons belong here; item/weapon buttons crashed the game with two players.
-    try { bridge.cloneButtonMask_ = std::stoull(cfg.get("clone", "Buttons", "0"), nullptr, 16); } catch (...) { bridge.cloneButtonMask_ = 0; }
+    // [clone] Buttons: hex mask of the partner's held buttons the clone gets. Measured on PC B
+    // (padbits, 2026-10-18): A 0x20 (jump), B 0x80 (crouch), LB 0x100 (sprint). Only movement
+    // buttons belong here; item/weapon buttons crashed the game with two players.
+    try { bridge.cloneButtonMask_ = std::stoull(cfg.get("clone", "Buttons", "1A0"), nullptr, 16); } catch (...) { bridge.cloneButtonMask_ = 0x1A0; }
     // Partner's own setup on joining ([character] AutoLook): wear their character's look,
     // and hide the story companion when they are playing that companion. Applied in the loop.
     const bool autoLook = cfg.getBool("character", "AutoLook", true);

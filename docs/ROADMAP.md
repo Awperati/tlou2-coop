@@ -1035,3 +1035,10 @@ PCs, wearing their character's model.
   Next: dress the clone in the partner's look (dina-player packages on PC A), keep her position in sync
   (correct drift with a teleport when far off), add a safe button set (sprint, crouch, jump), hide the story
   companion except where the plot needs her, and the same clone of the host on PC B.
+- 10:45-10:55: clone steps built (commit c9309a2+). (1) `clone <look>` now wants the look's actor packages,
+  spawns her as Ellie, then applies the wanted look once they are loaded (90 s limit) and shows her meshes.
+  (2) Position sync: she snaps to the partner's reported spot when more than 4 m off, or 1.5 m once the partner
+  has stood still 1 s (at most every 2 s). (3) Buttons: PlayerState carries the sender's raw pad 0 held mask
+  (+0x528); the raw-copy hook gives the clone only allowlisted bits ([clone] Buttons, default 1A0) with
+  pressed/released edges. Bits measured on PC B with `padbits on`: A 0x20, B 0x80, LB 0x100, bit 63 always set
+  (kept from the base pad). Live clone tests of (1)-(3) wait for PC A's game to be in front.
