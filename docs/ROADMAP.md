@@ -1285,3 +1285,10 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   sample had 0. The clone's input is focus-gated like the host's own; not a bug.
 - Body: re-dressing an existing clone (look ellie then dina) lost meshes (torso, then arms). Reloads now keep her as
   she is; only a fresh spawn dresses her. Open: why a re-dress drops limbs (likely mesh visibility per look part).
+- Re-dress limb drop, static (2026-10-19): the look applier (sub_140DBB470 -> sub_140DBB490) only queues a pending
+  look (Player+21040) and ignores a look equal to the current one (Player+384), so re-sending 'dina-player' does
+  nothing and a rebuild has to go through another look first. The swap itself happens later and the new parts come
+  up hidden over several seconds (as seen in the local look swap). Our single show call ran before some parts
+  existed, so those stayed hidden (torso once, arms once). Fix: after any clone look request, show her again at
+  +1.5, +3, +6 and +10 s; `redress` does Ellie -> 2.5 s -> her look with those shows. Ran at 09:52 (game in the
+  background, not seen yet); the live batch's recording will show her body.

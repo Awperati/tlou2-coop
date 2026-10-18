@@ -381,7 +381,11 @@ void CoopMain() {
     // Action-pack types that should not take the companion's place from the clone (cover-like).
     std::set<uint64_t> ignoredAps;
     const bool useActionPacks = cfg.getBool("clone", "UseActionPacks", false);
-    for (auto& t : SplitList(cfg.get("clone", "IgnoreActionPacks", ""))) { try { ignoredAps.insert(std::stoull(t, nullptr, 16)); } catch (...) {} } ULONGLONG plotSimUntil = 0; bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
+    for (auto& t : SplitList(cfg.get("clone", "IgnoreActionPacks", ""))) { try { ignoredAps.insert(std::stoull(t, nullptr, 16)); } catch (...) {} } // Parts of a new look come up hidden and arrive over several seconds; one show call left late parts
+    // hidden (torso, then arms, after re-dresses, 2026-10-19). Show her again at these times.
+    std::vector<ULONGLONG> cloneShowAt; ULONGLONG redressAt = 0;
+    auto scheduleShows = [&](ULONGLONG t) { for (ULONGLONG d : {1500ull, 3000ull, 6000ull, 10000ull}) cloneShowAt.push_back(t + d); };
+    ULONGLONG plotSimUntil = 0; bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
 
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
@@ -736,8 +740,11 @@ void CoopMain() {
                     else if (line.rfind("standdem ", 0) == 0) { bridge.standDemeanor_ = std::atoi(line.c_str() + 9); Log("standdem: %d", bridge.standDemeanor_); }
                     else if (line.rfind("playerlook ", 0) == 0) {   // playerlook <index> <look>
                         std::istringstream pl(line.substr(11)); unsigned idx = 1; std::string lk; pl >> idx >> lk;
-                        if (!lk.empty()) bridge.QueuePlayerLook(idx, lk);
+                        if (!lk.empty()) { bridge.QueuePlayerLook(idx, lk); if (idx == 1) scheduleShows(GetTickCount64()); }
                     }
+                    // redress: the fresh-spawn dressing on the existing clone. A look equal to the current one
+                    // is ignored by the game (sub_140DBB490 compares with Player+384), so go through Ellie first.
+                    else if (line == "redress") { bridge.QueuePlayerLook(1, "ellie-seattle"); redressAt = GetTickCount64() + 2500; Log("redress: Ellie first, then '%s'", cloneLook.c_str()); }
                     else if (line.rfind("playerjoy ", 0) == 0) {   // playerjoy <index> <joypad>
                         std::istringstream pj(line.substr(10)); unsigned idx = 1; int jp = 0; pj >> idx >> jp;
                         bridge.QueuePlayerJoypad(idx, jp);
@@ -985,6 +992,10 @@ void CoopMain() {
             bridge.QueueCloneLookCheck();
             if (bridge.clonePkgsLoaded_) { cloneLookPending = false; bridge.QueuePlayerLook(1, cloneLook); cloneStage = 6; cloneAt = now + 2000; Log("clone: packages for '%s' are in now, dressing her", cloneLook.c_str()); }
         }
+        if (redressAt && now >= redressAt) { redressAt = 0; bridge.QueuePlayerShow(1); if (!cloneLook.empty()) bridge.QueuePlayerLook(1, cloneLook); scheduleShows(now); }
+        for (auto it = cloneShowAt.begin(); it != cloneShowAt.end();) {
+            if (now >= *it) { bridge.QueuePlayerShow(1); it = cloneShowAt.erase(it); } else ++it;
+        }
         if (cloneStage && now >= cloneAt) {
             if (cloneStage == 1) {
                 bridge.WantCloneLook(lookPackages(cloneLook));
@@ -1003,7 +1014,7 @@ void CoopMain() {
                 else if (now - cloneWaitStart > 90000) { cloneStage = 0; cloneLookPending = true; Log("clone: packages for '%s' still not loaded after 90 s; she stays Ellie for now, checking again every 10 s", cloneLook.c_str()); }
                 else cloneAt = now + 1000;
             }
-            else { bridge.QueuePlayerShow(1); cloneStage = 0; Log("clone: player 1 ready as '%s'", cloneLook.c_str()); }
+            else { bridge.QueuePlayerShow(1); scheduleShows(now); cloneStage = 0; Log("clone: player 1 ready as '%s'", cloneLook.c_str()); }
         }
         if (!isHost && mySlot && now - lastPackCheck >= 2000) {
             lastPackCheck = now;
