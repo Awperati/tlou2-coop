@@ -1113,3 +1113,12 @@ The queued script `scratchpad/clonetest.sh` does steps 1-3 by itself.
   plot moment the host also sends the partner's own player to Dina's spot (TeleportTo), and snapping waits 5 s
   (06:35: `plot moment over, partner sent to the companion's spot`).
 - Still pending: a real cinematic or scripted Dina moment in play (detection), and the partner side of the teleport on PC B.
+
+#### Checks 7 and 8: ready for the user (both PCs in front)
+| # | Check | How | Pass |
+|---|---|---|---|
+| 7 | Dina's lines from the clone | play on PC A near the clone until Dina speaks in normal play | the voice comes from the clone's position; log `dialog: ... plays from 'Player'` (not `'dina'`) |
+| 7b | Lines in a plot moment | a cutscene or Dina scripted moment (or `plotsim 8` on PC A) | log `speaker(s) now play from themselves (cinematic)`; the voice comes from story Dina |
+| 8 | PC B's clone of the host | move PC A's player for a few seconds | on PC B player 1 (Ellie) walks the same way; PC B log `clonedrive: want ...`, drift under 1.5 m once stopped |
+| 8b | Partner moved after a plot moment | `plotsim 6` on PC A with PC B connected | PC B log `teleport to x y z: done` at Dina's spot, and no snap back on PC A |
+Setup: PC B's game started by the user; the mod attaches through `coop_launcher.exe` on each PC.
