@@ -173,7 +173,7 @@ bool GameBridge::Init(const Ini& ini) {
         if (ini.getBool("engine", "demeanor_hooks", true)) DemeanorHooksInstall(BuildRva(0x1D4A120), BuildRva(0x1D51060));
         // Second-player safety, installed at start: a reload with player 1 alive left the camera
         // assist running for it and the game crashed (07:44).
-        if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); LevelListenerHooksInstall(BuildRva(0x1A4D870), BuildRva(0x1A4E210)); ActiveUpdateHookInstall(BuildRva(0xAD61E0)); CommandGroupHooksInstall(BuildRva(0x15B6C90), BuildRva(0x15B6D70)); }
+        if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); LevelListenerHooksInstall(BuildRva(0x1A4D870), BuildRva(0x1A4E210)); ActiveUpdateHookInstall(BuildRva(0xAD61E0)); CommandGroupHooksInstall(BuildRva(0x15B6C90), BuildRva(0x15B6D70)); PickupHookInstall(BuildRva(0x88FBF0)); }
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
@@ -1998,6 +1998,28 @@ void GameBridge::QueueWeaponInfo(unsigned index) {
             SetPlayerOverride(0);
         }
         Log("weaponinfo: player 0 slotted pistol %016llx; player %u has it: %s", static_cast<unsigned long long>(slotted), index, has ? "yes" : "no");
+    });
+}
+
+// M6 pickups, log-only (2026-10-19). Name the pickup processes taken here (for the other PC), and
+// check whether a pickup the other PC took exists here (entity-exists? 0xD3BA00, by name id).
+void GameBridge::QueueNamePickups(std::vector<uintptr_t> procs) {
+    RunOnGameFiber([this, procs] {
+        for (uintptr_t p : procs) {
+            std::string name = ProcessName(p);
+            if (name.empty() || name == "?") continue;
+            std::lock_guard lk(enemyMu_);
+            pickupOut_.push_back(Fnv1a(name));
+            Log("pickup: '%s' taken here, telling the other PC", name.c_str());
+        }
+    }, true);
+}
+std::vector<uint64_t> GameBridge::TakePickupOut() { std::lock_guard lk(enemyMu_); return std::exchange(pickupOut_, {}); }
+void GameBridge::QueuePickupCheck(uint64_t sid) {
+    RunInScriptContext([sid] {
+        uint64_t argv[8] = {sid}, ret[4] = {};
+        bool here = SafeNative(BuildRva(0xD3BA00), 1, argv, ret) && (ret[0] & 0xFF);
+        Log("pickup: %016llx taken on the other PC; it %s here (log-only, not removed)", static_cast<unsigned long long>(sid), here ? "exists" : "does not exist");
     });
 }
 

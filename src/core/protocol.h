@@ -183,6 +183,9 @@ struct Hello { std::string playerName; CharacterId wanted = CharacterId::None; }
 struct Welcome { uint8_t slot = 1; CharacterId character = CharacterId::None; uint32_t sessionId = 0; };
 struct TeleportTo { Vec3 pos; float yaw = 0; uint32_t objectiveId = 0; };
 struct WorldEvent { uint32_t eventId = 0; std::vector<uint8_t> args; };
+// WorldEvent ids. kWorldPickupTaken: args = the pickup process's name id (u64, FNV-1a 64 of its name);
+// both PCs load the same level, so the name finds the same pickup on the other PC (M6, 2026-10-19).
+constexpr uint32_t kWorldPickupTaken = 1;
 // Enemies are keyed by their spawner name's FNV-1a id: both PCs load the same level, and
 // the engine's script natives take that same id (M6, 2026-10-15).
 struct EnemyState { uint64_t sid = 0; float health = 0; uint8_t flags = 0; };

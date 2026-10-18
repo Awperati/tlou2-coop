@@ -953,6 +953,38 @@ bool CommandGroupHooksInstall(uintptr_t push, uintptr_t pop) {
 }
 uint32_t CommandGroupSkips() { return g_groupSkips.load(); }
 
+// ProcessPickup::PickedUp::Enter (sub_14088FBF0; state, pickup process at state+8): an item
+// pickup was taken here. Log-only sync for now (M6 pickups): the process goes to the main loop,
+// which names it and tells the other PC; the other PC reports whether it has that pickup too.
+namespace {
+using PickedFn = uint64_t (*)(uint64_t state, uint64_t a2);
+uint8_t* g_pickTramp2 = nullptr;
+uint8_t g_pickSaved2[14];
+uintptr_t g_pickTarget2 = 0;
+std::mutex g_pickMu;
+std::vector<uintptr_t> g_picked;
+uintptr_t ReadStateProcess(uint64_t state) {
+    __try { return *reinterpret_cast<uintptr_t*>(state + 8); } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+uint64_t HookedPickedUp(uint64_t state, uint64_t a2) {
+    uintptr_t proc = ReadStateProcess(state);
+    if (proc) { std::lock_guard lk(g_pickMu); if (g_picked.size() < 64) g_picked.push_back(proc); }
+    return reinterpret_cast<PickedFn>(g_pickTramp2)(state, a2);
+}
+} // namespace
+bool PickupHookInstall(uintptr_t target) {
+    if (g_pickTarget2) return true;
+    // mov [rsp+8],rbx; push rdi; sub rsp,60h; mov rbx,[rcx+8]
+    static const uint8_t expect[14] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x60, 0x48, 0x8B, 0x59, 0x08};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedPickedUp), g_pickSaved2, g_pickTramp2)) {
+        Log("pickup hook: prologue changed, not hooking"); return false;
+    }
+    g_pickTarget2 = target;
+    Log("pickup hook: ProcessPickup::PickedUp::Enter hooked (log-only sync)");
+    return true;
+}
+std::vector<uintptr_t> TakePickedUp() { std::lock_guard lk(g_pickMu); return std::exchange(g_picked, {}); }
+
 std::string LevelListenerSkips() { return "add " + std::to_string(g_addSkips.load()) + ", remove " + std::to_string(g_remSkips.load()); }
 
 // Raw pad -> joypad slot copy (sub_14158F710; slot, raw pad, slot index), run every frame for
@@ -1167,6 +1199,7 @@ void FiberHookRemove() {
     if (g_pickTarget) { RemoveTrampoline(g_pickTarget, g_pickSaved, sizeof(g_pickSaved)); g_pickTarget = 0; }
     if (g_pushTarget) { RemoveTrampoline(g_pushTarget, g_pushSaved, sizeof(g_pushSaved)); g_pushTarget = 0; }
     if (g_popTarget) { RemoveTrampoline(g_popTarget, g_popSaved, sizeof(g_popSaved)); g_popTarget = 0; }
+    if (g_pickTarget2) { RemoveTrampoline(g_pickTarget2, g_pickSaved2, sizeof(g_pickSaved2)); g_pickTarget2 = 0; }
     if (g_addTarget) { RemoveTrampoline(g_addTarget, g_addSaved, sizeof(g_addSaved)); g_addTarget = 0; }
     if (g_remTarget) { RemoveTrampoline(g_remTarget, g_remSaved, sizeof(g_remSaved)); g_remTarget = 0; }
     g_rawOn = false;

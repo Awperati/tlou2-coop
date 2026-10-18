@@ -175,6 +175,10 @@ public:
     void ApplyEnemyStates(const std::vector<EnemyState>& v);
     void ApplyEnemyDamage(const EnemyDamage& d);
     std::vector<EnemyDamage> TakeDamageOut();
+    void QueueNamePickups(std::vector<uintptr_t> procs);
+    std::vector<uint64_t> TakePickupOut();
+    void QueuePickupCheck(uint64_t sid);
+    std::vector<uint64_t> pickupOut_;
     std::mutex enemyMu_;
     std::vector<EnemyState> enemyOut_;
     std::vector<EnemyDamage> damageOut_;

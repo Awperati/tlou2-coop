@@ -1253,3 +1253,22 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   mapping handle); after closing it everything is flat over 5 reloads: threads 98, handles 1519, RWX 20 regions,
   19 slots, 2 coop modules (loader + current), players 0, 82 packages. In-game (players, packages) check is in
   livebatch.sh: `leaks` before and after one forced reload with the clone up.
+
+#### Live batch 2026-10-19 08:57-09:02 (PC A in front, PC B not)
+- Stopped background batches kept their wait loops alive; five fired together when PC A came to the front (two
+  relays, overlapping relay on/off). livebatch.sh now holds a single-instance lock and cleans up only if it started.
+- In-game reload audit: pass. `leaks` before/after a forced reload with the clone up: players 2 -> 2, level packages
+  579 -> 579, handles 1770 -> 1769, trampoline slots 20 -> 20; log "player 1 is still there from before the reload,
+  re-dressing her".
+- M8 step 4 (games over the relay): pass for the connection. At 08:58:23 PC B's game joined PC A's game through
+  coop_relay on PC A (`relay: joining through 192.168.0.237:47830: ok`, `joined as slot 1`); the relay forwarded 349
+  packets, 0 dropped; both went back to LAN with `relay off`. The walk part needs PC B's game in front (its pad is
+  focus-gated), so no movement samples yet.
+- Catch-up A/B: no samples for the same reason (PC B did not move).
+- Aim: `giveweapon` reports player 1 has the pistol. The aim override did not move the clone's camera: her aim read
+  back a constant yaw 0.00 / pitch 0.04 while the wanted aim was -1.15 / 0.03. Camera manager 1 has no active camera
+  controller (the same null that the campick guard covers), so the override has nothing to turn. Next: give player 1
+  a camera (CameraManager 1 request) or drive her body facing instead.
+- Pickups (M6), log-only, deployed: hook on ProcessPickup::PickedUp::Enter (sub_14088FBF0) names the pickup and sends
+  WorldEvent kWorldPickupTaken (FNV-1a id); the other PC logs whether that pickup exists there (entity-exists?
+  0xD3BA00). Removal comes after real data.

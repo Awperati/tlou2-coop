@@ -8,10 +8,15 @@ SECRET="${RELAY_SECRET:-coop-live-$(date +%s)}"
 ssh_() { ssh -i ~/.ssh/tlou2_pcb -o BatchMode=yes sharn@192.168.0.238 "$1" 2>/dev/null; }
 a_cmd() { printf '%s\n' "$1" >> "$G/tlou2-coop/cmd.txt"; }
 b_cmd() { ssh_ "echo $1>> \"$C\""; }
-cleanup() { b_cmd "relay off"; a_cmd "relay off"; a_cmd "clonebuttons 1F0"; taskkill //f //im coop_relay.exe >/dev/null 2>&1; echo "cleanup: relay off on both, relay stopped"; }
-trap cleanup EXIT
+cleanup() { [ -n "$STARTED" ] || return 0; b_cmd "relay off"; a_cmd "relay off"; a_cmd "clonebuttons 1F0"; taskkill //f //im coop_relay.exe >/dev/null 2>&1; echo "cleanup: relay off on both, relay stopped"; }
+# One batch at a time: stopping a background run does not always stop its waiting loop, and on
+# 2026-10-19 five stale batches fired together when the game came to the front.
+LOCK="$TEMP/tlou2-livebatch.lock"
+if [ -f "$LOCK" ] && kill -0 "$(cat "$LOCK")" 2>/dev/null; then echo "another livebatch is running (pid $(cat "$LOCK"))"; exit 1; fi
+echo $$ > "$LOCK"
+trap 'cleanup; rm -f "$LOCK"' EXIT
 until powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$D/fg.ps1")" | grep -q "fg: tlou-ii"; do sleep 3; done
-echo "focused at $(date +%T)"
+STARTED=1; echo "focused at $(date +%T)"
 # After a relaunch the game sits at the title: continue the story with the pad, then wait for the clone.
 if ! tail -n 30 "$G/tlou2-coop.log" | grep -aq "player pos"; then
   echo "at the menu: continuing the story"; a_cmd "press a"; sleep 4; a_cmd "press a"; sleep 3; a_cmd "press a"

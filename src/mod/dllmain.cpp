@@ -293,6 +293,9 @@ void CoopMain() {
     cb.onCharacterSelect = [&](uint8_t slot, CharacterId c) { Log("player %u is %s", slot, CharacterName(c)); partnerChar = c; };
     cb.onEnemyStates = [&](const std::vector<EnemyState>& v) { if (syncEnemies) bridge.ApplyEnemyStates(v); };
     cb.onEnemyDamage = [&](uint8_t, const EnemyDamage& d) { if (syncEnemies) bridge.ApplyEnemyDamage(d); };
+    cb.onWorldEvent = [&](uint8_t, const WorldEvent& e) {
+        if (e.eventId == kWorldPickupTaken && e.args.size() >= 8) { uint64_t sid; std::memcpy(&sid, e.args.data(), 8); bridge.QueuePickupCheck(sid); }
+    };
     cb.onCheckpointWritten = [&](const CheckpointEvent& e) { Log("m7: host wrote checkpoint #%u (task '%s')", e.seq, e.task.c_str()); };
     cb.onCheckpointRestart = [&](uint8_t slot, const RestartEvent& e) {
         bool hostRestarted = e.reason == RestartReason::HostRestarted;
@@ -418,6 +421,12 @@ void CoopMain() {
             if (!isHost && session.connected() && nowE - enemySnapAt > 2000) { enemySnapAt = nowE; bridge.QueueEnemySnapshot(true); }
             if (auto v = bridge.TakeEnemyOut(); !v.empty()) session.SendEnemyStates(v);
             for (const auto& d : bridge.TakeDamageOut()) session.SendEnemyDamage(d);
+        }
+        if (auto picked = TakePickedUp(); !picked.empty()) bridge.QueueNamePickups(std::move(picked));
+        for (uint64_t sid : bridge.TakePickupOut()) {
+            if (!session.connected()) continue;
+            WorldEvent we; we.eventId = kWorldPickupTaken; we.args.resize(8); std::memcpy(we.args.data(), &sid, 8);
+            session.SendWorldEvent(we);
         }
         if (uint32_t w = CheckpointWrites(); w != cpWritesSeen) {
             cpWritesSeen = w;
