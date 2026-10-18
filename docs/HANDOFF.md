@@ -66,6 +66,11 @@ Full running log of findings: [ROADMAP.md](ROADMAP.md). This file is the short v
 4. `vox_hook` (barks) untested; needs combat with the game in front.
 5. GPU "device removed" crashes (07:57, 19:03, 19:58 on 10-15; AMD RX 9070 XT, driver 26.7.1). No mod frame
    on the stack.
+   Update 2026-10-19: at least one was a game hang turned into "device removed": a second player linked a level
+   listener twice and LevelMgr::OnLoadLevel spun forever (live dump, fixed by the listener guard, ROADMAP). A freeze
+   before a device-removed crash points at a hang; take a live dump (tools/livedump.ps1, tools/dumpthreads.py).
+7. Clone weapon/aim live test: `tools/live/aimtest.sh` waits read-only for PC A's game in front, then PC B aims,
+   looks up, fires; pass = `cloneaim:` clone aim following the wanted yaw/pitch, no crash.
 6. Rough edges: the partner-side new enemy repeatedly reports "spotted us" (5 s throttle); a steady ~1.8 m walking
    lag on the host body; the remote pause needs the game window in front.
 
