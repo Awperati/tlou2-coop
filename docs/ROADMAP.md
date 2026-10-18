@@ -1122,3 +1122,14 @@ The queued script `scratchpad/clonetest.sh` does steps 1-3 by itself.
 | 8 | PC B's clone of the host | move PC A's player for a few seconds | on PC B player 1 (Ellie) walks the same way; PC B log `clonedrive: want ...`, drift under 1.5 m once stopped |
 | 8b | Partner moved after a plot moment | `plotsim 6` on PC A with PC B connected | PC B log `teleport to x y z: done` at Dina's spot, and no snap back on PC A |
 Setup: PC B's game started by the user; the mod attaches through `coop_launcher.exe` on each PC.
+
+#### Checks 7 and 8 run 2026-10-19 07:05 (both PCs in front, user present)
+- Found first: a partner that rejoined found the clone still there, so clone drive stayed off and the old NPC puppet
+  took over story Dina (07:02). Fixed: clone drive turns back on when the partner is back, and clone mode never
+  puppets the companion.
+- 8 pass: PC A's player walked 8.5 m (-72.95 -202.14 to -65.23 -205.60); PC B's clone ended on the same spot;
+  PC B `clonedrive: want == engine world`.
+- 8b pass: `plotsim 6` on PC A; PC B logged `teleport to -79.1 -7.8 -207.1: done` and stayed there; no snap back on PC A.
+- 7b pass (log): speakers switched to the story characters during the plot moment and back to the clone after.
+- 7 pass (log): Dina's lines (`dina->player-2`) play from 'Player' 914FCFEC80, which is player 1, the clone.
+  Not checked by ear.

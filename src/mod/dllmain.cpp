@@ -264,7 +264,7 @@ void CoopMain() {
             bridge.QueueAutoBody(bodyLook);
         }
         bridge.SetCloneMove(s.moveX, s.moveZ, s.padHeld, &s.pos, s.yaw, (s.flags & kMoving) != 0, s.stance);
-        if (!bridge.cloneDrive_) bridge.DrivePuppet(slot, s);
+        if (!cloneOnAtStart && !bridge.cloneDrive_) bridge.DrivePuppet(slot, s);   // clone mode never puppets the story companion
     };
     cb.onObjective = [&](const Objective& o) { objective = o; };
     cb.onTeleportRequest = [&](uint8_t slot) {
@@ -812,6 +812,9 @@ void CoopMain() {
             if (bridge.HasPlayer(0)) { if (!player0Since) player0Since = now; } else player0Since = 0;
             bool settled = player0Since && now - player0Since > 5000;
             if (linked && chapter && settled && cloneStage == 0) {
+                // A partner that rejoins finds the clone still there (no respawn), so turn the
+                // drive back on here too: without it the old NPC puppet took over story Dina (07:02).
+                if (!bridge.cloneDrive_) { bridge.cloneDrive_ = true; bridge.ReleasePuppet(); Log("clone mode: partner back, clone drive on"); }
                 // Once per mod start (an older clone may wear the wrong look), and again whenever a
                 // level load has removed her.
                 if (!cloneSetUp || !bridge.HasPlayer(1)) {
