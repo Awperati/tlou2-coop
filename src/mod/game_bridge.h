@@ -157,6 +157,7 @@ public:
     void QueueSpawnWithLook(const std::string& spawner, const std::string& look, bool nearPlayer = false);
     bool MoveSpawnerTo(const std::string& spawner, const Vec3& at);   // script context
     // Spawn a plain NPC wearing a player look, make it friendly and drive it as the remote body.
+    void DropRemoteBody(const std::string& spawner = {});
     void QueueRemoteBody(const std::string& spawner, const std::string& look);
     // M6 enemy sync, keyed by spawner-name FNV ids. Host: QueueEnemySnapshot collects
     // health/death of every spawned "npc-" spawner; TakeEnemyOut hands it to the session.
@@ -303,6 +304,7 @@ private:
     float puppetTeleportDistance_ = 15.f;
     bool puppetAiOff_ = false;
     std::string puppetName_;
+    std::string remoteBodySpawner_;   // NPC stand-in body (QueueRemoteBody); hidden by DropRemoteBody
     Vec3 lastMoveTarget_;
     Vec3 progressPos_;
     unsigned long long moveIssuedAt_ = 0, progressAt_ = 0;

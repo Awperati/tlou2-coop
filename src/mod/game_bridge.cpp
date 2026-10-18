@@ -2288,8 +2288,29 @@ void GameBridge::QueueRemoteBody(const std::string& spawner, const std::string& 
         SafeNative(BuildRva(0x422FB0), 2, argv, ret);
     });
     SetPuppetSpawner(spawner);
+    remoteBodySpawner_ = spawner;
     puppetAiOff_ = false;   // force a fresh takeover (AI off) on the next DrivePuppet tick
     Log("body: '%s' wearing '%s' is now the remote body", spawner.c_str(), look.c_str());
+}
+
+// Clone mode replaces the NPC stand-in: an earlier remote body (a militia NPC wearing the other
+// player's look) stayed in the world as a second Ellie on PC B (13:57). Hide it and keep it out
+// of everything (no collider, no perception, unseen by AI); its AI stays off from the takeover.
+void GameBridge::DropRemoteBody(const std::string& spawner) {
+    std::string name = spawner.empty() ? remoteBodySpawner_ : spawner;
+    if (name.empty()) return;
+    remoteBodySpawner_.clear();
+    RunInScriptContext([name] {
+        uint64_t ret[4] = {};
+        uint64_t vis[8] = {Fnv1a(name), 0};
+        SafeNative(BuildRva(0xD54D00), 2, vis, ret);           // visible off
+        uint64_t one[8] = {Fnv1a(name)};
+        SafeNative(BuildRva(0x631C70), 1, one, ret);           // collider off
+        SafeNative(BuildRva(0x632260), 1, one, ret);           // perception off
+        uint64_t inv[8] = {Fnv1a(name), 1};
+        SafeNative(BuildRva(0x423490), 2, inv, ret);           // invisible to AI
+    });
+    Log("body: '%s' (NPC stand-in) hidden, clone mode drives the other player now", name.c_str());
 }
 
 // Pick a spawner for the remote body: a plain human enemy (militia and the like walk on

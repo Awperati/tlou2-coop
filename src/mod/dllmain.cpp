@@ -165,6 +165,7 @@ void CoopMain() {
     // Remote body: an NPC wearing the other player's look, driven by their positions.
     // [body] Auto = client (the partner's PC shows the host this way), always, or off.
     std::string bodyAuto = Lower(cfg.get("body", "Auto", "client"));
+    const bool cloneOnAtStart = cfg.getBool("clone", "Enabled", true);   // clone mode: no NPC stand-in bodies
     std::string bodyLook = cfg.get("body", "HostLook", "ellie-seattle");
     ULONGLONG bodyCheckAt = 0;
     // M6: enemy health/death follows the host ([sync] Enemies).
@@ -258,7 +259,7 @@ void CoopMain() {
     cb.onPlayerState = [&](uint8_t slot, const PlayerState& s) {
         remote[slot] = s;
         if (isHost) gate.ReportPosition(slot, s.pos);
-        if (!bridge.cloneDrive_ && (bodyAuto == "always" || (bodyAuto == "client" && !isHost && slot == 0)) && GetTickCount64() - bodyCheckAt > 3000) {
+        if (!cloneOnAtStart && !bridge.cloneDrive_ && (bodyAuto == "always" || (bodyAuto == "client" && !isHost && slot == 0)) && GetTickCount64() - bodyCheckAt > 3000) {
             bodyCheckAt = GetTickCount64();
             bridge.QueueAutoBody(bodyLook);
         }
@@ -754,6 +755,7 @@ void CoopMain() {
                         bridge.QueueMoveTo(name, m, motion, goal, owned);
                     }
                     else if (line == "release") bridge.ReleasePuppet();
+                    else if (line.rfind("dropbody ", 0) == 0) bridge.DropRemoteBody(Trim(line.substr(9)));
                     else if (line.rfind("puppet ", 0) == 0) {
                         std::string target = Trim(line.substr(7));
                         bridge.SetPuppetSpawner(target == "buddy" ? std::string() : target);
@@ -821,6 +823,7 @@ void CoopMain() {
                     if (look.empty()) look = "ellie-seattle";
                     cloneLook = look; cloneStage = 1; cloneAt = now;
                     bridge.cloneDrive_ = true;
+                    bridge.DropRemoteBody();
                     Log("clone mode: spawning the other player as '%s'", look.c_str());
                 }
                 // Plot moments: a cinematic, or the story companion in a scripted anim or inside an

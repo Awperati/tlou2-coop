@@ -1091,3 +1091,12 @@ The queued script `scratchpad/clonetest.sh` does steps 1-3 by itself.
   skips a node that is not linked. Live 12:57: `level listener: node ...f478 already linked` at the clone spawn,
   then the dina-player packages loaded and the clone came up as 'dina-player' with no freeze.
 - Tools: tools/livedump.ps1 (minidump of a running process), tools/dumpthreads.py (every thread's stack).
+
+#### Clone test run 13:57 (both PCs in front)
+- Look: PC A shows the clone as 'dina-player' (user screenshot); PC B's clone of the host is 'ellie-seattle'.
+- Movement: PC B's 3 s stick push moved the clone 7 m on PC A.
+- Stance sync: every partner change was followed (crouch, 1 s hold to prone, back up); the clone reached prone
+  (`clonestance: clone 2`) with no crash, so the camera-pick guard holds. Not seen on video: she was behind the camera.
+- PC B "two Ellies": the old NPC stand-in (a militia NPC in the host's look) spawned before clone mode started.
+  Clone mode now never picks a stand-in and hides any earlier one (`dropbody <spawner>` for a running game).
+- Hot reload at 14:00 respawned the clone with no freeze (listener guard).
