@@ -1166,3 +1166,9 @@ Setup: PC B's game started by the user; the mod attaches through `coop_launcher.
   So the order is (pitch, yaw) = AimOrder 0. Matrix blocks: Rx rows (1,0,0)(0,c,s)(0,-s,c), Ry rows (c,0,-s)(0,1,0)(s,0,c).
   With row vectors, +Z -> (sin yaw, -sin pitch, ...): yaw keeps our sign, pitch flips (AimPitchSign -1 by default).
   With column vectors it would be the reverse; the live `cloneaim:` read-back decides between the two.
+- Sign question settled statically (2026-10-19): the matrix-to-quaternion helper sub_14217E870 computes
+  qx = (m12 - m21), qy = (m20 - m02), qz = (m01 - m10) (row i, column j), the transpose of the column-vector formula,
+  so the game uses row vectors (v * M). sub_14217F530 combines the axis blocks as M = Rx * Ry (* Rz), and
+  sub_1407FAAD0 turns +Z with the standard v + 2w(q x v) + 2 q x (q x v). Together: override(a, b) points along
+  (cos a sin b, -sin a, cos a cos b). Our aim (yaw = atan2(x, z), pitch up positive) maps to a = -pitch, b = yaw:
+  the defaults AimYawSign +1, AimPitchSign -1 are right, and pitch and yaw stay independent at any yaw.
