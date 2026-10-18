@@ -345,7 +345,7 @@ void CoopMain() {
     bool selfMovingLogged = false;
     std::string cloneLook; int cloneStage = 0; ULONGLONG cloneAt = 0, cloneWaitStart = 0, cloneLookCheckAt = 0; bool cloneLookPending = false;
     const bool cloneEnabled = cfg.getBool("clone", "Enabled", true);   // on unless a coop.ini says otherwise (user, 2026-10-18)
-    ULONGLONG lastCloneCheck = 0; bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
+    ULONGLONG lastCloneCheck = 0, player0Since = 0; bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
 
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
@@ -797,7 +797,12 @@ void CoopMain() {
             bool linked = isHost ? session.peerCount() > 0 : session.connected();
             auto pack = bridge.CurrentWorldPack();
             bool chapter = !pack.empty() && pack != "world-game-start";
-            if (linked && chapter && cloneStage == 0) {
+            // Wait for our own player: spawning player 1 during a level load (player 0 not there
+            // yet) put the clone in slot 1 first, and the game asserted when player 0 spawned
+            // (crash 11:17). Our player must have existed for 5 s.
+            if (bridge.HasPlayer(0)) { if (!player0Since) player0Since = now; } else player0Since = 0;
+            bool settled = player0Since && now - player0Since > 5000;
+            if (linked && chapter && settled && cloneStage == 0) {
                 // Once per mod start (an older clone may wear the wrong look), and again whenever a
                 // level load has removed her.
                 if (!cloneSetUp || !bridge.HasPlayer(1)) {
