@@ -349,6 +349,7 @@ void CoopMain() {
     ULONGLONG lastCloneCheck = 0, player0Since = 0; uint64_t lastApLogged = 0; bool lastScriptedLogged = false;
     // Action-pack types that should not take the companion's place from the clone (cover-like).
     std::set<uint64_t> ignoredAps;
+    const bool useActionPacks = cfg.getBool("clone", "UseActionPacks", false);
     for (auto& t : SplitList(cfg.get("clone", "IgnoreActionPacks", ""))) { try { ignoredAps.insert(std::stoull(t, nullptr, 16)); } catch (...) {} } bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
 
     uint32_t tick = 0;
@@ -835,7 +836,11 @@ void CoopMain() {
                     lastApLogged = apNow; lastScriptedLogged = bridge.plotScripted_;
                     Log("plot: companion scripted anim %d, action pack type %016llx", static_cast<int>(lastScriptedLogged), static_cast<unsigned long long>(apNow));
                 }
-                bool plotMove = isHost && (bridge.plotScripted_ || (apNow != 0 && !ignoredAps.count(apNow)));
+                // Action packs (enum in the exe: Cover, Traversal, Cinematic, Turret, Perch, Vehicle,
+                // Leap, Horse, Pullout, Entry, Positional, Search) are off as a trigger by default:
+                // the query returns an id per pack instance rather than its type, so cover cannot be
+                // told apart, and the companion's boosts and doors play as scripted anims anyway.
+                bool plotMove = isHost && (bridge.plotScripted_ || (useActionPacks && apNow != 0 && !ignoredAps.count(apNow)));
                 bool cine = bridge.InCinematic() || plotMove;
                 if (cloneCineShown && !cine && isHost) bridge.QueuePlayerToBuddy(1);
                 // Dialogue: the other player's character speaks from the clone (process user id
