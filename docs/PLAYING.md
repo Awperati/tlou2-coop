@@ -14,8 +14,18 @@ character's look.
 
 ## Playing on the same home network (LAN)
 
-1. Start the game on both PCs: `tlou-ii.exe -nolauncher`, not as administrator.
-2. Run `tlou2-coop\coop_launcher.exe` on both PCs (before or after the game; it attaches by itself).
+1. Start the game on both PCs, not as administrator:
+
+   ```
+   tlou-ii.exe -nolauncher
+   ```
+
+2. Run the launcher on both PCs, before or after the game (it attaches by itself):
+
+   ```
+   tlou2-coop\coop_launcher.exe
+   ```
+
 3. Load your save on the host. The partner finds the host on its own and joins.
 4. If the partner can't find the host:
    - set `HostAddress` in the partner's `coop.ini` to the host PC's IP address (for example `192.168.0.237`);
@@ -51,8 +61,29 @@ of you can reach: a cheap cloud server, or one of your own PCs with a port forwa
 
 Neither PC needs a port forwarded: both only connect out to the relay. Anyone without the secret is ignored.
 
-Switching without editing `coop.ini` (for a quick test): add a line `relay <ip> 47830 <secret>` to
-`tlou2-coop\cmd.txt` on each PC, and `relay off` to go back to LAN.
+Switching without editing `coop.ini` (for a quick test): add this line to `tlou2-coop\cmd.txt` on each PC:
+
+```
+relay <relay IP> 47830 <your secret>
+```
+
+and this line to go back to LAN:
+
+```
+relay off
+```
+
+## Something's wrong
+
+| What you see | Likely cause | Fix |
+|---|---|---|
+| The partner never joins on a LAN | Windows Firewall blocks the game, or a VPN blocks the LAN | Allow `tlou-ii.exe` (UDP 47820) on the host; turn on the VPN's local network sharing |
+| No co-op text on screen at all, no `tlou2-coop.log` | The launcher isn't running, or the game was started as administrator | Start `coop_launcher.exe`; start the game normally, not "Run as administrator" |
+| Over the internet, the relay prints `host no` or `partners 0` | Wrong secret, or the relay port isn't reachable | Use the same `RelaySecret` on both PCs and the relay; forward UDP 47830 to the relay machine and allow `coop_relay.exe` through its firewall |
+| The partner's log says `Session is full` | An old connection is still counted | Wait 10 s; the partner retries by itself |
+
+The mod writes its log to `tlou2-coop.log` next to `tlou-ii.exe` on each PC; the host also keeps a copy of the
+partner's log as `tlou2-coop.partner.log`.
 
 ## Good to know
 
