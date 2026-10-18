@@ -1100,3 +1100,7 @@ The queued script `scratchpad/clonetest.sh` does steps 1-3 by itself.
 - PC B "two Ellies": the old NPC stand-in (a militia NPC in the host's look) spawned before clone mode started.
   Clone mode now never picks a stand-in and hides any earlier one (`dropbody <spawner>` for a running game).
 - Hot reload at 14:00 respawned the clone with no freeze (listener guard).
+- Check 5 snap-back (14:06, tools/live/snaptest.sh): PC B walked 4 s diagonally; the clone fell 4.0 m behind mid-walk,
+  was snapped, and ended 1 cm from PC B's real spot (-81.59 -7.38 -204.19 vs -81.58 -7.38 -204.20). Pass.
+- Check 6 plot swap: pending. No cinematic or companion scripted anim since 12:57; the only plot changes logged were
+  the companion entering/leaving action pack cf882d141974350b (cover-like, not a trigger with UseActionPacks off).
