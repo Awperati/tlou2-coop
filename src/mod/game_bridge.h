@@ -271,6 +271,9 @@ public:
     // that player. Empty name: the pistol in player 0's pistol slot (get-player-slotted-pistol).
     void QueueGiveWeapon(unsigned index, const std::string& name, int ammo);
     void QueueWeaponInfo(unsigned index);
+    void QueueCloneBody(unsigned index);
+    void QueueCloneMeshPoll();
+    std::atomic<int> meshTotal_{-1}, meshVisible_{-1};
     bool HasPlayer(unsigned index) { return PlayerProcess(index) != 0; }
     void QueuePlayerJoypad(unsigned index, int joypad);
     void QueuePlayerLook(unsigned index, const std::string& look);

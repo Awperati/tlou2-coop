@@ -35,6 +35,7 @@ wait $REC
 a_cmd "clonebuttons 1F0"
 echo "-- aim log"; tail -n +$n "$G/tlou2-coop.log" | grep -a "cloneaim\|weapon\|shots" | cut -c1-150
 echo "games running: $(tasklist | grep -c tlou-ii) (PC A)"
+m=$(wc -l < "$G/tlou2-coop.log"); a_cmd "clonebody 1"; sleep 2; echo "-- body: $(tail -n +$m "$G/tlou2-coop.log" | grep -a "clonebody:" | tail -1 | cut -c16-120)"
 ffmpeg -v error -y -i "$TEMP/aim3.mp4" -vf "fps=1.5,crop=iw/2:ih/2:iw/4:ih/6,scale=480:-2,tile=6x4" -frames:v 1 "$TEMP/aim3.png"
 # In-game reload audit: player count and level packages must stay flat across a hot reload.
 leaks_now() { local m=$(wc -l < "$G/tlou2-coop.log"); a_cmd "leaks"; sleep 2; tail -n +$m "$G/tlou2-coop.log" | grep -a "leaks:" | tail -1 | cut -c16-; }

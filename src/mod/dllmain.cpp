@@ -383,8 +383,10 @@ void CoopMain() {
     const bool useActionPacks = cfg.getBool("clone", "UseActionPacks", false);
     for (auto& t : SplitList(cfg.get("clone", "IgnoreActionPacks", ""))) { try { ignoredAps.insert(std::stoull(t, nullptr, 16)); } catch (...) {} } // Parts of a new look come up hidden and arrive over several seconds; one show call left late parts
     // hidden (torso, then arms, after re-dresses, 2026-10-19). Show her again at these times.
-    std::vector<ULONGLONG> cloneShowAt; ULONGLONG redressAt = 0;
-    auto scheduleShows = [&](ULONGLONG t) { for (ULONGLONG d : {1500ull, 3000ull, 6000ull, 10000ull}) cloneShowAt.push_back(t + d); };
+    // Poll every 0.5 s for up to 15 s after a look change: show any hidden mesh, stop once her mesh
+    // counts have not changed for 2 s (timed retries can miss a slow load).
+    ULONGLONG redressAt = 0, bodyPollUntil = 0, bodyPollAt = 0, bodyStableSince = 0; int bodyLastT = -2, bodyLastV = -2;
+    auto scheduleShows = [&](ULONGLONG t) { bodyPollUntil = t + 15000; bodyPollAt = t + 500; bodyStableSince = 0; bodyLastT = bodyLastV = -2; };
     ULONGLONG plotSimUntil = 0; bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
 
     uint32_t tick = 0;
@@ -755,6 +757,7 @@ void CoopMain() {
                         bridge.QueueGiveWeapon(gi, gn, ga);
                     }
                     else if (line.rfind("weaponinfo", 0) == 0) bridge.QueueWeaponInfo(1);
+                    else if (line.rfind("clonebody", 0) == 0) bridge.QueueCloneBody(line.size() > 10 ? static_cast<unsigned>(std::atoi(line.c_str() + 10)) : 1u);
                     else if (line.rfind("playershow ", 0) == 0) bridge.QueuePlayerShow(static_cast<unsigned>(std::atoi(line.c_str() + 11)));
                     else if (line.rfind("playertp ", 0) == 0) bridge.QueuePlayerBeside(static_cast<unsigned>(std::atoi(line.c_str() + 9)), 2.f);
                     else if (line.rfind("spawnplayer ", 0) == 0) {   // spawnplayer <index> <art>
@@ -993,8 +996,15 @@ void CoopMain() {
             if (bridge.clonePkgsLoaded_) { cloneLookPending = false; bridge.QueuePlayerLook(1, cloneLook); cloneStage = 6; cloneAt = now + 2000; Log("clone: packages for '%s' are in now, dressing her", cloneLook.c_str()); }
         }
         if (redressAt && now >= redressAt) { redressAt = 0; bridge.QueuePlayerShow(1); if (!cloneLook.empty()) bridge.QueuePlayerLook(1, cloneLook); scheduleShows(now); }
-        for (auto it = cloneShowAt.begin(); it != cloneShowAt.end();) {
-            if (now >= *it) { bridge.QueuePlayerShow(1); it = cloneShowAt.erase(it); } else ++it;
+        if (bodyPollUntil && now >= bodyPollAt) {
+            bodyPollAt = now + 500;
+            int t = bridge.meshTotal_.load(), v = bridge.meshVisible_.load();
+            if (t == bodyLastT && v == bodyLastV && t >= 0) { if (!bodyStableSince) bodyStableSince = now; }
+            else { bodyStableSince = 0; bodyLastT = t; bodyLastV = v; }
+            if ((bodyStableSince && now - bodyStableSince >= 2000) || now >= bodyPollUntil) {
+                Log("clonebody: settled at %d meshes, %d visible%s", t, v, now >= bodyPollUntil ? " (15 s limit)" : "");
+                bodyPollUntil = 0;
+            } else bridge.QueueCloneMeshPoll();
         }
         if (cloneStage && now >= cloneAt) {
             if (cloneStage == 1) {

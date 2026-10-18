@@ -1854,13 +1854,38 @@ void GameBridge::QueuePlayerBeside(unsigned index, float metres) {
 // set-all-meshes-visible (rva 0xD54D00) on a process pointer: draw control = sub_141AFD810(p),
 // show = sub_141484610(dc, -1, 0). Player 1's meshes came up hidden (head and props only).
 namespace {
+// The show function takes a 4th argument, a bit mask of which meshes to show (bit i = mesh i of
+// the draw control). We called it with 3, so the mask was whatever r9 held: some meshes were never
+// shown. That is the clone's missing torso and arms (2026-10-19). Hide takes no mask.
 int SafeShowMeshes(uintptr_t proc, bool visible) {
     using DcFn = uintptr_t (*)(uintptr_t);
-    using ShowFn = void (*)(uintptr_t, uint32_t, uint64_t);
+    using ShowFn = void (*)(uintptr_t, uint32_t, uint64_t, uint32_t);
+    using HideFn = void (*)(uintptr_t, uint32_t, uint64_t);
     __try {
         uintptr_t dc = reinterpret_cast<DcFn>(BuildRva(0x1AFD810))(proc);
         if (!dc) return 0;
-        reinterpret_cast<ShowFn>(BuildRva(visible ? 0x1484610 : 0x147ECD0))(dc, 0xFFFFFFFFu, 0);   // show / hide (set-all-meshes-visible)
+        if (visible) reinterpret_cast<ShowFn>(BuildRva(0x1484610))(dc, 0xFFFFFFFFu, 0, 0xFFFFFFFFu);
+        else reinterpret_cast<HideFn>(BuildRva(0x147ECD0))(dc, 0xFFFFFFFFu, 0);
+        return 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+}
+// Draw control meshes (sub_141484610): count at dc+20, entries of 912 bytes at *(dc+8), visibility
+// bits at entry+900. Returns -1 on a fault; total and visible counts out.
+int SafeMeshCounts(uintptr_t proc, int* total, int* visible, uintptr_t* arrOut = nullptr, std::string* bits = nullptr) {
+    using DcFn = uintptr_t (*)(uintptr_t);
+    __try {
+        uintptr_t dc = reinterpret_cast<DcFn>(BuildRva(0x1AFD810))(proc);
+        if (!dc) return 0;
+        uint32_t n = *reinterpret_cast<uint32_t*>(dc + 20);
+        uintptr_t arr = *reinterpret_cast<uintptr_t*>(dc + 8);
+        int vis = 0;
+        for (uint32_t i = 0; i < n && i < 64; ++i) {
+            uint8_t f = *reinterpret_cast<uint8_t*>(arr + 912ull * i + 900), g = *reinterpret_cast<uint8_t*>(arr + 912ull * i + 902);
+            if (f) ++vis;
+            if (bits) { char b[24]; snprintf(b, sizeof(b), " %u:%02x/%02x", i, f, g); *bits += b; }
+        }
+        if (arrOut) *arrOut = arr;
+        *total = static_cast<int>(n); *visible = vis;
         return 1;
     } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
 }
@@ -2021,6 +2046,28 @@ void GameBridge::QueuePickupCheck(uint64_t sid) {
         uint64_t argv[8] = {sid}, ret[4] = {};
         bool here = SafeNative(BuildRva(0xD3BA00), 1, argv, ret) && (ret[0] & 0xFF);
         Log("pickup: %016llx taken on the other PC; it %s here (log-only, not removed)", static_cast<unsigned long long>(sid), here ? "exists" : "does not exist");
+    });
+}
+
+// One poll step after a look change: show her meshes again if any is hidden, and record the counts.
+void GameBridge::QueueCloneMeshPoll() {
+    RunInScriptContext([this] {
+        uintptr_t p = PlayerProcess(1);
+        int total = 0, vis = 0;
+        if (!p || SafeMeshCounts(p, &total, &vis) != 1) return;
+        if (vis < total) SafeShowMeshes(p, true);
+        meshTotal_ = total; meshVisible_ = vis;
+    });
+}
+
+void GameBridge::QueueCloneBody(unsigned index) {
+    RunInScriptContext([this, index] {
+        uintptr_t p = PlayerProcess(index);
+        int total = 0, vis = 0;
+        uintptr_t arr = 0; std::string bits;
+        int r = p ? SafeMeshCounts(p, &total, &vis, &arr, &bits) : 0;
+        Log("clonebody: player %u meshes %d, visible %d, hidden %d%s (entries %p, +900/+902:%s)", index, total, vis, total - vis,
+            r < 0 ? " (fault)" : r == 0 ? " (no draw control)" : "", reinterpret_cast<void*>(arr), bits.c_str());
     });
 }
 

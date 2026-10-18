@@ -1292,3 +1292,12 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   existed, so those stayed hidden (torso once, arms once). Fix: after any clone look request, show her again at
   +1.5, +3, +6 and +10 s; `redress` does Ellie -> 2.5 s -> her look with those shows. Ran at 09:52 (game in the
   background, not seen yet); the live batch's recording will show her body.
+- Show-mask bug (2026-10-19): the draw-control show (sub_141484610) takes a 4th argument, a bit mask of the meshes
+  to show; we called it with 3, so the mask was whatever r9 held and some meshes were never shown. Now (dc, -1, 0, -1).
+- `clonebody [index]`: draw-control meshes from memory (count at dc+20, 912-byte entries at *(dc+8), visibility bits
+  at +900; name ids at +0x18, not resolved yet). 09:57: clone 8 meshes, 6 visible, meshes 5 and 6 stay hidden even
+  after a full-mask show; the host has 11 meshes with 6 hidden, so hidden variants are normal and the count alone
+  cannot prove her arms are there. A look change now polls every 0.5 s (show if any hidden) until the counts are
+  stable for 2 s (log `clonebody: settled ...`). The entries address did not change across a redress with the game
+  in the background, so the deferred swap may only run with the game in front; the live batch logs clonebody next
+  to the recording.
