@@ -173,7 +173,7 @@ bool GameBridge::Init(const Ini& ini) {
         if (ini.getBool("engine", "demeanor_hooks", true)) DemeanorHooksInstall(BuildRva(0x1D4A120), BuildRva(0x1D51060));
         // Second-player safety, installed at start: a reload with player 1 alive left the camera
         // assist running for it and the game crashed (07:44).
-        if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); }
+        if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); LevelListenerHooksInstall(BuildRva(0x1A4D870), BuildRva(0x1A4E210)); }
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
@@ -2090,6 +2090,7 @@ void GameBridge::QueueSpawnPlayer(unsigned index, const std::string& art) {
         alignas(16) uint8_t out[32] = {};
         if (!UserIdHookInstall(BuildRva(0x133EC60))) { Log("spawnplayer: no SetUserId hook, not spawning (it would assert)"); return; }
         CamPickHookInstall(BuildRva(0xC5A3B0));
+        LevelListenerHooksInstall(BuildRva(0x1A4D870), BuildRva(0x1A4E210));
         if (!CamAssistHookInstall(BuildRva(0x8215E0))) { Log("spawnplayer: no camera-assist hook, not spawning (input would crash it)"); return; }
         SetUserIdFix(Fnv1a("player-" + std::to_string(index + 1)));
         int ok = SafeSpawnPlayer(BuildRva(0xDC1440), out, index, art.c_str(), info);

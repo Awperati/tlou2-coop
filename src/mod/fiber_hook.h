@@ -64,6 +64,8 @@ uint32_t CloneRawHits();
 bool CamAssistHookInstall(uintptr_t target);
 uint32_t CamAssistSkips();
 bool CamPickHookInstall(uintptr_t target);
+bool LevelListenerHooksInstall(uintptr_t add, uintptr_t remove);
+std::string LevelListenerSkips();
 uint32_t CamPickSkips();
 uint32_t CheckpointWrites();
 uint32_t CheckpointRestarts();

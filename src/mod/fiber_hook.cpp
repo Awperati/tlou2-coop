@@ -781,6 +781,52 @@ bool CamPickHookInstall(uintptr_t target) {
 }
 uint32_t CamPickSkips() { return g_pickSkips.load(); }
 
+// LevelMgr level-loaded listeners: an intrusive list (node +8 next, +16 prev; sentinel at
+// LevelMgr+0x481568). sub_141A4D870 links a node at the head, sub_141A4E210 unlinks it and zeroes
+// next/prev. A singleton process links one static node (0x1437FF478) in its Init; spawning player 1
+// ran that Init a second time, the node got linked twice (next = itself) and the next level load
+// spun forever in LevelMgr::OnLoadLevel (hang 12:42:55, live dump; then "device removed" crash).
+// Guards: do not link a node that is already in the list; do not unlink a node that is not linked.
+namespace {
+using ListenFn = uint64_t (*)(uint64_t mgr, uint64_t node);
+uint8_t* g_addTramp = nullptr; uint8_t* g_remTramp = nullptr;
+uint8_t g_addSaved[13], g_remSaved[12];
+uintptr_t g_addTarget = 0, g_remTarget = 0;
+std::atomic<uint32_t> g_addSkips{0}, g_remSkips{0};
+uint64_t HookedListenAdd(uint64_t mgr, uint64_t node) {
+    bool linked = false;
+    __try {
+        uint64_t sent = mgr + 0x481568, n = *reinterpret_cast<uint64_t*>(sent + 8);
+        for (int i = 0; n && n != sent && i < 100000; ++i, n = *reinterpret_cast<uint64_t*>(n + 8))
+            if (n == node) { linked = true; break; }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    if (linked) { if (++g_addSkips <= 5) Log("level listener: node %016llx already linked, not linking again", static_cast<unsigned long long>(node)); return 0; }
+    return reinterpret_cast<ListenFn>(g_addTramp)(mgr, node);
+}
+uint64_t HookedListenRemove(uint64_t mgr, uint64_t node) {
+    uint64_t next = 0, prev = 0;
+    __try { next = *reinterpret_cast<uint64_t*>(node + 8); prev = *reinterpret_cast<uint64_t*>(node + 16); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    if (!next || !prev) { if (++g_remSkips <= 5) Log("level listener: node %016llx not linked, not unlinking", static_cast<unsigned long long>(node)); return 0; }
+    return reinterpret_cast<ListenFn>(g_remTramp)(mgr, node);
+}
+} // namespace
+
+bool LevelListenerHooksInstall(uintptr_t add, uintptr_t remove) {
+    if (g_addTarget) return true;
+    // lea r8,[rdx+8]; xor eax,eax; test r8,r8; cmovz rdx,rax
+    static const uint8_t addExpect[13] = {0x4C, 0x8D, 0x42, 0x08, 0x33, 0xC0, 0x4D, 0x85, 0xC0, 0x48, 0x0F, 0x44, 0xD0};
+    // mov rcx,[rdx+8]; mov rax,[rdx+10h]; mov [rcx+10h],rax
+    static const uint8_t remExpect[12] = {0x48, 0x8B, 0x4A, 0x08, 0x48, 0x8B, 0x42, 0x10, 0x48, 0x89, 0x41, 0x10};
+    if (!InstallTrampoline(add, addExpect, sizeof(addExpect), reinterpret_cast<void*>(&HookedListenAdd), g_addSaved, g_addTramp)) {
+        Log("level listener hooks: add prologue changed, not hooking"); return false;
+    }
+    g_addTarget = add;
+    if (InstallTrampoline(remove, remExpect, sizeof(remExpect), reinterpret_cast<void*>(&HookedListenRemove), g_remSaved, g_remTramp)) g_remTarget = remove;
+    Log("level listener hooks: double link / unlink guarded (add %d, remove %d)", 1, g_remTarget ? 1 : 0);
+    return true;
+}
+std::string LevelListenerSkips() { return "add " + std::to_string(g_addSkips.load()) + ", remove " + std::to_string(g_remSkips.load()); }
+
 // Raw pad -> joypad slot copy (sub_14158F710; slot, raw pad, slot index), run every frame for
 // every slot by the slot filler (sub_141397A40). For slot 3 (player 1) the clone drive swaps in
 // the other player's stick on a copy of the raw pad; its buttons are cleared (they drive shared
@@ -982,6 +1028,9 @@ void FiberHookRemove() {
     if (g_uidTarget) { RemoveTrampoline(g_uidTarget, g_uidSaved, sizeof(g_uidSaved)); g_uidTarget = 0; }
     if (g_actTarget) { RemoveTrampoline(g_actTarget, g_actSaved, sizeof(g_actSaved)); g_actTarget = 0; }
     if (g_camTarget) { RemoveTrampoline(g_camTarget, g_camSaved, sizeof(g_camSaved)); g_camTarget = 0; }
+    if (g_pickTarget) { RemoveTrampoline(g_pickTarget, g_pickSaved, sizeof(g_pickSaved)); g_pickTarget = 0; }
+    if (g_addTarget) { RemoveTrampoline(g_addTarget, g_addSaved, sizeof(g_addSaved)); g_addTarget = 0; }
+    if (g_remTarget) { RemoveTrampoline(g_remTarget, g_remSaved, sizeof(g_remSaved)); g_remTarget = 0; }
     g_rawOn = false;
     if (g_rawTarget) { RemoveTrampoline(g_rawTarget, g_rawSaved, sizeof(g_rawSaved)); g_rawTarget = 0; }
     if (g_cpInstalled) { RemoveTrampoline(g_cpTarget, g_cpSaved, sizeof(g_cpSaved)); g_cpInstalled = false; Log("checkpoint hook: RememberCheckpoint removed"); }

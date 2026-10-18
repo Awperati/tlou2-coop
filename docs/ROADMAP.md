@@ -1081,3 +1081,13 @@ The queued script `scratchpad/clonetest.sh` does steps 1-3 by itself.
 - Crash 12:06:32 (PC A): the prone clone's state camera pick (`sub_140C5A3B0`) read a null camera controller at
   state+224 (player 1 has none). Guarded: no controller → camera id 0, which the function returns itself in another case.
 - The player 1 process moved in memory during the run (proc FCF2180 → FCF0800, same node): never cache her proc.
+
+#### Freeze/crash 12:11-12:43: second player links a level listener twice (fixed)
+- Live dump of the hung game: one thread spun in `LevelMgr::OnLoadLevel` (sub_141A4D2A0) walking the level-loaded
+  listener list; the static node 0x1437FF478 pointed at itself. A singleton process links that node in its Init
+  (sub_141E59620); spawning player 1 ran the Init again and linked it twice. The next level/package load spun
+  forever, and the game later died with "device removed" (12:32 dump, `ndgi::AssertDeviceRemoved`).
+- Guards (fiber_hook.cpp): the link (sub_141A4D870) skips a node already in the list; the unlink (sub_141A4E210)
+  skips a node that is not linked. Live 12:57: `level listener: node ...f478 already linked` at the clone spawn,
+  then the dina-player packages loaded and the clone came up as 'dina-player' with no freeze.
+- Tools: tools/livedump.ps1 (minidump of a running process), tools/dumpthreads.py (every thread's stack).
