@@ -817,7 +817,15 @@ void CoopMain() {
                     bridge.cloneDrive_ = true;
                     Log("clone mode: spawning the other player as '%s'", look.c_str());
                 }
-                bool cine = bridge.InCinematic();
+                // Plot moments: a cinematic, or the story companion in a scripted anim or inside an
+                // action pack (boost, door, squeeze; "trace dina" showed the level scripts polling
+                // npc-is-in-scripted-anim? and npc-get-entered-ap-type on her). Then the story
+                // companion does it herself and the clone steps aside; afterwards the clone takes
+                // over from where she ended up.
+                if (isHost && partnerChar != CharacterId::None) bridge.QueuePlotState(CharacterName(partnerChar));
+                bool plotMove = isHost && (bridge.plotScripted_ || bridge.plotAp_ != 0);
+                bool cine = bridge.InCinematic() || plotMove;
+                if (cloneCineShown && !cine && isHost) bridge.QueuePlayerToBuddy(1);
                 // Dialogue: the other player's character speaks from the clone (process user id
                 // 'player-2', set at spawn; get-object-health on it read the clone's 100 against
                 // the host's 83, 10:55). In cinematics the story characters speak for themselves.
@@ -833,9 +841,9 @@ void CoopMain() {
                 if (cine != cloneCineShown) {
                     cloneCineShown = cine;
                     bridge.QueuePlayerShow(1, !cine);
-                    if (isHost) bridge.QueueCompanionHidden(!cine);
-                    Log("clone mode: %s", cine ? "cinematic, story companion shown, clone hidden" : "gameplay, clone shown, story companion hidden");
-                } else if (isHost && !cine) bridge.QueueCompanionHidden(true);
+                    if (isHost) bridge.QueueCompanionHidden(!cine, true);
+                    Log("clone mode: %s", cine ? (plotMove ? "companion plot move (scripted anim or action pack), story companion shown, clone hidden" : "cinematic, story companion shown, clone hidden") : "gameplay, clone shown, story companion hidden");
+                } else if (isHost && !cine) bridge.QueueCompanionHidden(true, true);
             }
             if (!linked && bridge.cloneDrive_) { bridge.cloneDrive_ = false; SetCloneWorldStick(false, 0, 0); SetCloneRawStick(false, 0, 0); }
         }

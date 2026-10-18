@@ -142,7 +142,15 @@ public:
     void QueueLoadActor(const std::string& name);
     void QueueUnwant(const std::string& name, int times = 1);
     // Hide the story companion (meshes off, no collision, AI kept) or show her again.
-    void QueueCompanionHidden(bool hidden);
+    void QueueCompanionHidden(bool hidden, bool keepAi = false);
+    // Plot moments of the story companion (clone mode): in a scripted anim
+    // (npc-is-in-scripted-anim?, rva 0x63C270) or inside an action pack such as a boost or a door
+    // (npc-get-entered-ap-type, rva 0x636280; 0 = none). Polled into these.
+    void QueuePlotState(const std::string& npc);
+    std::atomic<bool> plotScripted_{false};
+    std::atomic<uint64_t> plotAp_{0};
+    std::atomic<bool> plotQueued_{false};
+    void QueuePlayerToBuddy(unsigned index);   // teleport player <index> onto the story companion's spot
     void QueueVoxNames();
     void QueueTreeOf(const std::string& spawner, int moveToOff = 0);
     void QueueRehome(const std::string& spawner, const std::string& levelName);

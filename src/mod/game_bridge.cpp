@@ -1916,6 +1916,28 @@ void GameBridge::QueueCloneLookCheck() {
     });
 }
 
+void GameBridge::QueuePlotState(const std::string& npc) {
+    if (plotQueued_.exchange(true)) return;
+    RunInScriptContext([this, npc] {
+        plotQueued_ = false;
+        uint64_t a[8] = {Fnv1a(npc)}, r[4] = {};
+        plotScripted_ = SafeNative(BuildRva(0x63C270), 1, a, r) && (r[0] & 0xFF);
+        uint64_t b[8] = {Fnv1a(npc)}, r2[4] = {};
+        plotAp_ = SafeNative(BuildRva(0x636280), 1, b, r2) ? r2[0] : 0;
+    });
+}
+
+void GameBridge::QueuePlayerToBuddy(unsigned index) {
+    RunOnGameFiber([this, index] {
+        uintptr_t p = PlayerProcess(index), b = findBuddyOnFiber();
+        auto bp = b ? Read<Vec3>(b + offPos_) : std::nullopt;
+        auto q = b ? Read<Quat>(b + offRot_) : std::nullopt;
+        if (!p || !bp) return;
+        bool ok = engineTeleport(p, *bp, q ? YawFromQuat(*q) : 0.f);
+        Log("clone mode: player %u moved onto the companion's spot %.1f %.1f %.1f: %s", index, bp->x, bp->y, bp->z, ok ? "sent" : "FAILED");
+    }, true);
+}
+
 void GameBridge::QueuePlayerShow(unsigned index, bool visible) {
     RunInScriptContext([this, index, visible] {
         uintptr_t p = PlayerProcess(index);
@@ -2126,8 +2148,8 @@ void GameBridge::PollLookSwap() {
 //   npc-disable-character-collider <npc>   rva 0x631C70 (player walks through her)
 //   player-ignore-object-collision <npc>   rva 0xC9CC10
 // On: meshes visible, collider on (rva 0x632E20), player ignore cleared.
-void GameBridge::QueueCompanionHidden(bool hidden) {
-    RunOnGameFiber([this, hidden] {
+void GameBridge::QueueCompanionHidden(bool hidden, bool keepAi) {
+    RunOnGameFiber([this, hidden, keepAi] {
         uintptr_t b = findBuddyOnFiber();
         if (!b) { Log("companion: no buddy"); return; }
         std::string name = ProcessName(b);
@@ -2148,7 +2170,9 @@ void GameBridge::QueueCompanionHidden(bool hidden) {
             // (npc-disable-perception 0x632260 / enable 0x633300), unseen by enemies
             // (set-object-invisible-to-ai 0x423490, set-invisible-to-npcs 0x421FF0),
             // weapon holstered (npc-holster-weapon 0x63A8E0).
-            SetNpcAi(name, !hidden);
+            // keepAi (clone mode on the host): the story still drives her (scripts wait for her to
+            // arrive or to finish a move), so only her looks and her part in fights go away.
+            SetNpcAi(name, !hidden || keepAi);
             RunInScriptContext([name, hidden] {
                 uint64_t ret[4] = {};
                 uint64_t one[8] = {Fnv1a(name)};
