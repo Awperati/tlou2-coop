@@ -1172,3 +1172,31 @@ Setup: PC B's game started by the user; the mod attaches through `coop_launcher.
   sub_1407FAAD0 turns +Z with the standard v + 2w(q x v) + 2 q x (q x v). Together: override(a, b) points along
   (cos a sin b, -sin a, cos a cos b). Our aim (yaw = atan2(x, z), pitch up positive) maps to a = -pitch, b = yaw:
   the defaults AimYawSign +1, AimPitchSign -1 are right, and pitch and yaw stay independent at any yaw.
+
+## M8 dedicated server: design (2026-10-19)
+**What it is:** a small headless relay (`coop_relay.exe`) on a machine both players can reach (a VPS or a
+port-forwarded PC). It does not run the game and owns no game state; it only gets the two games talking when they
+are not on one LAN.
+
+| Owns | What |
+|---|---|
+| Relay | the room (one per relay port), which game is the host, a tag per client address, forwarding, timeouts |
+| Host game | everything it owns on LAN today: story, checkpoints, pause, enemies, objectives, teleports, clone setup |
+| Partner game | its own player, clone drive, reports (damage, restarts) as on LAN |
+
+**Wire changes from LAN** (the coop protocol itself is unchanged; the relay frames ride beside it):
+- Relay frame: `'R' 'L' kind tag` + payload. kind 1 = register (host -> relay, also the keepalive every 2 s),
+  2 = data, 3 = registered (relay -> host).
+- The partner game is unchanged: `HostAddress` = the relay's address and port, and its packets go out raw.
+- The host game, `Mode = host` with `RelayAddress` set: opens its socket outbound to the relay, registers, and
+  receives each partner's packets as data frames with a tag. Each tag is a virtual peer (relay ip, port 0xFF00|tag),
+  so the session code keeps one peer per partner; sends to a virtual peer go back as data frames.
+- No discovery over the relay; the partner types the relay address.
+
+**NAT assumptions:** both games only send outbound UDP to one relay port and get replies from that same port, so
+any NAT that allows outbound UDP works (the host's keepalive keeps its mapping open). The relay itself needs a
+reachable UDP port. No hole punching, no TURN.
+
+**Steps:** 1 this design; 2 `Relay` in coop_core + `coop_relay.exe` + a host relay mode in `Session`, with a
+unit test that joins a client through the relay and passes a PlayerState and a reliable TeleportTo both ways;
+3 a `[session] RelayAddress` setting in the mod; 4 a live run over the relay.
