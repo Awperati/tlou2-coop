@@ -25,6 +25,14 @@ a_cmd "clonebuttons 1F0"
 echo "-- aim log"; tail -n +$n "$G/tlou2-coop.log" | grep -a "cloneaim\|weapon\|shots" | cut -c1-150
 echo "games running: $(tasklist | grep -c tlou-ii) (PC A)"
 ffmpeg -v error -y -i "$TEMP/aim3.mp4" -vf "fps=1.5,crop=iw/2:ih/2:iw/4:ih/6,scale=480:-2,tile=6x4" -frames:v 1 "$TEMP/aim3.png"
+# Before/after for the clone's walking error: 10 s with catch-up off, 10 s with it on (PC A drives the clone).
+for mode in off on; do
+  a_cmd "catchup $mode"; m=$(wc -l < "$G/tlou2-coop.log")
+  b_cmd "stick l 0 32767 5000"; sleep 5.2; b_cmd "stick l 32767 0 5000"; sleep 6
+  echo "-- catch-up $mode: clone error while walking (m)"
+  tail -n +$m "$G/tlou2-coop.log" | grep -a "clonedrift:" | sed 's/.*clonedrift: \([0-9.]*\) m.*/\1/' | sort -n | awk '{a[NR]=$1; s+=$1} END {if (NR) { k=int(NR*0.95+0.999); if (k<1) k=1; printf "%d samples, mean %.2f, p95 %.2f, max %.2f\n", NR, s/NR, a[k], a[NR] } else print "no samples"}'
+done
+a_cmd "catchup on"
 # --- 2. relay run
 n=$(wc -l < "$G/tlou2-coop.log")
 ("$B/coop_relay.exe" "$SECRET" 47830 > "$TEMP/relay_live.out" 2>&1 &); sleep 1

@@ -190,6 +190,7 @@ void CoopMain() {
     // (padbits, 2026-10-18): A 0x20 (jump), B 0x80 (crouch), LB 0x100 (sprint). Only movement
     // buttons belong here; item/weapon buttons crashed the game with two players.
     bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
+    bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
     bridge.cloneAimSign_ = cfg.getFloat("clone", "AimSign", 1.f);
     bridge.cloneAimOverride_ = cfg.getBool("clone", "AimOverride", true);
     bridge.cloneAimOrder_ = cfg.getInt("clone", "AimOrder", 0);
@@ -784,6 +785,7 @@ void CoopMain() {
                     else if (line == "release") bridge.ReleasePuppet();
                     // relay <addr> <port> <secret> | relay off: switch this run between the relay and LAN
                     // without touching coop.ini (a reload goes back to the ini's settings).
+                    else if (line == "catchup on" || line == "catchup off") { bridge.cloneCatchUp_ = line == "catchup on"; Log("catchup: %s", bridge.cloneCatchUp_ ? "on" : "off"); }
                     else if (line.rfind("relay ", 0) == 0) {
                         std::istringstream rs(line.substr(6)); std::string a; rs >> a;
                         Hello h2; h2.playerName = cfg.get("session", "PlayerName", "Player"); h2.wanted = wanted;

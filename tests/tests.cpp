@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <cmath>
+#include <utility>
 // Unit tests for the game-independent core. Run: build\coop_tests.exe
 #include "core/config.h"
 #include "core/protocol.h"
@@ -182,6 +185,33 @@ static void TestRoster() {
 
 // M8: a host and a partner meet through the relay; a stranger with the wrong secret cannot join;
 // oversize frames and floods are dropped.
+// Catch-up: a clone that walks 20 % slower than the other player on the same stick. Without the
+// pull her lag grows without bound; with it, it settles under a metre.
+static void TestCloneCatchUp() {
+    auto run = [](bool pull) {
+        float px = 0, pz = 0, cx = 0, cz = 0, worst = 0, last = 0;
+        const float dt = 1.f / 30.f, speed = 1.5f;   // a walk, m/s, at full stick
+        for (int i = 0; i < 30 * 10; ++i) {          // 10 s, a turn at 5 s
+            float wx = i < 150 ? 0.f : 1.f, wz = i < 150 ? 1.f : 0.f;
+            px += wx * speed * dt; pz += wz * speed * dt;
+            float sx = wx, sz = wz;
+            bool sprint = pull && CloneCatchUp(wx, wz, px - cx, pz - cz, 0.5f, 0.3f, sx, sz);
+            float v = 0.8f * speed * (sprint ? 1.6f : 1.f);   // her walk is 20 % slow; sprint is 1.6x
+            cx += sx * v * dt; cz += sz * v * dt;
+            last = std::sqrt((px - cx) * (px - cx) + (pz - cz) * (pz - cz));
+            if (i > 60 && last > worst) worst = last;
+        }
+        return std::make_pair(worst, last);
+    };
+    auto off = run(false), on = run(true);
+    std::printf("  catch-up: lag without %.2f m (end %.2f), with %.2f m (end %.2f)\n", off.first, off.second, on.first, on.second);
+    CHECK(off.second > 2.f);
+    CHECK(on.first < 2.f);
+    CHECK(on.second < off.second / 2);
+    float ox, oz; CloneCatchUp(0, 0, 0.1f, 0.1f, 0.5f, 0.3f, ox, oz);
+    CHECK(ox == 0 && oz == 0);   // inside the deadzone: no pull
+}
+
 static void TestRelaySession() {
     Relay relay;
     CHECK(relay.Start(47960, "correct-horse", 300));
@@ -337,6 +367,7 @@ int main() {
     TestRoster();
     TestLoopbackSession();
     TestRelaySession();
+    TestCloneCatchUp();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

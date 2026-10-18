@@ -2056,12 +2056,21 @@ void GameBridge::TickCloneDrive() {
         }
         float mx = cloneMoveX_, mz = cloneMoveZ_;
         if (GetTickCount64() - cloneMoveAt_ > 500) mx = mz = 0;   // no news from the other PC: stand still
+        // Catch-up ([clone] CatchUp): while the other player moves, pull her stick toward their
+        // reported spot and sprint when she is 0.8 m+ behind (core CloneCatchUp, unit-tested).
+        bool catchSprint = false;
+        if (cloneCatchUp_ && (mx != 0 || mz != 0)) {
+            Vec3 tgt; bool have, tmov;
+            { std::lock_guard lk(cloneMu_); tgt = cloneTarget_; have = cloneHasTarget_; tmov = cloneTargetMoving_; }
+            if (have && tmov) if (auto cp = Read<Vec3>(p + offPos_)) catchSprint = CloneCatchUp(mx, mz, tgt.x - cp->x, tgt.z - cp->z, 0.5f, 0.3f, mx, mz);
+        }
         if (cloneWorldStick_) { ActiveUpdateHookInstall(BuildRva(0xAD61E0)); SetCloneWorldStick(true, mx, mz); }
         float sx = 0, sy = 0;
         if (mx * mx + mz * mz > 0.0025f) StickForWorld(mx, mz, cloneTheta_, sx, sy);
         // Slot 3 is filled from a raw pad every frame (sub_141397A40 -> sub_14158F710); the hook
         // swaps the other player's stick in at that copy (writes from outside were overwritten).
         uint64_t held = cloneHeld_.load() & cloneButtonMask_;
+        if (catchSprint) held |= 0x100;   // LB: sprint to catch up
         if (cloneStanceSync_) {
             held &= ~0x80ull;   // B (crouch/prone) comes from the stance sync below, not the other pad
             unsigned long long now = GetTickCount64();

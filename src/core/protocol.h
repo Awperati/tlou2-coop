@@ -92,6 +92,21 @@ struct PlayerState {
 // stick (x, y) into a world direction (x, z) by a rotation theta (the clone camera's yaw):
 // measured as arg(world) - arg(stick). Live, the clone gave world = -stick on both axes
 // (theta = pi); the first model flipped y and could not fit that (10:31 log).
+// Clone catch-up (2026-10-19): the clone walks on the other player's stick, but her speed and
+// path differ (walls, slopes, gait), so she fell 4 m behind within 2-3 s of walking (drift snaps
+// 13:57, 14:06). Add a pull toward the other player's reported spot to the wanted world stick:
+// want + gain * error (metres), clamped to length 1. Only while the other player moves; error
+// under deadzone metres is ignored so she does not jitter on the spot. A full stick cannot go
+// faster, so the caller also holds sprint while the error is over sprintAt metres (the return; 0.8 m: at 1.5 m the lag hovered at 1.5 m).
+inline bool CloneCatchUp(float wantX, float wantZ, float errX, float errZ, float gain, float deadzone, float& outX, float& outZ, float sprintAt = 0.8f) {
+    float e = std::sqrt(errX * errX + errZ * errZ);
+    float k = e > deadzone ? gain * (e - deadzone) / e : 0.f;
+    outX = wantX + k * errX; outZ = wantZ + k * errZ;
+    float l = std::sqrt(outX * outX + outZ * outZ);
+    if (l > 1.f) { outX /= l; outZ /= l; }
+    return e > sprintAt;
+}
+
 inline void StickForWorld(float wx, float wz, float theta, float& sx, float& sy) {
     float c = std::cos(-theta), s = std::sin(-theta);
     sx = wx * c - wz * s; sy = wx * s + wz * c;

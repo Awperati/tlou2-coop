@@ -1218,3 +1218,12 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 | Relay on PC A, host sim on PC A, client sim on PC B | 945 | 936 | 2315 forwarded, 0 dropped |
 
   Same delivery as direct LAN; PC A's firewall let PC B reach the relay port. Step 4 (games over the relay) needs both games.
+
+#### Clone walking error (HANDOFF item 6 follow-up, 2026-10-19)
+- The 1.8 m figure was the old NPC puppet. For the clone, today's logs hold only spawn and standing snaps; the walking
+  runs of 2026-10-18 snapped her at 4.0-4.3 m within 2-3 s of walking (13:57, 14:06). LAN latency is under 10 ms
+  (~0.015 m at a walk), so velocity x latency prediction would not help: the error is her own speed and path.
+- Built instead: core `CloneCatchUp` (pull the stick toward the reported spot past a 0.3 m deadzone, and sprint when
+  0.8 m+ behind). Unit test with a clone 20 % slower than the partner: lag 2.12 m without, 0.76 m with.
+  [clone] CatchUp (on), `catchup on|off`. Live numbers: `clonedrift:` every 0.5 s while the partner moves;
+  livebatch.sh walks 10 s with it off, then on, and prints count/mean/p95/max for each.
