@@ -1,4 +1,5 @@
 #include "mod/game_bridge.h"
+#include "core/clonedrive.h"
 #include "mod/log.h"
 #include "mod/main_thread.h"
 #include "mod/fiber_hook.h"
@@ -2061,6 +2062,12 @@ static int PlayerStanceOf(uintptr_t p) {
 // stick is rotated into the clone camera's frame; that rotation (theta) is measured each tick
 // from what the engine made of the last stick (Player+19632 +0xD0/+0xD8).
 void GameBridge::TickCloneDrive() {
+    static bool thetaSeeded = false;
+    if (!thetaSeeded) {
+        thetaSeeded = true;
+        wchar_t v[32] = {};
+        if (GetEnvironmentVariableW(L"TLOU2COOP_THETA", v, 32)) { cloneTheta_ = static_cast<float>(_wtof(v)); Log("clonetheta: %.2f kept from before the reload", cloneTheta_); }
+    }
     if (!cloneDrive_ || cloneDriveQueued_.exchange(true)) return;
     RunOnGameFiber([this] {
         cloneDriveQueued_ = false;
@@ -2074,29 +2081,16 @@ void GameBridge::TickCloneDrive() {
         prevStickX_ = lastStickX_; prevStickY_ = lastStickY_;
         // Calibrate from her real motion ([clone] ThetaFromMotion, default): over >= 0.4 s of one
         // steady command, compare where she went with where we asked her to go.
-        if (cloneThetaFromMotion_) {
-            auto cpos = Read<Vec3>(p + offPos_);
-            unsigned long long tm = GetTickCount64();
-            // She turns gradually: wait 0.6 s after any change of the stick we give her (a new command,
-            // a theta change, a snap) before measuring, measure over 0.8 s, and move theta a third of
-            // the way. Measuring right away read her mid-turn and theta ran away (09:40 log).
-            bool sameCmd = std::fabs(lastStickX_ - motionStickX_) < 0.08f && std::fabs(lastStickY_ - motionStickY_) < 0.08f &&
-                           std::fabs(lastCmdX_ - motionCmdX_) < 0.1f && std::fabs(lastCmdZ_ - motionCmdZ_) < 0.1f && cloneFixAt_ < motionRefAt_;
-            if (!cpos || !sameCmd || (lastCmdX_ * lastCmdX_ + lastCmdZ_ * lastCmdZ_) < 0.04f) {
-                motionRefAt_ = tm + 600; if (cpos) motionRef_ = *cpos; motionCmdX_ = lastCmdX_; motionCmdZ_ = lastCmdZ_;
-                motionStickX_ = lastStickX_; motionStickY_ = lastStickY_;
-            } else if (tm < motionRefAt_) {
-                motionRef_ = *cpos;   // still settling: keep the window start fresh
-            } else if (tm - motionRefAt_ >= 800) {
-                float dx = cpos->x - motionRef_.x, dz = cpos->z - motionRef_.z;
-                float meas = ThetaFromMotion(cloneTheta_, motionCmdX_, motionCmdZ_, dx, dz);
-                float e = std::remainder(meas - cloneTheta_, 6.2831853f);
-                if (dx * dx + dz * dz > 0.4f * 0.4f && dx * dx + dz * dz < 4.f * 4.f && std::fabs(e) < 2.1f) {
-                    float before = cloneTheta_;
-                    cloneTheta_ = std::remainder(cloneTheta_ + 0.33f * e, 6.2831853f);
-                    if (tm - lastThetaLog_ > 2000) { lastThetaLog_ = tm; Log("clonetheta: asked %.2f %.2f, moved %.2f %.2f m -> theta %.2f -> %.2f", motionCmdX_, motionCmdZ_, dx, dz, before, cloneTheta_); }
+        if (cloneThetaFromMotion_) {   // core ThetaCalibrator (tuned in TestThetaCalibratorReplay)
+            if (auto cpos = Read<Vec3>(p + offPos_)) {
+                thetaCal_.theta = cloneTheta_;
+                unsigned long long tm = GetTickCount64();
+                if (thetaCal_.Update(tm, lastStickX_, lastStickY_, lastCmdX_, lastCmdZ_, cpos->x, cpos->z, cloneFixAt_ <= tm ? cloneFixAt_ : tm)) {
+                    cloneTheta_ = thetaCal_.theta;
+                    // Keep what was learned across mod reloads (her camera, and so the mapping, stays put).
+                    wchar_t v[32]; swprintf(v, 32, L"%.4f", cloneTheta_); SetEnvironmentVariableW(L"TLOU2COOP_THETA", v);
+                    if (tm - lastThetaLog_ > 2000) { lastThetaLog_ = tm; Log("clonetheta: asked %.2f %.2f, moved %.2f %.2f m -> theta %.2f -> %.2f", thetaCal_.lastAskX, thetaCal_.lastAskZ, thetaCal_.lastMovedX, thetaCal_.lastMovedZ, thetaCal_.lastBefore, cloneTheta_); }
                 }
-                motionRefAt_ = tm; motionRef_ = *cpos;
             }
         }
         if (!cloneThetaFromMotion_ && steadyTicks_ >= 3 && wx && wz && (lastStickX_ * lastStickX_ + lastStickY_ * lastStickY_) > 0.04f && (*wx * *wx + *wz * *wz) > 0.01f) {
@@ -2238,7 +2232,7 @@ void GameBridge::TickCloneDrive() {
         ULONGLONG t = GetTickCount64();
         if (t - lastCloneLog_ > 500 && (sx != 0 || sy != 0)) {
             lastCloneLog_ = t;
-            Log("clonedrive: want %.2f %.2f, theta %.2f, stick %.2f %.2f, engine world %.2f %.2f, slot copies %u", mx, mz, cloneTheta_, sx, sy, wx ? *wx : 0.f, wz ? *wz : 0.f, CloneRawHits());
+            Log("clonedrive: want %.2f %.2f, theta %.2f, stick %.2f %.2f, engine world %.2f %.2f, slot copies %u, game in front %d", mx, mz, cloneTheta_, sx, sy, wx ? *wx : 0.f, wz ? *wz : 0.f, CloneRawHits(), GameWindowFocused() ? 1 : 0);
         }
     }, true);
 }

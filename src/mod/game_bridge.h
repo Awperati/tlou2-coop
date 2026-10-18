@@ -5,6 +5,7 @@
 #pragma once
 #include "core/config.h"
 #include "core/protocol.h"
+#include "core/clonedrive.h"
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -253,7 +254,8 @@ public:
     std::atomic<unsigned long long> cloneMoveAt_{0};
     bool cloneFaceSync_ = true;           // [clone] FaceSync: face where the other player faces
     unsigned long long lastFaceLog_ = 0;
-    bool cloneThetaFromMotion_ = true;   // [clone] ThetaFromMotion: calibrate the stick from her real motion
+    bool cloneThetaFromMotion_ = true;
+    ThetaCalibrator thetaCal_;   // [clone] ThetaFromMotion: calibrate the stick from her real motion
     float lastCmdX_ = 0, lastCmdZ_ = 0, motionCmdX_ = 0, motionCmdZ_ = 0, motionStickX_ = 0, motionStickY_ = 0;
     Vec3 motionRef_; unsigned long long motionRefAt_ = 0, lastThetaLog_ = 0;
     float cloneTheta_ = 3.14159265f, lastStickX_ = 0, lastStickY_ = 0, prevStickX_ = 0, prevStickY_ = 0;

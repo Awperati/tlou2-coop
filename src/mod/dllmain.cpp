@@ -822,6 +822,7 @@ void CoopMain() {
                         Log("leaks: threads %d, handles %lu, private %llu MB, RWX private regions %zu (%zu KB), trampoline slots %zu, coop modules %d, players %d, level packages %zu",
                             threads, handles, static_cast<unsigned long long>(pm.PrivateUsage >> 20), rwx, rwxBytes >> 10, TrampolineSlotsUsed(), coopMods, players, bridge.LoadedLevelCount());
                     }
+                    else if (line.rfind("clonetheta ", 0) == 0) { bridge.cloneTheta_ = std::stof(line.substr(11)); Log("clonetheta: set to %.2f", bridge.cloneTheta_); }
                     else if (line == "facesync on" || line == "facesync off") { bridge.cloneFaceSync_ = line == "facesync on"; Log("facesync: %s", bridge.cloneFaceSync_ ? "on" : "off"); }
                     else if (line == "catchup on" || line == "catchup off") { bridge.cloneCatchUp_ = line == "catchup on"; Log("catchup: %s", bridge.cloneCatchUp_ ? "on" : "off"); }
                     else if (line.rfind("relay ", 0) == 0) {

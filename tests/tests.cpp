@@ -5,6 +5,7 @@
 #include "core/config.h"
 #include "core/protocol.h"
 #include "core/relay.h"
+#include "core/clonedrive.h"
 #include "core/roster.h"
 #include "core/session.h"
 #include "core/teleport.h"
@@ -204,6 +205,54 @@ static void TestThetaFromMotion() {
     float err = std::fabs(std::remainder(theta - truth, 6.2831853f));
     std::printf("  theta from motion: error after 8 steps %.3f rad\n", err);
     CHECK(err < 0.02f);
+}
+
+// Calibration replay: a mouse-and-keyboard walk (8-way keys, mouse turning), a clone whose real
+// stick turn is 0.8 rad off our start (as measured live, theta ~2.35) and who turns with a 0.35 s
+// lag. Returns {theta error at the end, mean distance clone-partner over the last 30 s}.
+static std::pair<float, float> RunCalibration(ThetaCalibrator cal, unsigned seed) {
+    const float truth = 2.35f, dt = 1.f / 60.f, speed = 1.5f, tau = 0.35f;
+    float px = 0, pz = 0, cx = 0, cz = 0, vx = 0, vz = 0, heading = 0, keyAng = 0, sumErr = 0;
+    int nErr = 0; unsigned long long snapAt = 0; unsigned r = seed;
+    auto rnd = [&r]() { r = r * 1103515245u + 12345u; return (r >> 8) / 16777216.f; };
+    float nextKey = 0, turnRate = 0;
+    for (int i = 0; i < 60 * 90; ++i) {
+        float t = i * dt; unsigned long long now = static_cast<unsigned long long>(t * 1000);
+        if (t >= nextKey) { keyAng = 0.785398f * static_cast<int>(rnd() * 8); turnRate = (rnd() - 0.5f) * 1.2f; nextKey = t + 1.f + 2.f * rnd(); }
+        heading += turnRate * dt;                                   // the mouse turns the camera
+        float cmdX = std::sin(heading + keyAng), cmdZ = std::cos(heading + keyAng);
+        px += cmdX * speed * dt; pz += cmdZ * speed * dt;          // the partner walks exactly there
+        // as live: the catch-up pull (and sprint) on top of the partner's direction
+        bool sprint = CloneCatchUp(cmdX, cmdZ, px - cx, pz - cz, 0.5f, 0.3f, cmdX, cmdZ);
+        float sx, sy; StickForWorld(cmdX, cmdZ, cal.theta, sx, sy);
+        float c = std::cos(truth), s = std::sin(truth), sp = speed * (sprint ? 1.6f : 1.f);
+        float wantVx = (c * sx - s * sy) * sp, wantVz = (s * sx + c * sy) * sp;
+        vx += (wantVx - vx) * dt / tau; vz += (wantVz - vz) * dt / tau;   // she turns and speeds up gradually
+        cx += vx * dt; cz += vz * dt;
+        float ex = px - cx, ez = pz - cz, d = std::sqrt(ex * ex + ez * ez);
+        if (d > 4.f) { cx = px; cz = pz; snapAt = now; }            // the drift snap
+        cal.Update(now, sx, sy, cmdX, cmdZ, cx, cz, snapAt);
+        if (t > 60) { sumErr += d; ++nErr; }
+    }
+    return {std::fabs(std::remainder(cal.theta - truth, 6.2831853f)), sumErr / nErr};
+}
+
+static void TestThetaCalibratorReplay() {
+    struct P { unsigned settle, window; float gain; };
+    const P grid[] = {{600, 800, 0.4f}, {500, 700, 0.4f}, {300, 500, 0.4f}, {500, 700, 0.6f}, {800, 1000, 0.4f}, {300, 600, 0.25f}};
+    for (const auto& g : grid) {
+        float th = 0, pe = 0;
+        for (unsigned seed = 1; seed <= 5; ++seed) {
+            ThetaCalibrator cal; cal.settleMs = g.settle; cal.windowMs = g.window; cal.gain = g.gain;
+            auto r = RunCalibration(cal, seed); th += r.first; pe += r.second;
+        }
+        std::printf("  calibration settle %u window %u gain %.2f: theta error %.3f rad, path error %.2f m\n", g.settle, g.window, g.gain, th / 5, pe / 5);
+    }
+    ThetaCalibrator def;   // the defaults must converge
+    float th = 0, pe = 0;
+    for (unsigned seed = 1; seed <= 5; ++seed) { auto r = RunCalibration(def, seed); th += r.first; pe += r.second; }
+    CHECK(th / 5 < 0.1f);
+    CHECK(pe / 5 < 1.0f);
 }
 
 // Alerts: one report per real alert, even when the other side never takes it.
@@ -423,6 +472,7 @@ int main() {
     TestCloneCatchUp();
     TestAlertLatch();
     TestThetaFromMotion();
+    TestThetaCalibratorReplay();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

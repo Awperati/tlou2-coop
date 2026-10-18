@@ -1272,3 +1272,16 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 - Pickups (M6), log-only, deployed: hook on ProcessPickup::PickedUp::Enter (sub_14088FBF0) names the pickup and sends
   WorldEvent kWorldPickupTaken (FNV-1a id); the other PC logs whether that pickup exists there (entity-exists?
   0xD3BA00). Removal comes after real data.
+
+#### Clone walking, live with the user (2026-10-19 09:00-09:47)
+- Wrong-way walking (user): the engine's world-stick field matched our command while her real motion followed her idle
+  camera 1. Fix: calibrate theta from her real displacement (core ThetaCalibrator in core/clonedrive.h). A first
+  version measured her mid-turn and ran away (09:40); the replay test (TestThetaCalibratorReplay: mouse-and-keyboard
+  walks, 0.35 s turning lag, catch-up on, 5 seeds) picked settle 600 ms / window 800 ms / gain 0.4: theta error
+  0.031 rad, path error 0.47 m. Live theta came out ~2.3-2.4; it is kept across mod reloads (process env var).
+- Facing: her rotation is written right after her own Player::Active::Update each frame ([clone] FaceSync, on);
+  writing it from our tick, or before her update, stopped her stick input. User: "faces the right direction".
+- Zero stick after 09:44 was PC A's game not in front: the drive log now carries `game in front`, and every zero
+  sample had 0. The clone's input is focus-gated like the host's own; not a bug.
+- Body: re-dressing an existing clone (look ellie then dina) lost meshes (torso, then arms). Reloads now keep her as
+  she is; only a fresh spawn dresses her. Open: why a re-dress drops limbs (likely mesh visibility per look part).
