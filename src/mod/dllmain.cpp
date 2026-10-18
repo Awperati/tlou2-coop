@@ -2,6 +2,8 @@
 // and calls CoopStart/CoopStop, so a rebuilt coop.dll hot-reloads in the running game.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <tlhelp32.h>
+#include <psapi.h>
 #include <share.h>
 #include <urlmon.h>
 #include <wininet.h>
@@ -785,6 +787,30 @@ void CoopMain() {
                     else if (line == "release") bridge.ReleasePuppet();
                     // relay <addr> <port> <secret> | relay off: switch this run between the relay and LAN
                     // without touching coop.ini (a reload goes back to the ini's settings).
+                    else if (line == "leaks") {   // per-reload growth audit (2026-10-19): live counts that must stay flat
+                        DWORD pid = GetCurrentProcessId(), handles = 0; GetProcessHandleCount(GetCurrentProcess(), &handles);
+                        int threads = 0, coopMods = 0;
+                        if (HANDLE sn = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0); sn != INVALID_HANDLE_VALUE) {
+                            THREADENTRY32 te{}; te.dwSize = sizeof(te);
+                            for (BOOL ok = Thread32First(sn, &te); ok; ok = Thread32Next(sn, &te)) if (te.th32OwnerProcessID == pid) ++threads;
+                            CloseHandle(sn);
+                        }
+                        if (HANDLE sn = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid); sn != INVALID_HANDLE_VALUE) {
+                            MODULEENTRY32W me{}; me.dwSize = sizeof(me);
+                            for (BOOL ok = Module32FirstW(sn, &me); ok; ok = Module32NextW(sn, &me)) if (wcsstr(me.szModule, L"coop")) ++coopMods;
+                            CloseHandle(sn);
+                        }
+                        size_t rwx = 0, rwxBytes = 0;
+                        MEMORY_BASIC_INFORMATION mb{};
+                        for (uintptr_t a = 0x10000; VirtualQuery(reinterpret_cast<void*>(a), &mb, sizeof(mb)) == sizeof(mb); a = reinterpret_cast<uintptr_t>(mb.BaseAddress) + mb.RegionSize) {
+                            if (mb.State == MEM_COMMIT && mb.Type == MEM_PRIVATE && mb.Protect == PAGE_EXECUTE_READWRITE) { ++rwx; rwxBytes += mb.RegionSize; }
+                            if (mb.RegionSize == 0) break;
+                        }
+                        PROCESS_MEMORY_COUNTERS_EX pm{}; GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pm), sizeof(pm));
+                        int players = 0; for (unsigned i = 0; i < 4; ++i) if (bridge.HasPlayer(i)) ++players;
+                        Log("leaks: threads %d, handles %lu, private %llu MB, RWX private regions %zu (%zu KB), trampoline slots %zu, coop modules %d, players %d, level packages %zu",
+                            threads, handles, static_cast<unsigned long long>(pm.PrivateUsage >> 20), rwx, rwxBytes >> 10, TrampolineSlotsUsed(), coopMods, players, bridge.LoadedLevelCount());
+                    }
                     else if (line == "catchup on" || line == "catchup off") { bridge.cloneCatchUp_ = line == "catchup on"; Log("catchup: %s", bridge.cloneCatchUp_ ? "on" : "off"); }
                     else if (line.rfind("relay ", 0) == 0) {
                         std::istringstream rs(line.substr(6)); std::string a; rs >> a;

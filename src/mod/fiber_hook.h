@@ -65,6 +65,9 @@ uint32_t CloneRawHits();
 bool CamAssistHookInstall(uintptr_t target);
 uint32_t CamAssistSkips();
 bool CamPickHookInstall(uintptr_t target);
+// Reload-proof trampoline memory: the same slot for the same hooked address in every instance.
+uint8_t* TrampolineSlot(uintptr_t target);
+size_t TrampolineSlotsUsed();
 bool RestartEncounterHookInstall(uintptr_t target);
 bool LevelListenerHooksInstall(uintptr_t add, uintptr_t remove);
 bool CommandGroupHooksInstall(uintptr_t push, uintptr_t pop);

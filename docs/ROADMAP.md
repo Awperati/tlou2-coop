@@ -1238,3 +1238,18 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 - Test TestAlertLatch (scenario streams at 10 Hz): A spotted at 2 s and the host never takes it, 30 s: old rule
   6 reports, new 1. B out of combat at 15 s and spotted again at 20 s: 2 reports, no hunts. C host alert the partner
   never takes: 1 hunt. 124 tests pass. The live check is any fight: one `spotted us` per alert in the partner log.
+
+#### Hot-reload leak audit (2026-10-19)
+| Created per instance | Freed / reused on reload |
+|---|---|
+| Main thread, overlay thread + window + class, WH_GETMESSAGE hook | joined / destroyed / unregistered / unhooked (already) |
+| Session socket(s) | closed by Session::Stop (already) |
+| Hooks (~19 trampolines) | were one VirtualAlloc each per reload, never freed: now slots in one per-process executable pool (named mapping, view address kept in a process environment variable), reused by address |
+| Clone (player 1) | was re-spawned each reload and the old one orphaned (crash 08:37): now re-dressed |
+| xinput LoadLibrary | refcount only, no memory |
+| Level package wants | count read live (level packages) |
+- `leaks` command: threads, handles, private MB, RWX private regions, trampoline slots, coop modules, players, level packages.
+- tools/live/reloadleaks.sh 5 (game at the title, in the background): first run showed handles +1 per reload (the
+  mapping handle); after closing it everything is flat over 5 reloads: threads 98, handles 1519, RWX 20 regions,
+  19 slots, 2 coop modules (loader + current), players 0, 82 packages. In-game (players, packages) check is in
+  livebatch.sh: `leaks` before and after one forced reload with the clone up.

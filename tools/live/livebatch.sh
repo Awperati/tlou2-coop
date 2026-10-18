@@ -31,6 +31,12 @@ a_cmd "clonebuttons 1F0"
 echo "-- aim log"; tail -n +$n "$G/tlou2-coop.log" | grep -a "cloneaim\|weapon\|shots" | cut -c1-150
 echo "games running: $(tasklist | grep -c tlou-ii) (PC A)"
 ffmpeg -v error -y -i "$TEMP/aim3.mp4" -vf "fps=1.5,crop=iw/2:ih/2:iw/4:ih/6,scale=480:-2,tile=6x4" -frames:v 1 "$TEMP/aim3.png"
+# In-game reload audit: player count and level packages must stay flat across a hot reload.
+leaks_now() { local m=$(wc -l < "$G/tlou2-coop.log"); a_cmd "leaks"; sleep 2; tail -n +$m "$G/tlou2-coop.log" | grep -a "leaks:" | tail -1 | cut -c16-; }
+echo "-- in-game reload audit"; echo "before: $(leaks_now)"
+before=$(head -1 "$G/tlou2-coop.log"); cp "$G/tlou2-coop/coop.dll" "$G/tlou2-coop/coop.tmp" && mv -f "$G/tlou2-coop/coop.tmp" "$G/tlou2-coop/coop.dll"
+for k in $(seq 1 60); do [ "$(head -1 "$G/tlou2-coop.log")" != "$before" ] && grep -aq "clone: player 1 ready" "$G/tlou2-coop.log" && break; sleep 1; done; sleep 3
+echo "after:  $(leaks_now)"; grep -a "still there from before the reload" "$G/tlou2-coop.log" | tail -1 | cut -c1-110
 # Before/after for the clone's walking error: 10 s with catch-up off, 10 s with it on (PC A drives the clone).
 for mode in off on; do
   a_cmd "catchup $mode"; m=$(wc -l < "$G/tlou2-coop.log")

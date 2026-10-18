@@ -192,9 +192,55 @@ extern "C" char HookedNativeInvoke(void* self, void* argv, unsigned argc, void* 
     return r;
 }
 
+} // namespace
+// Trampolines live in one executable pool per process that outlives a DLL instance (a named file
+// mapping), one 128-byte slot per hooked address. A hot reload re-hooks the same addresses and gets
+// the same slots back, so trampolines no longer pile up (one 64 KB VirtualAlloc reservation per hook
+// per reload before, 2026-10-19 leak audit). Rewriting a slot writes the same bytes, which is safe
+// even if a game thread is still inside it.
+namespace {
+constexpr size_t kTrampSlot = 128, kTrampPool = 64 * 1024;
+uint8_t* g_trampPool = nullptr;
+} // namespace
+uint8_t* TrampolineSlot(uintptr_t target) {
+    if (!g_trampPool) {
+        // One view for the whole process: its address is kept in a process environment variable,
+        // so a reloaded instance reuses the view instead of mapping another (and leaving a handle).
+        wchar_t env[32] = {};
+        if (GetEnvironmentVariableW(L"TLOU2COOP_TRAMP", env, 32)) {
+            auto a = static_cast<uintptr_t>(wcstoull(env, nullptr, 16));
+            MEMORY_BASIC_INFORMATION mb{};
+            if (a && VirtualQuery(reinterpret_cast<void*>(a), &mb, sizeof(mb)) == sizeof(mb) && mb.State == MEM_COMMIT && mb.Type == MEM_MAPPED)
+                g_trampPool = reinterpret_cast<uint8_t*>(a);
+        }
+    }
+    if (!g_trampPool) {
+        wchar_t name[64]; swprintf(name, 64, L"Local\\TLOU2Coop.Tramp.%lu", GetCurrentProcessId());
+        HANDLE m = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_EXECUTE_READWRITE, 0, static_cast<DWORD>(kTrampPool), name);
+        if (!m) return nullptr;
+        g_trampPool = static_cast<uint8_t*>(MapViewOfFile(m, FILE_MAP_ALL_ACCESS | FILE_MAP_EXECUTE, 0, 0, kTrampPool));
+        CloseHandle(m);   // the view keeps the mapping alive; never unmapped (game threads may run in it)
+        if (!g_trampPool) return nullptr;
+        wchar_t v[32]; swprintf(v, 32, L"%llx", static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(g_trampPool)));
+        SetEnvironmentVariableW(L"TLOU2COOP_TRAMP", v);
+    }
+    for (size_t off = 0; off + kTrampSlot <= kTrampPool; off += kTrampSlot) {
+        auto* slotTarget = reinterpret_cast<uintptr_t*>(g_trampPool + off);
+        if (*slotTarget == target) return g_trampPool + off + 8;
+        if (*slotTarget == 0) { *slotTarget = target; return g_trampPool + off + 8; }
+    }
+    return nullptr;
+}
+size_t TrampolineSlotsUsed() {
+    if (!g_trampPool) return 0;
+    size_t n = 0;
+    for (size_t off = 0; off + kTrampSlot <= kTrampPool; off += kTrampSlot) if (*reinterpret_cast<uintptr_t*>(g_trampPool + off)) ++n;
+    return n;
+}
+namespace {
 bool InstallTrampoline(uintptr_t target, const uint8_t* expect, size_t stolen, void* hook, uint8_t* saved, uint8_t*& tramp) {
     if (std::memcmp(reinterpret_cast<void*>(target), expect, stolen) != 0) return false;
-    tramp = static_cast<uint8_t*>(VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+    tramp = TrampolineSlot(target);
     if (!tramp) return false;
     std::memcpy(tramp, reinterpret_cast<void*>(target), stolen);
     uint8_t back[14] = {0xFF, 0x25, 0, 0, 0, 0};
@@ -629,7 +675,7 @@ size_t InstallRipMovTrampolineEx(uintptr_t target, const uint8_t* prefix, size_t
     size_t stolen = prefixLen + 7;
     int32_t disp; std::memcpy(&disp, t + prefixLen + 3, 4);
     uintptr_t abs = target + stolen + disp;
-    uint8_t* tr = static_cast<uint8_t*>(VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+    uint8_t* tr = TrampolineSlot(target);
     if (!tr) return 0;
     size_t k = 0;
     std::memcpy(tr, t, prefixLen); k = prefixLen;
@@ -1061,7 +1107,7 @@ bool PhaseHookInstall(uintptr_t taskUpdate) {
         Log("phase hook: GameTaskGraphMgr::Update prologue changed, not hooking");
         return false;
     }
-    g_phaseTramp = static_cast<uint8_t*>(VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+    g_phaseTramp = TrampolineSlot(taskUpdate);
     if (!g_phaseTramp) return false;
     std::memcpy(g_phaseTramp, reinterpret_cast<void*>(taskUpdate), kPhaseStolen);
     uint8_t back[14] = {0xFF, 0x25, 0, 0, 0, 0};

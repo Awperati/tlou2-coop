@@ -1,6 +1,7 @@
 #include "mod/input_inject.h"
 #include "core/config.h"
 #include "mod/log.h"
+#include "mod/fiber_hook.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <xinput.h>
@@ -69,7 +70,7 @@ bool MakePatch(Patch& p, uintptr_t target, void* hook) {
     }
     p.target = target;
     std::memcpy(p.saved, b, kStolen);
-    p.tramp = static_cast<uint8_t*>(VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+    p.tramp = TrampolineSlot(target);
     if (!p.tramp) return false;
     std::memcpy(p.tramp, b, kStolen);
     uint8_t back[14] = {0xFF, 0x25, 0, 0, 0, 0};                // jmp [rip+0]
