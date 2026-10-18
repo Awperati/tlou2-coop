@@ -714,6 +714,53 @@ bool CamAssistHookInstall(uintptr_t target) {
 }
 uint32_t CamAssistSkips() { return g_camSkips.load(); }
 
+// Raw pad -> joypad slot copy (sub_14158F710; slot, raw pad, slot index), run every frame for
+// every slot by the slot filler (sub_141397A40). For slot 3 (player 1) the clone drive swaps in
+// the other player's stick on a copy of the raw pad; its buttons are cleared (they drive shared
+// action groups and crashed the game with two players, 07:50). Writes made from outside the
+// frame were overwritten before the copy (10:21).
+namespace {
+using RawCopyFn = uint64_t (*)(uint64_t slot, uint64_t raw, uint64_t idx);
+uint8_t* g_rawTramp = nullptr;
+uint8_t g_rawSaved[18];
+uintptr_t g_rawTarget = 0;
+std::atomic<bool> g_rawOn{false};
+std::atomic<float> g_rawX{0}, g_rawY{0};
+std::atomic<uint32_t> g_rawHits{0};
+uint64_t HookedRawCopy(uint64_t slot, uint64_t raw, uint64_t idx) {
+    if (g_rawOn.load() && static_cast<uint32_t>(idx) == 3 && raw) {
+        alignas(16) static thread_local uint8_t buf[0x540];
+        bool ok = false;
+        __try { std::memcpy(buf, reinterpret_cast<void*>(raw), sizeof(buf)); ok = true; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        if (ok) {
+            float x = g_rawX.load(), y = g_rawY.load();
+            for (int off : {0x00, 0x10}) { std::memcpy(buf + off, &x, 4); std::memcpy(buf + off + 4, &y, 4); }
+            float z = 0.f;
+            for (int off : {0x08, 0x0C, 0x18, 0x1C}) std::memcpy(buf + off, &z, 4);   // right stick
+            std::memset(buf + 0x518, 0, 0x20);                                         // button masks
+            ++g_rawHits;
+            return reinterpret_cast<RawCopyFn>(g_rawTramp)(slot, reinterpret_cast<uint64_t>(buf), idx);
+        }
+    }
+    return reinterpret_cast<RawCopyFn>(g_rawTramp)(slot, raw, idx);
+}
+} // namespace
+
+bool RawCopyHookInstall(uintptr_t target) {
+    if (g_rawTarget) return true;
+    // push rbx; push r13; sub rsp,178h; then mov rax,[rip+d] (stack cookie)
+    static const uint8_t prefix[11] = {0x40, 0x53, 0x41, 0x55, 0x48, 0x81, 0xEC, 0x78, 0x01, 0x00, 0x00};
+    if (InstallRipMovTrampolineEx(target, prefix, sizeof(prefix), reinterpret_cast<void*>(&HookedRawCopy), g_rawTramp, g_rawSaved) != 18) {
+        Log("rawcopy hook: prologue changed, not hooking");
+        return false;
+    }
+    g_rawTarget = target;
+    Log("rawcopy hook: raw pad -> slot copy hooked (slot 3 = clone)");
+    return true;
+}
+void SetCloneRawStick(bool on, float x, float y) { g_rawX = x; g_rawY = y; g_rawOn = on; }
+uint32_t CloneRawHits() { return g_rawHits.load(); }
+
 bool UserIdHookInstall(uintptr_t setUserId) {
     if (g_uidTarget) return true;
     static const uint8_t prefix[10] = {0x40, 0x53, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x48};
@@ -857,6 +904,8 @@ void FiberHookRemove() {
     if (g_uidTarget) { RemoveTrampoline(g_uidTarget, g_uidSaved, sizeof(g_uidSaved)); g_uidTarget = 0; }
     if (g_actTarget) { RemoveTrampoline(g_actTarget, g_actSaved, sizeof(g_actSaved)); g_actTarget = 0; }
     if (g_camTarget) { RemoveTrampoline(g_camTarget, g_camSaved, sizeof(g_camSaved)); g_camTarget = 0; }
+    g_rawOn = false;
+    if (g_rawTarget) { RemoveTrampoline(g_rawTarget, g_rawSaved, sizeof(g_rawSaved)); g_rawTarget = 0; }
     if (g_cpInstalled) { RemoveTrampoline(g_cpTarget, g_cpSaved, sizeof(g_cpSaved)); g_cpInstalled = false; Log("checkpoint hook: RememberCheckpoint removed"); }
     if (g_rsInstalled) { RemoveTrampoline(g_rsTarget, g_rsSaved, sizeof(g_rsSaved)); g_rsInstalled = false; Log("checkpoint hook: GameRestartCheckpoint removed"); }
     g_printMode = 0;

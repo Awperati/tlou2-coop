@@ -1928,28 +1928,17 @@ void GameBridge::TickCloneDrive() {
         if (cloneWorldStick_) { ActiveUpdateHookInstall(BuildRva(0xAD61E0)); SetCloneWorldStick(true, mx, mz); }
         float sx = 0, sy = 0;
         if (mx * mx + mz * mz > 0.0025f) StickForWorld(mx, mz, cloneTheta_, sx, sy);
-        // Writing the stick alone did nothing (engine world stick stayed 0, 09:46): the slot needs
-        // the rest of a live pad's state. Start from player 0's slot, then put in the partner's
-        // stick and clear its buttons, triggers and right stick (buttons drive shared action
-        // groups and crashed the game, 07:50).
-        uintptr_t src = JoypadSlot(2);
-        static uint8_t buf[0x2570];
-        SIZE_T nr = 0;
-        if (src && ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(src), buf, sizeof(buf), &nr) && nr == sizeof(buf)) {
-            auto f = [&](uint32_t off, float v) { std::memcpy(buf + off, &v, 4); };
-            for (uint32_t off : {0x00u, 0x10u, 0x50u}) { f(off, sx); f(off + 4, sy); }
-            float len = std::sqrt(sx * sx + sy * sy);
-            f(0x5C, len * 2.f); f(0x60, len * 2.f);
-            for (uint32_t off : {0x08u, 0x0Cu, 0x18u, 0x1Cu, 0x68u, 0x6Cu, 0x78u, 0x7Cu, 0xF0u, 0xF4u}) f(off, 0.f);
-            for (uint32_t off : {0x130u, 0x134u, 0x138u, 0x13Cu, 0x140u, 0x144u}) std::memset(buf + off, 0, 4);
-            SIZE_T nw = 0;
-            WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(slot), buf, sizeof(buf), &nw);
-        }
+        // Slot 3 is filled from a raw pad every frame (sub_141397A40 -> sub_14158F710); the hook
+        // swaps the other player's stick in at that copy (writes from outside were overwritten).
+        if (RawCopyHookInstall(BuildRva(0x158F710))) SetCloneRawStick(true, sx, sy);
+        auto src = Read<uint8_t>(slot + 0x14C);
+        uint8_t zero = 0;
+        if (src && *src != 0) SafeWrite(slot + 0x14C, &zero, 1);   // back to raw pad 0 (a live pad) as the base
         lastStickX_ = sx; lastStickY_ = sy;
         ULONGLONG t = GetTickCount64();
         if (t - lastCloneLog_ > 2000 && (sx != 0 || sy != 0)) {
             lastCloneLog_ = t;
-            Log("clonedrive: want %.2f %.2f, theta %.2f, stick %.2f %.2f, engine world %.2f %.2f", mx, mz, cloneTheta_, sx, sy, wx ? *wx : 0.f, wz ? *wz : 0.f);
+            Log("clonedrive: want %.2f %.2f, theta %.2f, stick %.2f %.2f, engine world %.2f %.2f, slot copies %u", mx, mz, cloneTheta_, sx, sy, wx ? *wx : 0.f, wz ? *wz : 0.f, CloneRawHits());
         }
     }, true);
 }

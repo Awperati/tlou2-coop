@@ -1005,3 +1005,16 @@ PCs, wearing their character's model.
   at +0x690, 20 bytes each ([4] = device, player 0 -> 8 = XInput 0). Setting count 2, entry 1 -> device 9, device 9
   connected, and pushing virtual pad 2 did not move player 1 either (reverted). Next: find who fills joypad slot 3
   (callers that write slot +0x18C8 history) and which manager field maps a player entry to a slot.
+- 10:19-10:25, slot mapping (static + read-only peeks): the slot filler is sub_141397A40, run every frame. Component 1
+  (the object behind sub_14126CC80(1)) holds 6 joypad slots at +0x520, 0x2570 each. Slot i copies raw pad entry
+  *(u8*)(slot+0x14C) from the raw pad array at rva 0x824C860 (0x540 bytes per entry, 2 entries) through component
+  1's vfunc +32 = sub_140399320, which ends in sub_14158F710(slot, raw, slot index), the raw -> slot copy. Slot
+  type at +0x158: slots 0/1 = 3, 2/3 = 1 (gameplay, player 0 / player 1), 4/5 = 5. Live sources: 0,1,0,0,0,1, so
+  slot 3 (player 1, NdPlayerJoypad +0x1C = 3) copies raw pad 0, your own pad, every frame. That is why writes
+  into slot 3 vanished and why the full mirror moved her. Raw pad layout: floats, stick at +0x00/+0x04 with a
+  copy at +0x10/+0x14, button masks at +0x518 (pressed), +0x520 (released), +0x528 (held).
+  Tried: pointing slot 3 at raw pad 1 and writing raw pad 1 (overwritten before the copy); hooking
+  sub_14158F710 for slot index 3 with a patched copy of the raw pad (hook hit about 60 times a second, but slot 3
+  still read 0 and player 1's world stick stayed 0). Next: see what sub_141590C30 / sub_141590600 /
+  sub_141590D60 do after the copy (likely rebuild sticks from the history ring around +0x18C8), and patch the
+  values they read, or hook after them.
