@@ -91,8 +91,12 @@ void Drain(int site) {   // site: 0 GetPlayer, 1 task update, 2 script native
     g_draining = false;
 }
 
+// GetPlayer() override for this thread: script natives that act on "the player" (give-player-weapon
+// and friends) call GetPlayer(); pointing it at player 1 for one call makes them act on the clone.
+thread_local uintptr_t t_playerOverride = 0;
 // Same behaviour as the game's GetPlayer() at rva 0xDA8A80.
 extern "C" uintptr_t HookedGetPlayer() {
+    if (t_playerOverride) return t_playerOverride;
     ++g_inside;
     if (g_pending && OnGameFiber()) Drain(0);
     uintptr_t result = 0;
@@ -893,7 +897,7 @@ uint8_t* g_rawTramp = nullptr;
 uint8_t g_rawSaved[18];
 uintptr_t g_rawTarget = 0;
 std::atomic<bool> g_rawOn{false};
-std::atomic<float> g_rawX{0}, g_rawY{0};
+std::atomic<float> g_rawX{0}, g_rawY{0}, g_rawRX{0}, g_rawRY{0};
 std::atomic<uint64_t> g_rawHeld{0};
 std::atomic<uint32_t> g_rawHits{0};
 uint64_t HookedRawCopy(uint64_t slot, uint64_t raw, uint64_t idx) {
@@ -904,8 +908,9 @@ uint64_t HookedRawCopy(uint64_t slot, uint64_t raw, uint64_t idx) {
         if (ok) {
             float x = g_rawX.load(), y = g_rawY.load();
             for (int off : {0x00, 0x10}) { std::memcpy(buf + off, &x, 4); std::memcpy(buf + off + 4, &y, 4); }
-            float z = 0.f;
-            for (int off : {0x08, 0x0C, 0x18, 0x1C}) std::memcpy(buf + off, &z, 4);   // right stick
+            float rx = g_rawRX.load(), ry = g_rawRY.load();   // right stick: the clone's camera (aim turn)
+            for (int off : {0x08, 0x18}) std::memcpy(buf + off, &rx, 4);
+            for (int off : {0x0C, 0x1C}) std::memcpy(buf + off, &ry, 4);
             // Button masks: +0x518 pressed this frame, +0x520 released, +0x528 held (sub_140399320).
             // Only the allowlisted bits the other PC holds (SetCloneRawButtons); edges from the last copy.
             static thread_local uint64_t prevHeld = 0;
@@ -942,7 +947,9 @@ bool RawCopyHookInstall(uintptr_t target) {
     return true;
 }
 void SetCloneRawStick(bool on, float x, float y) { g_rawX = x; g_rawY = y; g_rawOn = on; }
+void SetCloneRawRightStick(float x, float y) { g_rawRX = x; g_rawRY = y; }
 void SetCloneRawButtons(uint64_t held) { g_rawHeld = held; }
+void SetPlayerOverride(uintptr_t player) { t_playerOverride = player; }
 uint32_t CloneRawHits() { return g_rawHits.load(); }
 
 bool UserIdHookInstall(uintptr_t setUserId) {

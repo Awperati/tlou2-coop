@@ -58,6 +58,7 @@ void SetCloneWorldStick(bool on, float x, float z);
 // Raw pad -> slot copy (rva 0x158F710): slot 3 gets this stick (slot space) while on.
 bool RawCopyHookInstall(uintptr_t target);
 void SetCloneRawStick(bool on, float x, float y);
+void SetCloneRawRightStick(float x, float y);
 void SetCloneRawButtons(uint64_t held);
 uint32_t CloneRawHits();
 // CameraControlStrafe::UpdateCameraAssist (rva 0x8215E0) runs for player 0 only.
@@ -66,6 +67,8 @@ uint32_t CamAssistSkips();
 bool CamPickHookInstall(uintptr_t target);
 bool LevelListenerHooksInstall(uintptr_t add, uintptr_t remove);
 bool CommandGroupHooksInstall(uintptr_t push, uintptr_t pop);
+// GetPlayer() returns this player on the calling thread until reset with 0.
+void SetPlayerOverride(uintptr_t player);
 uint32_t CommandGroupSkips();
 std::string LevelListenerSkips();
 uint32_t CamPickSkips();

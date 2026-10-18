@@ -1144,3 +1144,13 @@ Setup: PC B's game started by the user; the mod attaches through `coop_launcher.
 - Live: LT/RT from PC B made the clone aim, no crash, but she has no weapon: her hand floated off the body.
 - Next: give player 1 a weapon/inventory, and a camera direction for aiming (camera manager 1 exists:
   kMaxCameraManagers = 2, CameraManager::GetGlobal(index) at sub_141B1B2B0).
+
+#### Player 2 weapon and aim (built offline 2026-10-19, not yet run live)
+- Script natives that act on "the player" call GetPlayer(); our GetPlayer hook now takes a per-thread override, so
+  a native can be run for player 1. Weapon natives: give-player-weapon 0xC8F870 (id, ammo, bool; sends the player a
+  give-weapon event), get-player-slotted-pistol 0xC8ED20, player-has-weapon? 0xC9C980.
+- Commands: `weaponinfo` (player 0's slotted pistol, whether player 1 has it), `giveweapon [index] [name|-] [ammo]`
+  (`-` = player 0's slotted pistol). Live test: `weaponinfo`, `giveweapon 1 - 30`, `weaponinfo`, then LT from PC B.
+- Aim turn: while the partner holds LT, the clone's right stick turns her until her facing matches the partner's
+  (an aiming player faces the camera); `cloneaim:` log lines. [clone] AimSign flips the stick if she turns away.
+  Pitch is not handled yet. Triggers still need `clonebuttons 23F0` (not in the default mask).

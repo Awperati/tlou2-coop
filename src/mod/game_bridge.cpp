@@ -1952,6 +1952,45 @@ void GameBridge::QueuePlayerShow(unsigned index, bool visible) {
     });
 }
 
+// Weapon natives (tools/native.py): give-player-weapon 0xC8F870 (weapon id, ammo int, bool; sends
+// the player process a give-weapon event), get-player-slotted-pistol 0xC8ED20 (no args, the pistol
+// id), player-has-weapon? 0xC9C980 (weapon id). All use GetPlayer() for "the player".
+void GameBridge::QueueGiveWeapon(unsigned index, const std::string& name, int ammo) {
+    RunInScriptContext([this, index, name, ammo] {
+        uintptr_t p = PlayerProcess(index);
+        if (!p) { Log("giveweapon: no player %u", index); return; }
+        uint64_t argv[8] = {}, ret[4] = {};
+        uint64_t sid = name.empty() ? 0 : Fnv1a(name);
+        if (!sid && SafeNative(BuildRva(0xC8ED20), 0, argv, ret)) sid = ret[0];
+        if (!sid) { Log("giveweapon: no weapon id (player 0 has no slotted pistol?)"); return; }
+        SetPlayerOverride(p);
+        uint64_t give[8] = {sid, static_cast<uint64_t>(ammo), 0};
+        ret[0] = 0;
+        bool ok = SafeNative(BuildRva(0xC8F870), 3, give, ret) != 0;
+        uint64_t has[8] = {sid}, hr[4] = {};
+        bool hasIt = SafeNative(BuildRva(0xC9C980), 1, has, hr) && hr[0];
+        SetPlayerOverride(0);
+        Log("giveweapon: player %u weapon %016llx%s%s ammo %d: %s, has it now: %s", index, static_cast<unsigned long long>(sid),
+            name.empty() ? "" : " ", name.c_str(), ammo, ok ? "sent" : "FAULT", hasIt ? "yes" : "no (the event lands on her next update)");
+    });
+}
+
+void GameBridge::QueueWeaponInfo(unsigned index) {
+    RunInScriptContext([this, index] {
+        uint64_t argv[8] = {}, ret[4] = {};
+        uint64_t slotted = SafeNative(BuildRva(0xC8ED20), 0, argv, ret) ? ret[0] : 0;
+        uintptr_t p = PlayerProcess(index);
+        bool has = false;
+        if (p && slotted) {
+            SetPlayerOverride(p);
+            uint64_t a[8] = {slotted}, r[4] = {};
+            has = SafeNative(BuildRva(0xC9C980), 1, a, r) && r[0];
+            SetPlayerOverride(0);
+        }
+        Log("weaponinfo: player 0 slotted pistol %016llx; player %u has it: %s", static_cast<unsigned long long>(slotted), index, has ? "yes" : "no");
+    });
+}
+
 void GameBridge::ActiveCount() {
     if (!ActiveUpdateHookInstall(BuildRva(0xAD61E0))) return;
     Log("activecount: calls per player since last time:%s", ActiveUpdateCounts().c_str());
@@ -2025,7 +2064,19 @@ void GameBridge::TickCloneDrive() {
             }
             if (now < stanceBUntil_) held |= 0x80;
         }
-        if (RawCopyHookInstall(BuildRva(0x158F710))) { SetCloneRawStick(true, sx, sy); SetCloneRawButtons(held); }
+        // Aim turn: while the other player aims (LT), turn the clone's camera with her right stick
+        // until her facing matches theirs (a player aiming faces the camera). Sign: [clone] AimSign.
+        float rx = 0.f;
+        if ((held & 0x200) && cloneHasTarget_ && offRot_) {
+            float want; { std::lock_guard lk(cloneMu_); want = cloneTargetYaw_; }
+            if (auto q = Read<Quat>(p + offRot_)) {
+                float err = std::remainder(want - YawFromQuat(*q), 6.2831853f);
+                if (std::fabs(err) > 0.03f) rx = std::clamp(cloneAimSign_ * err * 1.5f, -1.f, 1.f);
+                unsigned long long tl = GetTickCount64();
+                if (tl - lastAimLog_ > 1000) { lastAimLog_ = tl; Log("cloneaim: facing error %.2f rad, right stick %.2f", err, rx); }
+            }
+        }
+        if (RawCopyHookInstall(BuildRva(0x158F710))) { SetCloneRawStick(true, sx, sy); SetCloneRawRightStick(rx, 0.f); SetCloneRawButtons(held); }
         auto src = Read<uint8_t>(slot + 0x14C);
         uint8_t zero = 0;
         if (src && *src != 0) SafeWrite(slot + 0x14C, &zero, 1);   // back to raw pad 0 (a live pad) as the base

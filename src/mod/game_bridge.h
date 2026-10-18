@@ -221,6 +221,8 @@ public:
     // clone's stance drift from the other PC's (crawling on one PC, crouching on the other, 12:06).
     // Instead B is pressed for her until her stance matches the other player's (0 stand, 1 crouch, 2 prone).
     bool cloneStanceSync_ = true;
+    float cloneAimSign_ = 1.f;            // [clone] AimSign: right stick direction that turns her toward the target yaw
+    unsigned long long lastAimLog_ = 0;
     std::atomic<int> cloneWantStance_{-1};
     unsigned long long stanceBUntil_ = 0, stanceNextAt_ = 0;
     Vec3 cloneTarget_; float cloneTargetYaw_ = 0; bool cloneTargetMoving_ = false, cloneHasTarget_ = false;
@@ -246,6 +248,10 @@ public:
     uintptr_t PlayerProcess(unsigned index);   // entry i of the player table, game fiber only
     void QueuePlayerBeside(unsigned index, float metres);
     void QueuePlayerShow(unsigned index, bool visible = true);
+    // Give player <index> a weapon with the game's give-player-weapon, run with GetPlayer() pointed at
+    // that player. Empty name: the pistol in player 0's pistol slot (get-player-slotted-pistol).
+    void QueueGiveWeapon(unsigned index, const std::string& name, int ammo);
+    void QueueWeaponInfo(unsigned index);
     bool HasPlayer(unsigned index) { return PlayerProcess(index) != 0; }
     void QueuePlayerJoypad(unsigned index, int joypad);
     void QueuePlayerLook(unsigned index, const std::string& look);

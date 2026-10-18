@@ -189,6 +189,7 @@ void CoopMain() {
     // (padbits, 2026-10-18): A 0x20 (jump), B 0x80 (crouch), LB 0x100 (sprint). Only movement
     // buttons belong here; item/weapon buttons crashed the game with two players.
     bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
+    bridge.cloneAimSign_ = cfg.getFloat("clone", "AimSign", 1.f);
     try { bridge.cloneButtonMask_ = std::stoull(cfg.get("clone", "Buttons", "1F0"), nullptr, 16); } catch (...) { bridge.cloneButtonMask_ = 0x1F0; }
     // Partner's own setup on joining ([character] AutoLook): wear their character's look,
     // and hide the story companion when they are playing that companion. Applied in the loop.
@@ -707,6 +708,12 @@ void CoopMain() {
                         std::istringstream pj(line.substr(10)); unsigned idx = 1; int jp = 0; pj >> idx >> jp;
                         bridge.QueuePlayerJoypad(idx, jp);
                     }
+                    else if (line.rfind("giveweapon", 0) == 0) {   // giveweapon [index] [name|-] [ammo]
+                        std::istringstream gs(line.substr(10)); unsigned gi = 1; std::string gn; int ga = 30; gs >> gi >> gn >> ga;
+                        if (gn == "-") gn.clear();
+                        bridge.QueueGiveWeapon(gi, gn, ga);
+                    }
+                    else if (line.rfind("weaponinfo", 0) == 0) bridge.QueueWeaponInfo(1);
                     else if (line.rfind("playershow ", 0) == 0) bridge.QueuePlayerShow(static_cast<unsigned>(std::atoi(line.c_str() + 11)));
                     else if (line.rfind("playertp ", 0) == 0) bridge.QueuePlayerBeside(static_cast<unsigned>(std::atoi(line.c_str() + 9)), 2.f);
                     else if (line.rfind("spawnplayer ", 0) == 0) {   // spawnplayer <index> <art>
