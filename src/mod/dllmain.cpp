@@ -187,6 +187,7 @@ void CoopMain() {
     // [clone] Buttons: hex mask of the partner's held buttons the clone gets. Measured on PC B
     // (padbits, 2026-10-18): A 0x20 (jump), B 0x80 (crouch), LB 0x100 (sprint). Only movement
     // buttons belong here; item/weapon buttons crashed the game with two players.
+    bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
     try { bridge.cloneButtonMask_ = std::stoull(cfg.get("clone", "Buttons", "1A0"), nullptr, 16); } catch (...) { bridge.cloneButtonMask_ = 0x1A0; }
     // Partner's own setup on joining ([character] AutoLook): wear their character's look,
     // and hide the story companion when they are playing that companion. Applied in the loop.
@@ -261,7 +262,7 @@ void CoopMain() {
             bodyCheckAt = GetTickCount64();
             bridge.QueueAutoBody(bodyLook);
         }
-        bridge.SetCloneMove(s.moveX, s.moveZ, s.padHeld, &s.pos, s.yaw, (s.flags & kMoving) != 0);
+        bridge.SetCloneMove(s.moveX, s.moveZ, s.padHeld, &s.pos, s.yaw, (s.flags & kMoving) != 0, s.stance);
         if (!bridge.cloneDrive_) bridge.DrivePuppet(slot, s);
     };
     cb.onObjective = [&](const Objective& o) { objective = o; };

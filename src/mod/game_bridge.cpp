@@ -173,7 +173,7 @@ bool GameBridge::Init(const Ini& ini) {
         if (ini.getBool("engine", "demeanor_hooks", true)) DemeanorHooksInstall(BuildRva(0x1D4A120), BuildRva(0x1D51060));
         // Second-player safety, installed at start: a reload with player 1 alive left the camera
         // assist running for it and the game crashed (07:44).
-        if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); }
+        if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); }
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
@@ -1958,9 +1958,25 @@ uintptr_t GameBridge::JoypadSlot(int slot) {
     return c1 && *c1 ? *c1 + 0x520 + 0x2570ull * slot : 0;
 }
 
-void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving) {
+void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving, int stance) {
     cloneMoveX_ = x; cloneMoveZ_ = z; cloneHeld_ = held; cloneMoveAt_ = GetTickCount64();
+    if (stance >= 0) cloneWantStance_ = stance;
     if (pos) { std::lock_guard lk(cloneMu_); cloneTarget_ = *pos; cloneTargetYaw_ = yaw; cloneTargetMoving_ = moving; cloneHasTarget_ = true; }
+}
+
+// A player's stance from its own vtable, as player-is-crouched? (0xC9DF90) and player-is-prone?
+// (0xC9E260) do for player 0: prone = vfunc +2928, crouched = vfunc +5232 or sub_14133DD70(hash).
+// 0 stand, 1 crouch, 2 prone, -1 unreadable.
+static int PlayerStanceOf(uintptr_t p) {
+    __try {
+        auto vt = *reinterpret_cast<uintptr_t*>(p);
+        using Fn = uint64_t (*)(uintptr_t);
+        if (static_cast<uint8_t>(reinterpret_cast<Fn>(*reinterpret_cast<uintptr_t*>(vt + 2928))(p))) return 2;
+        if (static_cast<uint8_t>(reinterpret_cast<Fn>(*reinterpret_cast<uintptr_t*>(vt + 5232))(p))) return 1;
+        using Has = uint64_t (*)(uintptr_t, uint64_t);
+        if (static_cast<uint8_t>(reinterpret_cast<Has>(BuildRva(0x133DD70))(p, 0xCD7743F6969479EBull))) return 1;
+        return 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
 }
 
 // clonedrive: the other player's world stick drives player 1 through joypad slot 3. The slot
@@ -1990,7 +2006,21 @@ void GameBridge::TickCloneDrive() {
         if (mx * mx + mz * mz > 0.0025f) StickForWorld(mx, mz, cloneTheta_, sx, sy);
         // Slot 3 is filled from a raw pad every frame (sub_141397A40 -> sub_14158F710); the hook
         // swaps the other player's stick in at that copy (writes from outside were overwritten).
-        if (RawCopyHookInstall(BuildRva(0x158F710))) { SetCloneRawStick(true, sx, sy); SetCloneRawButtons(cloneHeld_.load() & cloneButtonMask_); }
+        uint64_t held = cloneHeld_.load() & cloneButtonMask_;
+        if (cloneStanceSync_) {
+            held &= ~0x80ull;   // B (crouch/prone) comes from the stance sync below, not the other pad
+            unsigned long long now = GetTickCount64();
+            int want = cloneWantStance_.load(), have = PlayerStanceOf(p);
+            bool fresh = now - cloneMoveAt_ < 1000;
+            if (now >= stanceBUntil_ && now >= stanceNextAt_ && fresh && want >= 0 && have >= 0 && want != have) {
+                // Tap toggles stand <-> crouch and gets up from prone to crouch; a long hold goes prone.
+                unsigned ms = want == 2 ? 1000 : 150;
+                stanceBUntil_ = now + ms; stanceNextAt_ = now + ms + 1200;
+                Log("clonestance: clone %d, other player %d: holding B %u ms", have, want, ms);
+            }
+            if (now < stanceBUntil_) held |= 0x80;
+        }
+        if (RawCopyHookInstall(BuildRva(0x158F710))) { SetCloneRawStick(true, sx, sy); SetCloneRawButtons(held); }
         auto src = Read<uint8_t>(slot + 0x14C);
         uint8_t zero = 0;
         if (src && *src != 0) SafeWrite(slot + 0x14C, &zero, 1);   // back to raw pad 0 (a live pad) as the base
@@ -2059,6 +2089,7 @@ void GameBridge::QueueSpawnPlayer(unsigned index, const std::string& art) {
         if (ci < 0) { Log("spawnplayer: spawn info failed (%d, fault 0x%08lX)", ci, g_faultCode); return; }
         alignas(16) uint8_t out[32] = {};
         if (!UserIdHookInstall(BuildRva(0x133EC60))) { Log("spawnplayer: no SetUserId hook, not spawning (it would assert)"); return; }
+        CamPickHookInstall(BuildRva(0xC5A3B0));
         if (!CamAssistHookInstall(BuildRva(0x8215E0))) { Log("spawnplayer: no camera-assist hook, not spawning (input would crash it)"); return; }
         SetUserIdFix(Fnv1a("player-" + std::to_string(index + 1)));
         int ok = SafeSpawnPlayer(BuildRva(0xDC1440), out, index, art.c_str(), info);

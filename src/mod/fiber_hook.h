@@ -63,6 +63,8 @@ uint32_t CloneRawHits();
 // CameraControlStrafe::UpdateCameraAssist (rva 0x8215E0) runs for player 0 only.
 bool CamAssistHookInstall(uintptr_t target);
 uint32_t CamAssistSkips();
+bool CamPickHookInstall(uintptr_t target);
+uint32_t CamPickSkips();
 uint32_t CheckpointWrites();
 uint32_t CheckpointRestarts();
 bool DialogFactsHookInstall(uintptr_t target, uintptr_t lockFn, uintptr_t unlockFn, uintptr_t speakerKeys, uintptr_t speakerFn);

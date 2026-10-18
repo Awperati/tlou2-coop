@@ -749,6 +749,38 @@ bool CamAssistHookInstall(uintptr_t target) {
 }
 uint32_t CamAssistSkips() { return g_camSkips.load(); }
 
+// Player state camera pick (sub_140C5A3B0, vtable method; this = state, out = camera id hash). It
+// reads a camera controller at this+224 that player 1 does not have: the clone going prone
+// crashed on a null read there (12:06, crawl on PC A). A zero id is a normal answer of this
+// function (it returns 0 itself when the controller says so), so give 0 when there is none.
+namespace {
+using CamPickFn = uint64_t* (*)(uint64_t self, uint64_t* out);
+uint8_t* g_pickTramp = nullptr;
+uint8_t g_pickSaved[12];
+uintptr_t g_pickTarget = 0;
+std::atomic<uint32_t> g_pickSkips{0};
+uint64_t* HookedCamPick(uint64_t self, uint64_t* out) {
+    uint64_t ctl = 1;
+    __try { ctl = self ? *reinterpret_cast<uint64_t*>(self + 224) : 0; } __except (EXCEPTION_EXECUTE_HANDLER) { ctl = 0; }
+    if (!ctl) { ++g_pickSkips; if (out) *out = 0; return out; }
+    return reinterpret_cast<CamPickFn>(g_pickTramp)(self, out);
+}
+} // namespace
+
+bool CamPickHookInstall(uintptr_t target) {
+    if (g_pickTarget) return true;
+    // mov [rsp+20h],rbx; push rbp/rsi/rdi; sub rsp,60h
+    static const uint8_t expect[12] = {0x48, 0x89, 0x5C, 0x24, 0x20, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x60};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedCamPick), g_pickSaved, g_pickTramp)) {
+        Log("campick hook: prologue changed, not hooking");
+        return false;
+    }
+    g_pickTarget = target;
+    Log("campick hook: player state camera pick guarded (no controller -> no camera)");
+    return true;
+}
+uint32_t CamPickSkips() { return g_pickSkips.load(); }
+
 // Raw pad -> joypad slot copy (sub_14158F710; slot, raw pad, slot index), run every frame for
 // every slot by the slot filler (sub_141397A40). For slot 3 (player 1) the clone drive swaps in
 // the other player's stick on a copy of the raw pad; its buttons are cleared (they drive shared
