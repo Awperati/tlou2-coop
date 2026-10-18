@@ -7,6 +7,7 @@
 // The client walks away from the host; once far enough it auto-holds teleport
 // and should land back behind the host.
 #include "core/session.h"
+#include "core/relay.h"
 #include "core/teleport.h"
 #include <algorithm>
 #include <cmath>
@@ -75,6 +76,11 @@ int main(int argc, char** argv) {
         }
         if (a == "--aim" && i + 2 < argc) { aimFrom = static_cast<float>(std::atof(argv[i + 1])); aimTo = static_cast<float>(std::atof(argv[i + 2])); }
     }
+    // --relay <addr> <port> <secret> (M8): host registers with the relay, client joins through it.
+    std::string relayAddr, relaySecret; uint16_t relayPort = kRelayDefaultPort;
+    for (int i = 1; i + 3 < argc; ++i)
+        if (std::string(argv[i]) == "--relay") { relayAddr = argv[i + 1]; relayPort = static_cast<uint16_t>(std::atoi(argv[i + 2])); relaySecret = argv[i + 3]; }
+    size_t statesIn = 0;
     size_t enemyMsgs = 0, enemyCount = 0, enemyDead = 0;
     ULONGLONG enemySentAt = 0;
     Session s;
@@ -87,7 +93,7 @@ int main(int argc, char** argv) {
     cb.onPeerJoined = [](uint8_t slot, const Hello& h) { std::printf("[host] %s joined as slot %u\n", h.playerName.c_str(), slot); };
     cb.onPeerLeft = [](uint8_t slot) { std::printf("slot %u left\n", slot); };
     cb.onWelcome = [](const Welcome& w) { std::printf("[client] welcomed, slot %u\n", w.slot); };
-    cb.onPlayerState = [&](uint8_t, const PlayerState& p) { other = p; haveOther = true; };
+    cb.onPlayerState = [&](uint8_t, const PlayerState& p) { other = p; haveOther = true; ++statesIn; };
     cb.onTeleportRequest = [&](uint8_t slot) {
         auto t = ComputeTeleportTarget(me.pos, me.yaw, nullptr, slot, tc);
         std::printf("[host] slot %u asked to teleport -> (%.1f, %.1f)\n", slot, t.pos.x, t.pos.z);
@@ -113,12 +119,16 @@ int main(int argc, char** argv) {
     };
     s.setCallbacks(cb);
 
-    if (mode == "host") {
+    if (mode == "host" && !relayAddr.empty()) {
+        if (!s.StartHostViaRelay("lan-sim", relayAddr, relayPort, 2, relaySecret)) { std::printf("cannot start relay host\n"); return 1; }
+        std::printf("hosting through relay %s:%u\n", relayAddr.c_str(), relayPort);
+    } else if (mode == "host") {
         if (!s.StartHost("lan-sim", kDefaultPort, 2)) { std::printf("cannot bind UDP %u\n", kDefaultPort); return 1; }
         std::printf("hosting on UDP %u, discovery on %u\n", kDefaultPort, kDiscoveryPort);
     } else {
-        std::string addr = argc > addrArg ? argv[addrArg] : "";
+        std::string addr = argc > addrArg && argv[addrArg][0] != '-' ? argv[addrArg] : "";
         uint16_t port = kDefaultPort;
+        if (!relayAddr.empty()) { addr = relayAddr; port = relayPort; s.SetRelaySecret(relaySecret); std::printf("joining through relay %s:%u\n", addr.c_str(), port); }
         if (addr.empty()) {
             std::printf("searching LAN...\n");
             auto found = Session::Discover(2000);
@@ -188,6 +198,7 @@ int main(int argc, char** argv) {
         }
         Sleep(16);
     }
+    std::printf("states received %zu\n", statesIn);
     std::printf("done. teleports requested: %d, rtt %u ms, enemy packets %zu (last %zu enemies, %zu dead)\n", teleports, s.rttMs(0), enemyMsgs, enemyCount, enemyDead);
     return 0;
 }

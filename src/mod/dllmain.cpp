@@ -21,6 +21,7 @@
 #include "core/config.h"
 #include "core/roster.h"
 #include "core/session.h"
+#include "core/relay.h"
 #include "core/teleport.h"
 #include "mod/fiber_hook.h"
 #include "mod/game_bridge.h"
@@ -326,7 +327,16 @@ void CoopMain() {
     session.setCallbacks(cb);
 
     std::string updateHost;   // partner: the host's address, for the coop.dll auto-update
-    if (isHost) {
+    // M8 relay (off unless RelayAddress / RelaySecret are set): play across networks through coop_relay.exe.
+    const std::string relayAddr = cfg.get("session", "RelayAddress", ""), relaySecret = cfg.get("session", "RelaySecret", "");
+    const uint16_t relayPort = static_cast<uint16_t>(cfg.getInt("session", "RelayPort", kRelayDefaultPort));
+    if (isHost && !relayAddr.empty()) {
+        if (relaySecret.size() < 8) Log("relay: RelaySecret must be 8+ characters; not hosting through %s", relayAddr.c_str());
+        else if (!session.StartHostViaRelay(cfg.get("session", "SessionName", "TLOU2 Co-op"), relayAddr, relayPort,
+                                            static_cast<uint8_t>(cfg.getInt("session", "MaxPlayers", 2)), relaySecret))
+            Log("relay: could not start hosting through %s:%u", relayAddr.c_str(), relayPort);
+        else { Log("hosting through relay %s:%u", relayAddr.c_str(), relayPort); OverlayNotify(L"Co-op session open through the relay."); }
+    } else if (isHost) {
         if (!session.StartHost(cfg.get("session", "SessionName", "TLOU2 Co-op"), port,
                                static_cast<uint8_t>(cfg.getInt("session", "MaxPlayers", 2)))) {
             Log("could not open UDP port %u", port);
@@ -339,6 +349,12 @@ void CoopMain() {
         std::string addr = cfg.get("session", "HostAddress");
         updateHost = addr;
         uint16_t hostPort = port;
+        if (!relaySecret.empty()) {   // join through the relay
+            session.SetRelaySecret(relaySecret);
+            if (!relayAddr.empty()) addr = relayAddr;
+            hostPort = relayPort;
+            Log("relay: joining through %s:%u", addr.c_str(), hostPort);
+        }
         while (addr.empty() && g_run) {
             OverlaySetStatus(L"Searching LAN for a host...");
             auto hosts = Session::Discover(1500);
@@ -384,7 +400,7 @@ void CoopMain() {
         if (!isHost && rejoinAt && now >= rejoinAt) {
             rejoinAt = 0;
             Hello again; again.playerName = cfg.get("session", "PlayerName", "Player"); again.wanted = wanted;
-            if (session.StartClient(updateHost, port, again)) Log("joining host %s:%u again", updateHost.c_str(), port);
+            if (session.StartClient(relaySecret.empty() ? updateHost : (relayAddr.empty() ? updateHost : relayAddr), relaySecret.empty() ? port : relayPort, again)) Log("joining host %s:%u again", updateHost.c_str(), port);
         }
         // No answer from the host: say so, so a blocked network shows up in the log (a VPN
         // blocking the LAN looked like nothing at all, 2026-10-17).

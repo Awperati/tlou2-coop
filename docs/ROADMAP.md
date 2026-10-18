@@ -1206,3 +1206,15 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   burst 2x). Test TestRelaySession: host and partner meet through the relay, PlayerState and a reliable
   TeleportRequest/TeleportTo pass both ways; a wrong-secret stranger is never welcomed; an oversize frame is
   dropped; 200 packets from one sender at 20/s lose 100+. 114 tests pass.
+- M8 step 3 (2026-10-19): `[session] RelayAddress`, `RelayPort` (47830), `RelaySecret` (8+ chars) in coop.ini, empty
+  by default so LAN play is unchanged. Host with RelayAddress hosts through the relay; a partner with RelaySecret
+  joins through RelayAddress (or HostAddress). `coop_lan_sim ... --relay <addr> <port> <secret>` for tests.
+- M8 step 3b, sims only (30 s host, 45 s `line` client, ~32 states/s each way):
+
+| Run | Host got | Client got | Relay |
+|---|---|---|---|
+| Direct LAN: host sim on PC B, client sim on PC A | 922 | 933 | - |
+| Relay on PC A, both sims on PC A (127.0.0.1) | 955 | 957 | 2344 forwarded, 0 dropped |
+| Relay on PC A, host sim on PC A, client sim on PC B | 945 | 936 | 2315 forwarded, 0 dropped |
+
+  Same delivery as direct LAN; PC A's firewall let PC B reach the relay port. Step 4 (games over the relay) needs both games.
