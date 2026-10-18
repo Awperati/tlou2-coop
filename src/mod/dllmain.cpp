@@ -194,6 +194,7 @@ void CoopMain() {
     bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
     bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
     bridge.cloneThetaFromMotion_ = cfg.getBool("clone", "ThetaFromMotion", true);
+    bridge.cloneFaceSync_ = cfg.getBool("clone", "FaceSync", true);
     bridge.cloneAimSign_ = cfg.getFloat("clone", "AimSign", 1.f);
     bridge.cloneAimOverride_ = cfg.getBool("clone", "AimOverride", true);
     bridge.cloneAimOrder_ = cfg.getInt("clone", "AimOrder", 0);

@@ -2111,6 +2111,22 @@ void GameBridge::TickCloneDrive() {
         if (mx * mx + mz * mz > 0.0025f) StickForWorld(mx, mz, cloneTheta_, sx, sy);
         // Slot 3 is filled from a raw pad every frame (sub_141397A40 -> sub_14158F710); the hook
         // swaps the other player's stick in at that copy (writes from outside were overwritten).
+        // Facing ([clone] FaceSync, 2026-10-19): she walked the right way but faced the wrong way
+        // (user). Her body turns with her idle camera, so set her rotation to the other player's
+        // facing (their body yaw; while aiming, their aim yaw) when it is more than ~8 degrees off.
+        if (cloneFaceSync_ && offRot_ && cloneHasTarget_) {
+            float want; { std::lock_guard lk(cloneMu_); want = cloneTargetYaw_; }
+            if (cloneHeld_.load() & 0x200) want = cloneAimYaw_.load();
+            if (auto q = Read<Quat>(p + offRot_)) {
+                float err = std::remainder(want - YawFromQuat(*q), 6.2831853f);
+                if (std::fabs(err) > 0.15f) {
+                    Quat nq{}; nq.x = 0; nq.y = std::sin(want * 0.5f); nq.z = 0; nq.w = std::cos(want * 0.5f);
+                    SafeWrite(p + offRot_, &nq, sizeof(nq));
+                    unsigned long long tf = GetTickCount64();
+                    if (tf - lastFaceLog_ > 2000) { lastFaceLog_ = tf; Log("cloneface: turned her %.2f rad to yaw %.2f", err, want); }
+                }
+            }
+        }
         uint64_t held = cloneHeld_.load() & cloneButtonMask_;
         if (catchSprint) held |= 0x100;   // LB: sprint to catch up
         if (cloneStanceSync_) {

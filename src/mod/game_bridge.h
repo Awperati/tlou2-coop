@@ -250,6 +250,8 @@ public:
     std::atomic<bool> cloneDriveQueued_{false};
     std::atomic<float> cloneMoveX_{0}, cloneMoveZ_{0};
     std::atomic<unsigned long long> cloneMoveAt_{0};
+    bool cloneFaceSync_ = true;          // [clone] FaceSync: face where the other player faces
+    unsigned long long lastFaceLog_ = 0;
     bool cloneThetaFromMotion_ = true;   // [clone] ThetaFromMotion: calibrate the stick from her real motion
     float lastCmdX_ = 0, lastCmdZ_ = 0, motionCmdX_ = 0, motionCmdZ_ = 0;
     Vec3 motionRef_; unsigned long long motionRefAt_ = 0, lastThetaLog_ = 0;
