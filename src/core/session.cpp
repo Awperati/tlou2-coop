@@ -1,4 +1,5 @@
 #include "core/session.h"
+#include "core/relay.h"
 #include <algorithm>
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
@@ -87,6 +88,18 @@ bool Session::StartHost(const std::string& name, uint16_t port, uint8_t maxPlaye
     return true;
 }
 
+bool Session::StartHostViaRelay(const std::string& name, const std::string& relayAddr, uint16_t relayPort,
+                                uint8_t maxPlayers, const std::string& secret) {
+    if (!StartHost(name, 0, maxPlayers, false)) return false;
+    in_addr a{};
+    if (inet_pton(AF_INET, relayAddr.c_str(), &a) != 1) { Stop(); return false; }
+    relayIp_ = a.s_addr; relayPort_ = htons(relayPort);
+    relaySecret_ = secret;
+    relayRegistered_ = false;
+    lastRelayRegister_ = 0;
+    return true;
+}
+
 bool Session::StartClient(const std::string& hostAddr, uint16_t port, const Hello& hello) {
     Stop();
     sock_ = MakeUdp(0, false, false);
@@ -114,9 +127,17 @@ void Session::Stop() {
     peers_.clear();
     role_ = Role::None;
     localSlot_ = 0;
+    relayIp_ = 0; relayPort_ = 0; relayRegistered_ = false;
 }
 
 void Session::sendTo(const Peer& p, const std::vector<uint8_t>& bytes) {
+    if (relayIp_ && p.ip == relayIp_ && IsRelayVirtualPort(p.port)) {   // a partner behind the relay
+        auto f = RelayFrame(kRelayData, static_cast<uint8_t>(p.port & 0xFF), bytes.data(), bytes.size());
+        sockaddr_in r{}; r.sin_family = AF_INET; r.sin_addr.s_addr = relayIp_; r.sin_port = relayPort_;
+        sendto(static_cast<SOCKET>(sock_), reinterpret_cast<const char*>(f.data()), static_cast<int>(f.size()), 0,
+               reinterpret_cast<sockaddr*>(&r), sizeof(r));
+        return;
+    }
     sockaddr_in a{}; a.sin_family = AF_INET; a.sin_addr.s_addr = p.ip; a.sin_port = p.port;
     sendto(static_cast<SOCKET>(sock_), reinterpret_cast<const char*>(bytes.data()), static_cast<int>(bytes.size()), 0,
            reinterpret_cast<sockaddr*>(&a), sizeof(a));
@@ -170,8 +191,17 @@ void Session::Poll() {
     if (role_ == Role::None) return;
     SteadyMs now = NowMs();
 
+    if (role_ == Role::Host && relayIp_ && now - lastRelayRegister_ >= 2000) {   // register + keepalive
+        auto f = RelaySecretFrame(kRelayRegister, relaySecret_);
+        sockaddr_in r{}; r.sin_family = AF_INET; r.sin_addr.s_addr = relayIp_; r.sin_port = relayPort_;
+        sendto(static_cast<SOCKET>(sock_), reinterpret_cast<const char*>(f.data()), static_cast<int>(f.size()), 0, reinterpret_cast<sockaddr*>(&r), sizeof(r));
+        lastRelayRegister_ = now;
+    }
     if (role_ == Role::Client && localSlot_ == 0 && now - lastHelloSend_ >= kHelloEveryMs) {
-        if (auto* host = peerBySlot(0)) sendUnreliable(*host, MsgType::Hello, Body(pendingHello_));
+        if (auto* host = peerBySlot(0)) {
+            if (!relaySecret_.empty()) sendTo(*host, RelaySecretFrame(kRelayJoin, relaySecret_));   // the relay lets us through
+            sendUnreliable(*host, MsgType::Hello, Body(pendingHello_));
+        }
         lastHelloSend_ = now;
     }
 
@@ -181,6 +211,13 @@ void Session::Poll() {
         int n = recvfrom(static_cast<SOCKET>(sock_), reinterpret_cast<char*>(buf), sizeof(buf), 0,
                          reinterpret_cast<sockaddr*>(&from), &fl);
         if (n <= 0) break;
+        if (IsRelayFrame(buf, static_cast<size_t>(n))) {
+            bool fromRelay = relayIp_ && from.sin_addr.s_addr == relayIp_ && from.sin_port == relayPort_;
+            if (fromRelay && buf[2] == kRelayRegistered) relayRegistered_ = true;
+            else if (fromRelay && buf[2] == kRelayData && buf[3] != 0)
+                handlePacket(relayIp_, RelayVirtualPort(buf[3]), buf + kRelayHeader, static_cast<size_t>(n) - kRelayHeader);
+            continue;   // join acks and anything else from a relay carry no coop message
+        }
         handlePacket(from.sin_addr.s_addr, from.sin_port, buf, static_cast<size_t>(n));
         if (role_ == Role::None) return;
     }

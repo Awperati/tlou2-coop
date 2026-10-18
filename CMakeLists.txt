@@ -12,6 +12,7 @@ add_library(coop_core STATIC
     src/core/teleport.cpp
     src/core/roster.cpp
     src/core/config.cpp
+    src/core/relay.cpp
 )
 target_include_directories(coop_core PUBLIC src)
 target_link_libraries(coop_core PUBLIC ws2_32)
@@ -53,5 +54,7 @@ target_link_libraries(coop_tests PRIVATE coop_core)
 add_test(NAME coop_tests COMMAND coop_tests)
 
 # Two-process LAN smoke test without the game: host + client on loopback.
+add_executable(coop_relay tools/relay_main.cpp)
+target_link_libraries(coop_relay PRIVATE coop_core)
 add_executable(coop_lan_sim tools/lan_sim.cpp)
 target_link_libraries(coop_lan_sim PRIVATE coop_core)

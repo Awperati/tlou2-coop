@@ -51,6 +51,13 @@ public:
 
     bool StartHost(const std::string& sessionName, uint16_t port, uint8_t maxPlayers, bool enableDiscovery = true);
     bool StartClient(const std::string& hostAddr, uint16_t port, const Hello& hello);
+    // M8 relay (core/relay.h). Host: register with the relay and take partners from it (outbound UDP
+    // only). Client: call SetRelaySecret before StartClient when HostAddress is a relay; it then sends
+    // the relay a join frame with the secret alongside each Hello.
+    bool StartHostViaRelay(const std::string& sessionName, const std::string& relayAddr, uint16_t relayPort,
+                           uint8_t maxPlayers, const std::string& secret);
+    void SetRelaySecret(const std::string& secret) { relaySecret_ = secret; }
+    bool relayRegistered() const { return relayRegistered_; }
     void Stop();
 
     // Call once per frame. Receives, resends, times out peers, answers discovery.
@@ -118,6 +125,10 @@ private:
     std::map<uint8_t, Peer> peers_;      // host: all clients; client: slot 0 = host
     Hello pendingHello_;
     SteadyMs lastHelloSend_ = 0;
+    uint32_t relayIp_ = 0; uint16_t relayPort_ = 0;   // host via relay: the relay's address
+    std::string relaySecret_;
+    bool relayRegistered_ = false;
+    SteadyMs lastRelayRegister_ = 0;
     Callbacks cb_;
 };
 

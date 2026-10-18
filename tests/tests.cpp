@@ -1,6 +1,7 @@
 // Unit tests for the game-independent core. Run: build\coop_tests.exe
 #include "core/config.h"
 #include "core/protocol.h"
+#include "core/relay.h"
 #include "core/roster.h"
 #include "core/session.h"
 #include "core/teleport.h"
@@ -179,6 +180,64 @@ static void TestRoster() {
     }
 }
 
+// M8: a host and a partner meet through the relay; a stranger with the wrong secret cannot join;
+// oversize frames and floods are dropped.
+static void TestRelaySession() {
+    Relay relay;
+    CHECK(relay.Start(47960, "correct-horse", 300));
+    Session host, client, stranger;
+    bool welcomed = false, strangerWelcomed = false, gotState = false, gotTeleport = false;
+    Session::Callbacks hcb;
+    hcb.onPlayerState = [&](uint8_t slot, const PlayerState& s) { if (slot == 1 && s.pos.x == 7) gotState = true; };
+    hcb.onTeleportRequest = [&](uint8_t slot) { TeleportTo t; t.pos = {1, 2, 3}; host.SendTeleportTo(slot, t); };
+    host.setCallbacks(hcb);
+    Session::Callbacks ccb;
+    ccb.onWelcome = [&](const Welcome& w) { welcomed = w.slot == 1; };
+    ccb.onTeleportTo = [&](const TeleportTo& t) { gotTeleport = t.pos.y == 2; };
+    client.setCallbacks(ccb);
+    Session::Callbacks scb;
+    scb.onWelcome = [&](const Welcome&) { strangerWelcomed = true; };
+    stranger.setCallbacks(scb);
+
+    CHECK(host.StartHostViaRelay("relay-test", "127.0.0.1", 47960, 3, "correct-horse"));
+    Hello h; h.playerName = "p2";
+    client.SetRelaySecret("correct-horse");
+    CHECK(client.StartClient("127.0.0.1", 47960, h));
+    stranger.SetRelaySecret("wrong-secret");
+    CHECK(stranger.StartClient("127.0.0.1", 47960, h));
+    bool requested = false;
+    for (int i = 0; i < 600 && !(gotState && gotTeleport); ++i) {
+        relay.Poll(); host.Poll(); client.Poll(); stranger.Poll();
+        if (client.connected()) {
+            PlayerState s; s.pos = {7, 0, 0};
+            client.SendPlayerState(s);
+            if (!requested) { client.SendTeleportRequest(); requested = true; }
+        }
+        Sleep(5);
+    }
+    CHECK(host.relayRegistered());
+    CHECK(welcomed);
+    CHECK(gotState);
+    CHECK(gotTeleport);
+    CHECK(!strangerWelcomed);
+    CHECK(host.peerCount() == 1);
+    CHECK(relay.stats().droppedSecret > 0);
+
+    uint64_t over = relay.stats().droppedOversize;
+    CHECK(RelayTestSend(47960, std::vector<uint8_t>(kRelayMaxFrame + 100, 0x43)));
+    for (int i = 0; i < 20; ++i) { relay.Poll(); Sleep(2); }
+    CHECK(relay.stats().droppedOversize == over + 1);
+    host.Stop(); client.Stop(); stranger.Stop(); relay.Stop();
+
+    Relay slow;   // rate limit: 20 packets/s per sender, burst 40
+    CHECK(slow.Start(47961, "correct-horse", 20));
+    CHECK(RelayTestSend(47961, RelaySecretFrame(kRelayJoin, "correct-horse"), 200));
+    for (int i = 0; i < 50; ++i) { slow.Poll(); Sleep(2); }
+    CHECK(slow.stats().droppedRate >= 100);
+    CHECK(slow.partners() == 1);
+    slow.Stop();
+}
+
 static void TestLoopbackSession() {
     Session host, client;
     bool welcomed = false, gotState = false, gotTeleport = false, gotRequest = false;
@@ -277,6 +336,7 @@ int main() {
     TestTeleportTarget();
     TestRoster();
     TestLoopbackSession();
+    TestRelaySession();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

@@ -1200,3 +1200,9 @@ reachable UDP port. No hole punching, no TURN.
 **Steps:** 1 this design; 2 `Relay` in coop_core + `coop_relay.exe` + a host relay mode in `Session`, with a
 unit test that joins a client through the relay and passes a PlayerState and a reliable TeleportTo both ways;
 3 a `[session] RelayAddress` setting in the mod; 4 a live run over the relay.
+- M8 step 2 done (2026-10-19): `Relay` in coop_core (core/relay.h/.cpp), `coop_relay.exe <secret> [port] [rate]`,
+  `Session::StartHostViaRelay` and `Session::SetRelaySecret` for the partner. Secret in the register and join frames
+  (wrong or no secret: dropped silently, counted), max frame 1300 bytes, per-sender token bucket (default 300/s,
+  burst 2x). Test TestRelaySession: host and partner meet through the relay, PlayerState and a reliable
+  TeleportRequest/TeleportTo pass both ways; a wrong-secret stranger is never welcomed; an oversize frame is
+  dropped; 200 packets from one sender at 20/s lose 100+. 114 tests pass.
