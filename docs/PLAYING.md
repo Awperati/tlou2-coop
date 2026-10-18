@@ -81,6 +81,9 @@ relay off
 | No co-op text on screen at all, no `tlou2-coop.log` | The launcher isn't running, or the game was started as administrator | Start `coop_launcher.exe`; start the game normally, not "Run as administrator" |
 | Over the internet, the relay prints `host no` or `partners 0` | Wrong secret, or the relay port isn't reachable | Use the same `RelaySecret` on both PCs and the relay; forward UDP 47830 to the relay machine and allow `coop_relay.exe` through its firewall |
 | The partner's log says `Session is full` | An old connection is still counted | Wait 10 s; the partner retries by itself |
+| After restarting the game, co-op is gone | The launcher was closed, so it did not attach to the new game | Start `coop_launcher.exe` again; left open, it re-attaches to every restart |
+| The game won't close from the mod, or the launcher can't attach | The game runs as administrator | Close it and start it normally |
+| Your partner is far away and not catching up | They took another path or got stuck | Hold T (or Back on a controller) to teleport to the other player |
 
 The mod writes its log to `tlou2-coop.log` next to `tlou-ii.exe` on each PC; the host also keeps a copy of the
 partner's log as `tlou2-coop.partner.log`.
