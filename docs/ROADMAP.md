@@ -1026,3 +1026,12 @@ PCs, wearing their character's model.
   clone tests ran with PC A unfocused (Firefox in front), so they could not show anything.
   Decision: keep the hook on sub_14158F710 (patching the raw pad it copies for slot 3). It must be tested with
   PC A's game already in front. Patching the focus gate is banned by the user, so no workaround.
+- **10:40: the clone walks from PC B's stick.** With PC A's game in front, `clonedrive on` and PC B's virtual
+  stick held for 6 s, player 1 walked 11.4 m (-68.69,-196.43 -> -58.76,-202.04), direction (0.87,-0.49) against
+  PC B's wanted world direction (0.91,-0.42); her engine world stick matched PC B's exactly. The working path:
+  PC B sends its NdPlayerJoypad world stick in PlayerState; PC A converts it to a slot stick (world = -stick for
+  the clone, theta = pi, re-measured only on a steady stick) and the raw-copy hook (sub_14158F710, slot index 3)
+  swaps it in. Needs PC A's game in focus (the game's own input gate; not patched).
+  Next: dress the clone in the partner's look (dina-player packages on PC A), keep her position in sync
+  (correct drift with a teleport when far off), add a safe button set (sprint, crouch, jump), hide the story
+  companion except where the plot needs her, and the same clone of the host on PC B.
