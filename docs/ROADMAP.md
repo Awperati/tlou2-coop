@@ -1072,3 +1072,12 @@ The queued script `scratchpad/clonetest.sh` does steps 1-3 by itself.
 | 7 | Dialogue | listen to a Dina line in normal play | it comes from the clone's position (`speaker(s) now play from the clone`) |
 | 8 | PC B's clone of the host | move PC A's own player (needs PC A in front) | on PC B player 1 (Ellie look) walks the same way; PC B log `clonedrive: want ...` |
 | 9 | Stability | play 10 minutes including a checkpoint load | no crash; the clone is respawned after the load (5 s after player 0) |
+
+#### Clone test run 12:06 (PC A in front)
+- Movement: PC B's 3 s stick push moved the clone ~4.9 m on PC A; `clonedrive: want == engine world` (0.16, 0.99).
+- Crouch: the B press toggled from different starting stances, so the clone crawled on PC A while PC B crouched.
+  Fixed with stance sync (`[clone] StanceSync`, on): B is pressed for the clone until her stance matches the
+  partner's (tap = stand/crouch, 1 s hold = prone). PC B logged `clonestance: clone 1, other player 0` and fixed it.
+- Crash 12:06:32 (PC A): the prone clone's state camera pick (`sub_140C5A3B0`) read a null camera controller at
+  state+224 (player 1 has none). Guarded: no controller → camera id 0, which the function returns itself in another case.
+- The player 1 process moved in memory during the run (proc FCF2180 → FCF0800, same node): never cache her proc.
