@@ -1133,3 +1133,14 @@ Setup: PC B's game started by the user; the mod attaches through `coop_launcher.
 - 7b pass (log): speakers switched to the story characters during the plot moment and back to the clone after.
 - 7 pass (log): Dina's lines (`dina->player-2`) play from 'Player' 914FCFEC80, which is player 1, the clone.
   Not checked by ear.
+
+#### Player 2 buttons and triggers (2026-10-19 07:20, live with the user's OK)
+- The Y-button crash (GroupStack::Pop) came from every player's state update pushing/popping refcounted command
+  groups on the one global ActionCommandManager. Player 1's pushes/pops are now skipped (hooks on sub_1415B6C90 /
+  sub_1415B6D70, player told apart by a thread-local set in the Player::Active::Update hook).
+  Live: Y and X passed to the clone 3 times each, no crash. Default [clone] Buttons is now 1F0 (A B LB Y X).
+- Raw pad triggers: LT float +0x4F0, RT float +0x4F4, digital bits 0x200 / 0x2000 (measured). The raw-copy hook now
+  writes the partner's triggers (before, the host's own triggers leaked into the clone's copy).
+- Live: LT/RT from PC B made the clone aim, no crash, but she has no weapon: her hand floated off the body.
+- Next: give player 1 a weapon/inventory, and a camera direction for aiming (camera manager 1 exists:
+  kMaxCameraManagers = 2, CameraManager::GetGlobal(index) at sub_141B1B2B0).

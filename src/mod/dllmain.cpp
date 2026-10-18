@@ -189,7 +189,7 @@ void CoopMain() {
     // (padbits, 2026-10-18): A 0x20 (jump), B 0x80 (crouch), LB 0x100 (sprint). Only movement
     // buttons belong here; item/weapon buttons crashed the game with two players.
     bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
-    try { bridge.cloneButtonMask_ = std::stoull(cfg.get("clone", "Buttons", "1A0"), nullptr, 16); } catch (...) { bridge.cloneButtonMask_ = 0x1A0; }
+    try { bridge.cloneButtonMask_ = std::stoull(cfg.get("clone", "Buttons", "1F0"), nullptr, 16); } catch (...) { bridge.cloneButtonMask_ = 0x1F0; }
     // Partner's own setup on joining ([character] AutoLook): wear their character's look,
     // and hide the story companion when they are playing that companion. Applied in the loop.
     const bool autoLook = cfg.getBool("character", "AutoLook", true);

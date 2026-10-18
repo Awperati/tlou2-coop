@@ -65,6 +65,8 @@ bool CamAssistHookInstall(uintptr_t target);
 uint32_t CamAssistSkips();
 bool CamPickHookInstall(uintptr_t target);
 bool LevelListenerHooksInstall(uintptr_t add, uintptr_t remove);
+bool CommandGroupHooksInstall(uintptr_t push, uintptr_t pop);
+uint32_t CommandGroupSkips();
 std::string LevelListenerSkips();
 uint32_t CamPickSkips();
 uint32_t CheckpointWrites();

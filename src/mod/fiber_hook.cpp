@@ -670,6 +670,10 @@ std::atomic<uintptr_t> g_actPlayer[4];
 std::atomic<uint32_t> g_actCount[4];
 std::atomic<bool> g_cloneStickOn{false};
 std::atomic<float> g_cloneStickX{0}, g_cloneStickZ{0};
+} // namespace
+// The player whose Player::Active::Update is running on this thread (-1 outside one).
+thread_local int t_updatingPlayer = -1;
+namespace {
 uint64_t HookedActiveUpdate(uint64_t self) {
     uintptr_t pl = 0;
     __try { pl = *reinterpret_cast<uintptr_t*>(self + 8); } __except (EXCEPTION_EXECUTE_HANDLER) {}
@@ -688,7 +692,13 @@ uint64_t HookedActiveUpdate(uint64_t self) {
         if (cur == pl) { ++g_actCount[i]; break; }
         if (cur == 0) { uintptr_t z = 0; if (g_actPlayer[i].compare_exchange_strong(z, pl) || g_actPlayer[i].load() == pl) { ++g_actCount[i]; break; } }
     }
-    return reinterpret_cast<ActFn>(g_actTramp)(self);
+    int idx = -1;
+    if (pl) { __try { idx = *reinterpret_cast<int*>(pl + 21800); } __except (EXCEPTION_EXECUTE_HANDLER) {} }
+    int prev = t_updatingPlayer;
+    t_updatingPlayer = idx;
+    uint64_t r = reinterpret_cast<ActFn>(g_actTramp)(self);
+    t_updatingPlayer = prev;
+    return r;
 }
 } // namespace
 
@@ -825,6 +835,51 @@ bool LevelListenerHooksInstall(uintptr_t add, uintptr_t remove) {
     Log("level listener hooks: double link / unlink guarded (add %d, remove %d)", 1, g_remTarget ? 1 : 0);
     return true;
 }
+// ActionCommandManager command groups (the global manager, sub_1415B6F10): every player's state
+// update pushes (sub_1415B6C90) or pops (sub_1415B6D70) groups on it each frame, refcounted. A
+// second player's pops drove a count below zero and the game asserted in GroupStack::Pop (Y
+// button crash, 2026-10-18 07:50). The groups drive player 0's button prompts, so player 1's
+// pushes and pops are skipped. Player 1 is told by t_updatingPlayer (Player::Active::Update hook).
+namespace {
+using GroupFn = uint64_t (*)(uint64_t mgr, uint64_t group, uint64_t a3, uint64_t a4);
+uint8_t* g_pushTramp = nullptr; uint8_t* g_popTramp = nullptr;
+uint8_t g_pushSaved[14], g_popSaved[12];
+uintptr_t g_pushTarget = 0, g_popTarget = 0;
+std::atomic<uint32_t> g_groupSkips{0};
+uintptr_t g_popJump = 0;   // GroupStack::Pop, the pop wrapper's jump target
+uint64_t HookedGroupPush(uint64_t mgr, uint64_t group, uint64_t a3, uint64_t a4) {
+    if (t_updatingPlayer > 0) { ++g_groupSkips; return 0; }
+    return reinterpret_cast<GroupFn>(g_pushTramp)(mgr, group, a3, a4);
+}
+uint64_t HookedGroupPop(uint64_t mgr, uint64_t group, uint64_t a3, uint64_t a4) {
+    if (t_updatingPlayer > 0) { ++g_groupSkips; return 0; }
+    // The original is `add rcx,88h; jmp GroupStack::Pop` (a relative jump, not copyable): call Pop directly.
+    return reinterpret_cast<GroupFn>(g_popJump)(mgr + 0x88, group, a3, a4);
+}
+} // namespace
+
+bool CommandGroupHooksInstall(uintptr_t push, uintptr_t pop) {
+    if (g_pushTarget) return true;
+    // movsxd r10,[rcx+4888h]; lea r11,[rcx+88h]
+    static const uint8_t pushExpect[14] = {0x4C, 0x63, 0x91, 0x88, 0x48, 0x00, 0x00, 0x4C, 0x8D, 0x99, 0x88, 0x00, 0x00, 0x00};
+    // add rcx,88h; jmp rel32 (only the first 7 bytes are fixed)
+    static const uint8_t popHead[7] = {0x48, 0x81, 0xC1, 0x88, 0x00, 0x00, 0x00};
+    if (std::memcmp(reinterpret_cast<void*>(pop), popHead, sizeof(popHead)) != 0 || reinterpret_cast<uint8_t*>(pop)[7] != 0xE9) {
+        Log("command group hooks: pop prologue changed, not hooking"); return false;
+    }
+    if (!InstallTrampoline(push, pushExpect, sizeof(pushExpect), reinterpret_cast<void*>(&HookedGroupPush), g_pushSaved, g_pushTramp)) {
+        Log("command group hooks: push prologue changed, not hooking"); return false;
+    }
+    g_pushTarget = push;
+    int32_t rel; std::memcpy(&rel, reinterpret_cast<void*>(pop + 8), 4);
+    g_popJump = pop + 12 + rel;
+    uint8_t popExpect[12]; std::memcpy(popExpect, reinterpret_cast<void*>(pop), 12);
+    if (InstallTrampoline(pop, popExpect, sizeof(popExpect), reinterpret_cast<void*>(&HookedGroupPop), g_popSaved, g_popTramp)) g_popTarget = pop;
+    Log("command group hooks: player 1's command group push/pop skipped (pop %s)", g_popTarget ? "hooked" : "NOT hooked");
+    return true;
+}
+uint32_t CommandGroupSkips() { return g_groupSkips.load(); }
+
 std::string LevelListenerSkips() { return "add " + std::to_string(g_addSkips.load()) + ", remove " + std::to_string(g_remSkips.load()); }
 
 // Raw pad -> joypad slot copy (sub_14158F710; slot, raw pad, slot index), run every frame for
@@ -860,6 +915,11 @@ uint64_t HookedRawCopy(uint64_t slot, uint64_t raw, uint64_t idx) {
             uint64_t pressed = held & ~prevHeld, released = prevHeld & ~held;
             std::memset(buf + 0x518, 0, 0x20);
             std::memcpy(buf + 0x518, &pressed, 8); std::memcpy(buf + 0x520, &released, 8); std::memcpy(buf + 0x528, &held, 8);
+            // Triggers: analog at +0x4F0 (LT) / +0x4F4 (RT), digital bits 0x200 / 0x2000 in the masks
+            // (measured with the virtual pad, 2026-10-19). The copy is raw pad 0, the host's own pad:
+            // without this the host's triggers reached the clone.
+            float lt = (held & 0x200) ? 1.f : 0.f, rt = (held & 0x2000) ? 1.f : 0.f;
+            std::memcpy(buf + 0x4F0, &lt, 4); std::memcpy(buf + 0x4F4, &rt, 4);
             prevHeld = held;
             ++g_rawHits;
             return reinterpret_cast<RawCopyFn>(g_rawTramp)(slot, reinterpret_cast<uint64_t>(buf), idx);
@@ -1029,6 +1089,8 @@ void FiberHookRemove() {
     if (g_actTarget) { RemoveTrampoline(g_actTarget, g_actSaved, sizeof(g_actSaved)); g_actTarget = 0; }
     if (g_camTarget) { RemoveTrampoline(g_camTarget, g_camSaved, sizeof(g_camSaved)); g_camTarget = 0; }
     if (g_pickTarget) { RemoveTrampoline(g_pickTarget, g_pickSaved, sizeof(g_pickSaved)); g_pickTarget = 0; }
+    if (g_pushTarget) { RemoveTrampoline(g_pushTarget, g_pushSaved, sizeof(g_pushSaved)); g_pushTarget = 0; }
+    if (g_popTarget) { RemoveTrampoline(g_popTarget, g_popSaved, sizeof(g_popSaved)); g_popTarget = 0; }
     if (g_addTarget) { RemoveTrampoline(g_addTarget, g_addSaved, sizeof(g_addSaved)); g_addTarget = 0; }
     if (g_remTarget) { RemoveTrampoline(g_remTarget, g_remSaved, sizeof(g_remSaved)); g_remTarget = 0; }
     g_rawOn = false;
