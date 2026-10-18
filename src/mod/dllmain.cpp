@@ -328,8 +328,8 @@ void CoopMain() {
 
     std::string updateHost;   // partner: the host's address, for the coop.dll auto-update
     // M8 relay (off unless RelayAddress / RelaySecret are set): play across networks through coop_relay.exe.
-    const std::string relayAddr = cfg.get("session", "RelayAddress", ""), relaySecret = cfg.get("session", "RelaySecret", "");
-    const uint16_t relayPort = static_cast<uint16_t>(cfg.getInt("session", "RelayPort", kRelayDefaultPort));
+    std::string relayAddr = cfg.get("session", "RelayAddress", ""), relaySecret = cfg.get("session", "RelaySecret", "");
+    uint16_t relayPort = static_cast<uint16_t>(cfg.getInt("session", "RelayPort", kRelayDefaultPort));
     if (isHost && !relayAddr.empty()) {
         if (relaySecret.size() < 8) Log("relay: RelaySecret must be 8+ characters; not hosting through %s", relayAddr.c_str());
         else if (!session.StartHostViaRelay(cfg.get("session", "SessionName", "TLOU2 Co-op"), relayAddr, relayPort,
@@ -782,6 +782,29 @@ void CoopMain() {
                         bridge.QueueMoveTo(name, m, motion, goal, owned);
                     }
                     else if (line == "release") bridge.ReleasePuppet();
+                    // relay <addr> <port> <secret> | relay off: switch this run between the relay and LAN
+                    // without touching coop.ini (a reload goes back to the ini's settings).
+                    else if (line.rfind("relay ", 0) == 0) {
+                        std::istringstream rs(line.substr(6)); std::string a; rs >> a;
+                        Hello h2; h2.playerName = cfg.get("session", "PlayerName", "Player"); h2.wanted = wanted;
+                        if (a == "off") {
+                            relayAddr.clear(); relaySecret.clear();
+                            session.SetRelaySecret("");
+                            bool ok = isHost ? session.StartHost(cfg.get("session", "SessionName", "TLOU2 Co-op"), port, static_cast<uint8_t>(cfg.getInt("session", "MaxPlayers", 2)))
+                                             : session.StartClient(updateHost, port, h2);
+                            Log("relay: off, back to LAN: %s", ok ? "ok" : "FAILED");
+                        } else {
+                            unsigned rp = kRelayDefaultPort; std::string sec; rs >> rp >> sec;
+                            if (sec.size() < 8) Log("relay: secret must be 8+ characters");
+                            else {
+                                relayAddr = a; relayPort = static_cast<uint16_t>(rp); relaySecret = sec;
+                                bool ok;
+                                if (isHost) ok = session.StartHostViaRelay(cfg.get("session", "SessionName", "TLOU2 Co-op"), relayAddr, relayPort, static_cast<uint8_t>(cfg.getInt("session", "MaxPlayers", 2)), relaySecret);
+                                else { session.SetRelaySecret(relaySecret); ok = session.StartClient(relayAddr, relayPort, h2); }
+                                Log("relay: %s through %s:%u: %s", isHost ? "hosting" : "joining", relayAddr.c_str(), relayPort, ok ? "ok" : "FAILED");
+                            }
+                        }
+                    }
                     else if (line.rfind("plotsim ", 0) == 0) { plotSimUntil = GetTickCount64() + 1000ull * std::stoul(Trim(line.substr(8))); Log("plotsim: test plot moment for %s s", Trim(line.substr(8)).c_str()); }
                     else if (line.rfind("dropbody ", 0) == 0) bridge.DropRemoteBody(Trim(line.substr(9)));
                     else if (line.rfind("puppet ", 0) == 0) {
