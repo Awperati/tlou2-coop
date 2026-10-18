@@ -1227,3 +1227,14 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   0.8 m+ behind). Unit test with a clone 20 % slower than the partner: lag 2.12 m without, 0.76 m with.
   [clone] CatchUp (on), `catchup on|off`. Live numbers: `clonedrift:` every 0.5 s while the partner moves;
   livebatch.sh walks 10 s with it off, then on, and prints count/mean/p95/max for each.
+
+#### "Spotted us" repeats (HANDOFF item 6, fixed 2026-10-19)
+- Cause: alert mirroring was level-based. Whenever an enemy's combat state differed between the PCs, each side acted
+  again every 5 s. The host made the enemy hunt the partner's stand-in, the companion; in clone mode she is hidden and
+  invisible to AI, so the enemy never entered combat on the host, the states never matched, and the partner
+  re-reported every 5 s. The partner side had the same issue the other way (it hunted the old NPC puppet name).
+- Fix at the source: core `AlertLatch`, edge-triggered. Each side acts once per real alert and re-arms only when the
+  enemy leaves combat on the acting side. In clone mode both sides target the clone ('player-2').
+- Test TestAlertLatch (scenario streams at 10 Hz): A spotted at 2 s and the host never takes it, 30 s: old rule
+  6 reports, new 1. B out of combat at 15 s and spotted again at 20 s: 2 reports, no hunts. C host alert the partner
+  never takes: 1 hunt. 124 tests pass. The live check is any fight: one `spotted us` per alert in the partner log.

@@ -2766,14 +2766,16 @@ void GameBridge::ApplyEnemyStates(const std::vector<EnemyState>& v) {
             if (!alive) continue;
             // Alerts both ways: the host saw combat -> this enemy hunts the host's body here;
             // it is in combat only here -> it spotted the partner, tell the host.
-            ULONGLONG nowA = GetTickCount64();
             bool combatHere = NativeInCombat(e.sid);
             bool hostCombat = (e.flags & kEnemyCombat) != 0;
-            if (hostCombat != combatHere && nowA - enemyAlertAt_[e.sid] > 5000) {
-                enemyAlertAt_[e.sid] = nowA;
-                if (hostCombat) {
-                    NativeMakeAware(e.sid, Fnv1a(puppetSpawner_.empty() ? std::string("player") : puppetSpawner_));
-                    Log("enemies: %016llx alerted by the host, now hunting '%s'", static_cast<unsigned long long>(e.sid), puppetSpawner_.c_str());
+            // Once per real alert (AlertLatch). In clone mode the host's body here is the clone,
+            // process user id 'player-2'; otherwise the NPC stand-in.
+            auto act = alertLatch_.Update(e.sid, combatHere, hostCombat);
+            if (act != AlertLatch::Act::None) {
+                if (act == AlertLatch::Act::HuntHostBody) {
+                    std::string body = cloneDrive_ ? std::string("player-2") : (puppetSpawner_.empty() ? std::string("player") : puppetSpawner_);
+                    NativeMakeAware(e.sid, Fnv1a(body));
+                    Log("enemies: %016llx alerted by the host, now hunting '%s'", static_cast<unsigned long long>(e.sid), body.c_str());
                 } else {
                     std::lock_guard lk(enemyMu_);
                     damageOut_.push_back({e.sid, 0.f, kReportAlert});
@@ -2823,8 +2825,11 @@ void GameBridge::ApplyEnemyDamage(const EnemyDamage& d) {
         if (!NativeAlive(d.sid)) return;
         if (d.flags & kReportAlert) {
             // The partner's stand-in here is the buddy (their character's companion).
-            uintptr_t buddy = findBuddyOnFiber();
-            std::string who = buddy ? ProcessName(buddy) : std::string();
+            // Clone mode: the partner's body here is the clone ('player-2'); the companion is hidden
+            // and invisible to AI, so an enemy told to hunt her never entered combat and the partner
+            // kept re-reporting (HANDOFF item 6).
+            uintptr_t buddy = cloneDrive_ ? 0 : findBuddyOnFiber();
+            std::string who = cloneDrive_ ? std::string("player-2") : (buddy ? ProcessName(buddy) : std::string());
             if (!who.empty() && who != "?" && !NativeInCombat(d.sid)) {
                 NativeMakeAware(d.sid, Fnv1a(who));
                 Log("enemies: partner was spotted by %016llx, now hunting '%s'", static_cast<unsigned long long>(d.sid), who.c_str());

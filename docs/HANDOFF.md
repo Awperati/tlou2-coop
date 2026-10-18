@@ -71,7 +71,7 @@ Full running log of findings: [ROADMAP.md](ROADMAP.md). This file is the short v
    before a device-removed crash points at a hang; take a live dump (tools/livedump.ps1, tools/dumpthreads.py).
 7. Clone weapon/aim live test: `tools/live/aimtest.sh` waits read-only for PC A's game in front, then PC B aims,
    looks up, fires; pass = `cloneaim:` clone aim following the wanted yaw/pitch, no crash.
-6. Rough edges: the partner-side new enemy repeatedly reports "spotted us" (5 s throttle); a steady ~1.8 m walking
+6. Rough edges: ~~the partner-side new enemy repeatedly reports "spotted us" (5 s throttle)~~ fixed 2026-10-19 (AlertLatch, ROADMAP); a steady ~1.8 m walking
    lag on the host body; the remote pause needs the game window in front.
 
 ## 5. Key engine facts (rva = addr − 0x140000000)

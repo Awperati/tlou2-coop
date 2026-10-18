@@ -6,6 +6,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <map>
 #include <optional>
 
 namespace coop {
@@ -187,6 +188,31 @@ struct WorldEvent { uint32_t eventId = 0; std::vector<uint8_t> args; };
 struct EnemyState { uint64_t sid = 0; float health = 0; uint8_t flags = 0; };
 constexpr uint8_t kEnemyDead = 1;     // flags bit0
 constexpr uint8_t kEnemyCombat = 2;   // flags bit1: in combat (npc-in-combat?)
+// Enemy alert mirroring, edge-triggered (2026-10-19). The old rule was level-based: whenever an
+// enemy's combat state differed between the PCs, re-send every 5 s. When the other side could not
+// take the alert (on the host the partner's stand-in was the hidden companion, which the enemy
+// cannot hunt), the states never matched and the partner re-reported "spotted us" every 5 s. Now
+// each side acts once per real alert: latched when it acts, re-armed only when the enemy leaves
+// combat on the acting side.
+class AlertLatch {
+public:
+    enum class Act { None, ReportToHost, HuntHostBody };
+    // combatHere: the enemy is in combat on this PC. hostCombat: the host says it is in combat.
+    Act Update(uint64_t sid, bool combatHere, bool hostCombat) {
+        Entry& e = state_[sid];
+        if (!combatHere) e.reported = false;   // left combat here: a new alert may be reported
+        if (!hostCombat) e.hunted = false;     // left combat on the host: a new host alert may be mirrored
+        if (combatHere && !hostCombat && !e.reported && !e.hunted) { e.reported = true; return Act::ReportToHost; }
+        if (hostCombat && !combatHere && !e.hunted && !e.reported) { e.hunted = true; return Act::HuntHostBody; }
+        if (hostCombat && combatHere) { e.reported = true; e.hunted = true; }   // both in combat: in sync
+        return Act::None;
+    }
+    void Forget(uint64_t sid) { state_.erase(sid); }
+private:
+    struct Entry { bool reported = false, hunted = false; };
+    std::map<uint64_t, Entry> state_;
+};
+
 // Partner -> host: damage dealt on the partner's PC, and/or "this enemy spotted me".
 struct EnemyDamage { uint64_t sid = 0; float amount = 0; uint8_t flags = 0; };
 constexpr uint8_t kReportAlert = 1;   // flags bit0

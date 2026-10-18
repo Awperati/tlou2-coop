@@ -182,7 +182,7 @@ public:
     std::map<uint64_t, float> enemyHostHp_;    // partner: last health the host sent
     std::set<uint64_t> enemyKilledHere_;       // partner: already npc-kill'ed
     std::map<uint64_t, unsigned long long> enemyHitAt_;   // partner: when a local hit was reported
-    std::map<uint64_t, unsigned long long> enemyAlertAt_; // either side: last alert mirrored/reported
+    AlertLatch alertLatch_;                              // either side: one action per real alert
     std::atomic<bool> enemySnapBusy_{false};
     std::set<uint64_t> enemyHostKnown_;       // partner: every id the host ever sent
     std::set<uint64_t> enemySpawnReported_;   // partner: already reported as partner-only

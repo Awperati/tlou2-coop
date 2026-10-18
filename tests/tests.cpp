@@ -187,6 +187,40 @@ static void TestRoster() {
 // oversize frames and floods are dropped.
 // Catch-up: a clone that walks 20 % slower than the other player on the same stick. Without the
 // pull her lag grows without bound; with it, it settles under a metre.
+// Alerts: one report per real alert, even when the other side never takes it.
+static void TestAlertLatch() {
+    struct Sample { float t; bool here, host; };
+    auto stream = [](float until, auto fn) { std::vector<Sample> v; for (float t = 0; t < until; t += 0.1f) v.push_back(fn(t)); return v; };
+    auto oldRule = [](const std::vector<Sample>& v) {   // level-based, 5 s throttle (before 2026-10-19)
+        int reports = 0; float last = -100.f;
+        for (auto& s : v) if (s.here != s.host && s.t - last > 5.f) { last = s.t; if (!s.host) ++reports; }
+        return reports;
+    };
+    auto newRule = [](const std::vector<Sample>& v, int& hunts) {
+        AlertLatch l; int reports = 0; hunts = 0;
+        for (auto& s : v) {
+            auto a = l.Update(42, s.here, s.host);
+            if (a == AlertLatch::Act::ReportToHost) ++reports;
+            if (a == AlertLatch::Act::HuntHostBody) ++hunts;
+        }
+        return reports;
+    };
+    int hunts = 0;
+    // A: spotted at 2 s, the host never takes it (30 s)
+    auto a = stream(30, [](float t) { return Sample{t, t >= 2, false}; });
+    std::printf("  alerts A (host never takes it): old %d reports, new %d\n", oldRule(a), newRule(a, hunts));
+    CHECK(oldRule(a) >= 5);
+    CHECK(newRule(a, hunts) == 1);
+    // B: combat here 2-15 s, out of combat, spotted again at 20 s; the host joins at 4-15 s
+    auto b = stream(30, [](float t) { bool here = (t >= 2 && t < 15) || t >= 20; return Sample{t, here, t >= 4 && t < 15}; });
+    CHECK(newRule(b, hunts) == 2);
+    CHECK(hunts == 0);
+    // C: the host alerts at 5-12 s; the partner's enemy never enters combat
+    auto c = stream(20, [](float t) { return Sample{t, false, t >= 5 && t < 12}; });
+    CHECK(newRule(c, hunts) == 0);
+    CHECK(hunts == 1);
+}
+
 static void TestCloneCatchUp() {
     auto run = [](bool pull) {
         float px = 0, pz = 0, cx = 0, cz = 0, worst = 0, last = 0;
@@ -368,6 +402,7 @@ int main() {
     TestLoopbackSession();
     TestRelaySession();
     TestCloneCatchUp();
+    TestAlertLatch();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
