@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
+#include <utility>
 
 namespace coop {
 
@@ -47,6 +49,9 @@ bool UserIdHookInstall(uintptr_t setUserId);
 void SetUserIdFix(uint64_t id);
 // Player::Active::Update (rva 0xAD61E0): per-player call counts since the last read.
 bool ActiveUpdateHookInstall(uintptr_t target);
+// Trace script natives whose first argument is `sid` (0 stops); dump = {NativeObject*, calls}.
+void NativeTraceStart(uint64_t sid);
+std::vector<std::pair<uintptr_t, uint32_t>> NativeTraceDump();
 std::string ActiveUpdateCounts();
 // Clone drive: write this world stick into player 1 before each Active::Update (needs the hook).
 void SetCloneWorldStick(bool on, float x, float z);

@@ -658,6 +658,19 @@ void CoopMain() {
                     else if (line == "lookstate") bridge.QueueLookState();
                     else if (line == "players") bridge.QueuePlayerTable();
                     else if (line == "activecount") bridge.ActiveCount();
+                    else if (line.rfind("trace ", 0) == 0) {   // trace <name>|off: natives the scripts call on <name>
+                        std::string who = Trim(line.substr(6));
+                        auto fnvt = [](const std::string& t) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char ch : t) { h ^= ch; h *= 0x100000001b3ull; } return h; };
+                        NativeTraceStart(who == "off" ? 0 : fnvt(who));
+                        Log("trace: %s", who == "off" ? "off" : ("natives called on '" + who + "'").c_str());
+                    }
+                    else if (line == "tracedump") {
+                        HMODULE exe = GetModuleHandleW(nullptr);
+                        auto rows = NativeTraceDump();
+                        std::string outs;
+                        for (auto& [o, n] : rows) { char b[64]; snprintf(b, sizeof(b), " obj+%llx:%u", static_cast<unsigned long long>(o - reinterpret_cast<uintptr_t>(exe)), n); outs += b; }
+                        Log("tracedump: %zu natives%s", rows.size(), outs.c_str());
+                    }
                     else if (line == "padmirror on" || line == "padmirror off") {
                         bridge.padMirror_ = line == "padmirror on";
                         uintptr_t s2 = bridge.JoypadSlot(2), s3 = bridge.JoypadSlot(3);

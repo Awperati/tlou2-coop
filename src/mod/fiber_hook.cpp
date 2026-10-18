@@ -145,8 +145,43 @@ bool InStateScript() {
     return ctx && *reinterpret_cast<int32_t*>(ctx + 896) >= 0;
 }
 
+// Companion trace (2026-10-18): which script natives the level scripts call on one object
+// (first argument == g_traceSid, e.g. 'dina'), so the companion's plot-area assistance can be
+// mapped. Lock-free table of native objects with call counts; dumped by NativeTraceDump.
+namespace {
+std::atomic<uint64_t> g_traceSid{0};
+constexpr int kTraceSlots = 256;
+std::atomic<uintptr_t> g_traceObj[kTraceSlots];
+std::atomic<uint32_t> g_traceCount[kTraceSlots];
+void TraceNative(void* self, void* argv, unsigned argc) {
+    uint64_t sid = g_traceSid.load(std::memory_order_relaxed);
+    if (!sid || argc == 0 || !argv) return;
+    uint64_t a0 = 0;
+    __try { a0 = *reinterpret_cast<uint64_t*>(argv); } __except (EXCEPTION_EXECUTE_HANDLER) { return; }
+    if (a0 != sid) return;
+    uintptr_t obj = reinterpret_cast<uintptr_t>(self);
+    for (int i = 0; i < kTraceSlots; ++i) {
+        uintptr_t cur = g_traceObj[i].load(std::memory_order_relaxed);
+        if (cur == obj) { ++g_traceCount[i]; return; }
+        if (cur == 0) {
+            uintptr_t z = 0;
+            if (g_traceObj[i].compare_exchange_strong(z, obj) || g_traceObj[i].load() == obj) { ++g_traceCount[i]; return; }
+        }
+    }
+}
+} // namespace
+} // namespace (anonymous): the two below are public
+void NativeTraceStart(uint64_t sid) { for (int i = 0; i < kTraceSlots; ++i) { g_traceObj[i] = 0; g_traceCount[i] = 0; } g_traceSid = sid; }
+std::vector<std::pair<uintptr_t, uint32_t>> NativeTraceDump() {
+    std::vector<std::pair<uintptr_t, uint32_t>> out;
+    for (int i = 0; i < kTraceSlots; ++i) if (uintptr_t o = g_traceObj[i].load()) out.push_back({o, g_traceCount[i].load()});
+    return out;
+}
+namespace {
+
 extern "C" char HookedNativeInvoke(void* self, void* argv, unsigned argc, void* out, void* ctx) {
     ++g_inside;
+    TraceNative(self, argv, argc);
     if (g_scriptPending && OnGameFiber() && InStateScript()) Drain(2);
     char r = reinterpret_cast<InvokeFn>(g_nativeTramp)(self, argv, argc, out, ctx);
     --g_inside;
