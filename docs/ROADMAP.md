@@ -1160,3 +1160,9 @@ Setup: PC B's game started by the user; the mod attaches through `coop_launcher.
   (camera-aim-override-direction uses index 0; the table has 2 entries), cleared with sub_1407FA650(1) on release.
   `cloneaim:` logs the wanted aim against the clone's own aim read back each second. [clone] AimOrder swaps the two
   angles if they turn out to be (yaw, pitch); [clone] AimOverride = false falls back to the right-stick turn.
+- Aim override angle order, read statically: camera-aim-override-direction is the only caller of sub_1407FAAD0. It
+  fmods both angles into -180..180, converts to radians, and calls sub_14217EC70(q, arg0, arg1, 0, order 0) ->
+  sub_14217F530: order 0 puts arg0 on the X axis (pitch) and arg1 on the Y axis (yaw), then turns +Z (0,0,1).
+  So the order is (pitch, yaw) = AimOrder 0. Matrix blocks: Rx rows (1,0,0)(0,c,s)(0,-s,c), Ry rows (c,0,-s)(0,1,0)(s,0,c).
+  With row vectors, +Z -> (sin yaw, -sin pitch, ...): yaw keeps our sign, pitch flips (AimPitchSign -1 by default).
+  With column vectors it would be the reverse; the live `cloneaim:` read-back decides between the two.

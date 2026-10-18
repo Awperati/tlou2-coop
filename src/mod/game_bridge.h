@@ -100,6 +100,7 @@ public:
     std::atomic<float> cloneAimYaw_{0}, cloneAimPitch_{0};   // the other player's, for the clone
     bool cloneAimOverride_ = true;   // [clone] AimOverride: point the clone's camera with the aim override
     bool cloneAimSet_ = false;
+    float cloneAimYawSign_ = 1.f, cloneAimPitchSign_ = -1.f;   // [clone] AimYawSign / AimPitchSign
     int cloneAimOrder_ = 0;          // [clone] AimOrder: 0 = override(pitch, yaw), 1 = override(yaw, pitch)
     std::atomic<uint8_t> shots_{0};
     std::atomic<uint64_t> shotTarget_{0};

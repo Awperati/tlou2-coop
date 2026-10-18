@@ -192,6 +192,8 @@ void CoopMain() {
     bridge.cloneAimSign_ = cfg.getFloat("clone", "AimSign", 1.f);
     bridge.cloneAimOverride_ = cfg.getBool("clone", "AimOverride", true);
     bridge.cloneAimOrder_ = cfg.getInt("clone", "AimOrder", 0);
+    bridge.cloneAimYawSign_ = cfg.getFloat("clone", "AimYawSign", 1.f);
+    bridge.cloneAimPitchSign_ = cfg.getFloat("clone", "AimPitchSign", -1.f);
     try { bridge.cloneButtonMask_ = std::stoull(cfg.get("clone", "Buttons", "1F0"), nullptr, 16); } catch (...) { bridge.cloneButtonMask_ = 0x1F0; }
     // Partner's own setup on joining ([character] AutoLook): wear their character's look,
     // and hide the story companion when they are playing that companion. Applied in the loop.

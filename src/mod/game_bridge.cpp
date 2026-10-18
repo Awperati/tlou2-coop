@@ -2083,7 +2083,12 @@ void GameBridge::TickCloneDrive() {
         // clone's, along the other player's aim. Read back her own aim for the log.
         bool aimNow = (held & 0x200) != 0;
         if (cloneAimOverride_ && aimNow) {
-            float yawD = cloneAimYaw_.load() * 57.29578f, pitchD = cloneAimPitch_.load() * 57.29578f;
+            // Static read (2026-10-19): the override builds Euler(arg0 about X = pitch, arg1 about Y = yaw)
+            // with sub_14217F530 order 0 and turns +Z with it. Its blocks are Rx rows (1,0,0)(0,c,s)(0,-s,c)
+            // and Ry rows (c,0,-s)(0,1,0)(s,0,c): with row vectors +Z goes to (sin yaw, -sin pitch, ..), so our
+            // yaw (atan2(x, z)) keeps its sign and our pitch (up positive) flips. AimYawSign / AimPitchSign
+            // cover the other convention if the live read-back disagrees.
+            float yawD = cloneAimYawSign_ * cloneAimYaw_.load() * 57.29578f, pitchD = cloneAimPitchSign_ * cloneAimPitch_.load() * 57.29578f;
             using AimDirFn = void (*)(unsigned, float, float);
             if (cloneAimOrder_ == 0) reinterpret_cast<AimDirFn>(BuildRva(0x7FAAD0))(1, pitchD, yawD);
             else reinterpret_cast<AimDirFn>(BuildRva(0x7FAAD0))(1, yawD, pitchD);
