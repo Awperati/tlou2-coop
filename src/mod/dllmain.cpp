@@ -343,7 +343,7 @@ void CoopMain() {
     }
     ULONGLONG lastJoinWait = GetTickCount64();
     bool selfMovingLogged = false;
-    std::string cloneLook; int cloneStage = 0; ULONGLONG cloneAt = 0, cloneWaitStart = 0;
+    std::string cloneLook; int cloneStage = 0; ULONGLONG cloneAt = 0, cloneWaitStart = 0, cloneLookCheckAt = 0; bool cloneLookPending = false;
     const bool cloneEnabled = cfg.getBool("clone", "Enabled", true);   // on unless a coop.ini says otherwise (user, 2026-10-18)
     ULONGLONG lastCloneCheck = 0; bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
 
@@ -824,6 +824,13 @@ void CoopMain() {
         // clone <look>: want the look's packages, spawn player 1 as Ellie (always loaded), teleport
         // her beside us, apply Ellie's look (builds the body), then the wanted look once its
         // packages are in (the request waits on them by itself), then show her meshes.
+        // The look's packages load slowly or not at all while the game is in the background:
+        // keep checking and dress her once they are in.
+        if (cloneLookPending && cloneStage == 0 && now - cloneLookCheckAt > 10000) {
+            cloneLookCheckAt = now;
+            bridge.QueueCloneLookCheck();
+            if (bridge.clonePkgsLoaded_) { cloneLookPending = false; bridge.QueuePlayerLook(1, cloneLook); cloneStage = 6; cloneAt = now + 2000; Log("clone: packages for '%s' are in now, dressing her", cloneLook.c_str()); }
+        }
         if (cloneStage && now >= cloneAt) {
             if (cloneStage == 1) {
                 bridge.WantCloneLook(lookPackages(cloneLook));
@@ -839,7 +846,7 @@ void CoopMain() {
             else if (cloneStage == 5) {
                 bridge.QueueCloneLookCheck();
                 if (bridge.clonePkgsLoaded_) { bridge.QueuePlayerLook(1, cloneLook); cloneStage = 6; cloneAt = now + 2000; }
-                else if (now - cloneWaitStart > 90000) { cloneStage = 0; Log("clone: packages for '%s' still not loaded after 90 s; she stays Ellie", cloneLook.c_str()); }
+                else if (now - cloneWaitStart > 90000) { cloneStage = 0; cloneLookPending = true; Log("clone: packages for '%s' still not loaded after 90 s; she stays Ellie for now, checking again every 10 s", cloneLook.c_str()); }
                 else cloneAt = now + 1000;
             }
             else { bridge.QueuePlayerShow(1); cloneStage = 0; Log("clone: player 1 ready as '%s'", cloneLook.c_str()); }
