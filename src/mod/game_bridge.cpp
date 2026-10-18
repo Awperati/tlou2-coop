@@ -2077,15 +2077,23 @@ void GameBridge::TickCloneDrive() {
         if (cloneThetaFromMotion_) {
             auto cpos = Read<Vec3>(p + offPos_);
             unsigned long long tm = GetTickCount64();
-            bool sameCmd = std::fabs(lastCmdX_ - motionCmdX_) < 0.1f && std::fabs(lastCmdZ_ - motionCmdZ_) < 0.1f;
+            // She turns gradually: wait 0.6 s after any change of the stick we give her (a new command,
+            // a theta change, a snap) before measuring, measure over 0.8 s, and move theta a third of
+            // the way. Measuring right away read her mid-turn and theta ran away (09:40 log).
+            bool sameCmd = std::fabs(lastStickX_ - motionStickX_) < 0.08f && std::fabs(lastStickY_ - motionStickY_) < 0.08f &&
+                           std::fabs(lastCmdX_ - motionCmdX_) < 0.1f && std::fabs(lastCmdZ_ - motionCmdZ_) < 0.1f && cloneFixAt_ < motionRefAt_;
             if (!cpos || !sameCmd || (lastCmdX_ * lastCmdX_ + lastCmdZ_ * lastCmdZ_) < 0.04f) {
-                motionRefAt_ = tm; if (cpos) motionRef_ = *cpos; motionCmdX_ = lastCmdX_; motionCmdZ_ = lastCmdZ_;
-            } else if (tm - motionRefAt_ >= 400) {
+                motionRefAt_ = tm + 600; if (cpos) motionRef_ = *cpos; motionCmdX_ = lastCmdX_; motionCmdZ_ = lastCmdZ_;
+                motionStickX_ = lastStickX_; motionStickY_ = lastStickY_;
+            } else if (tm < motionRefAt_) {
+                motionRef_ = *cpos;   // still settling: keep the window start fresh
+            } else if (tm - motionRefAt_ >= 800) {
                 float dx = cpos->x - motionRef_.x, dz = cpos->z - motionRef_.z;
-                if (dx * dx + dz * dz > 0.25f * 0.25f) {
+                float meas = ThetaFromMotion(cloneTheta_, motionCmdX_, motionCmdZ_, dx, dz);
+                float e = std::remainder(meas - cloneTheta_, 6.2831853f);
+                if (dx * dx + dz * dz > 0.4f * 0.4f && dx * dx + dz * dz < 4.f * 4.f && std::fabs(e) < 2.1f) {
                     float before = cloneTheta_;
-                    float meas = ThetaFromMotion(cloneTheta_, motionCmdX_, motionCmdZ_, dx, dz);
-                    cloneTheta_ = std::remainder(cloneTheta_ + 0.5f * std::remainder(meas - cloneTheta_, 6.2831853f), 6.2831853f);
+                    cloneTheta_ = std::remainder(cloneTheta_ + 0.33f * e, 6.2831853f);
                     if (tm - lastThetaLog_ > 2000) { lastThetaLog_ = tm; Log("clonetheta: asked %.2f %.2f, moved %.2f %.2f m -> theta %.2f -> %.2f", motionCmdX_, motionCmdZ_, dx, dz, before, cloneTheta_); }
                 }
                 motionRefAt_ = tm; motionRef_ = *cpos;
