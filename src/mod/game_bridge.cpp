@@ -1921,8 +1921,16 @@ void GameBridge::TickCloneDrive() {
         uintptr_t p = PlayerProcess(1), slot = JoypadSlot(3);
         if (!p || !slot) return;
         auto wx = Read<float>(p + 19632 + 0xD0), wz = Read<float>(p + 19632 + 0xD8);
-        if (wx && wz && (lastStickX_ * lastStickX_ + lastStickY_ * lastStickY_) > 0.04f && (*wx * *wx + *wz * *wz) > 0.01f)
-            cloneTheta_ = StickTheta(lastStickX_, lastStickY_, *wx, *wz);
+        // Measure only once the stick has been steady for a few ticks: the engine's world stick lags
+        // a frame or two, and measuring against a fresh stick made theta swing (10:29 log).
+        if (std::fabs(lastStickX_ - prevStickX_) < 0.03f && std::fabs(lastStickY_ - prevStickY_) < 0.03f) ++steadyTicks_;
+        else steadyTicks_ = 0;
+        prevStickX_ = lastStickX_; prevStickY_ = lastStickY_;
+        if (steadyTicks_ >= 3 && wx && wz && (lastStickX_ * lastStickX_ + lastStickY_ * lastStickY_) > 0.04f && (*wx * *wx + *wz * *wz) > 0.01f) {
+            float meas = StickTheta(lastStickX_, lastStickY_, *wx, *wz);
+            float d = std::remainder(meas - cloneTheta_, 6.2831853f);
+            cloneTheta_ = std::remainder(cloneTheta_ + 0.5f * d, 6.2831853f);
+        }
         float mx = cloneMoveX_, mz = cloneMoveZ_;
         if (GetTickCount64() - cloneMoveAt_ > 500) mx = mz = 0;   // no news from the other PC: stand still
         if (cloneWorldStick_) { ActiveUpdateHookInstall(BuildRva(0xAD61E0)); SetCloneWorldStick(true, mx, mz); }
@@ -1936,7 +1944,7 @@ void GameBridge::TickCloneDrive() {
         if (src && *src != 0) SafeWrite(slot + 0x14C, &zero, 1);   // back to raw pad 0 (a live pad) as the base
         lastStickX_ = sx; lastStickY_ = sy;
         ULONGLONG t = GetTickCount64();
-        if (t - lastCloneLog_ > 2000 && (sx != 0 || sy != 0)) {
+        if (t - lastCloneLog_ > 500 && (sx != 0 || sy != 0)) {
             lastCloneLog_ = t;
             Log("clonedrive: want %.2f %.2f, theta %.2f, stick %.2f %.2f, engine world %.2f %.2f, slot copies %u", mx, mz, cloneTheta_, sx, sy, wx ? *wx : 0.f, wz ? *wz : 0.f, CloneRawHits());
         }

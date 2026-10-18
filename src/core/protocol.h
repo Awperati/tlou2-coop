@@ -83,15 +83,15 @@ struct PlayerState {
 };
 
 // Stick for the clone's joypad slot from a wanted world direction. The engine turns a slot
-// stick into a world direction by the clone camera's yaw; theta is that rotation, measured as
-// arg(world) - arg(stick) with stick as (x, -y). Returns slot stick x, y.
+// stick (x, y) into a world direction (x, z) by a rotation theta (the clone camera's yaw):
+// measured as arg(world) - arg(stick). Live, the clone gave world = -stick on both axes
+// (theta = pi); the first model flipped y and could not fit that (10:31 log).
 inline void StickForWorld(float wx, float wz, float theta, float& sx, float& sy) {
     float c = std::cos(-theta), s = std::sin(-theta);
-    float re = wx * c - wz * s, im = wx * s + wz * c;
-    sx = re; sy = -im;
+    sx = wx * c - wz * s; sy = wx * s + wz * c;
 }
 inline float StickTheta(float sx, float sy, float wx, float wz) {
-    return std::atan2(wz, wx) - std::atan2(-sy, sx);
+    return std::atan2(wz, wx) - std::atan2(sy, sx);
 }
 
 // The sender's own player is moving (its position changed faster than kMovingSpeed over the last

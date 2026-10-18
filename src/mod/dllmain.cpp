@@ -245,7 +245,10 @@ void CoopMain() {
         if (!partnerLog) partnerLog = _wfsopen((dir + L"tlou2-coop.partner.log").c_str(), L"a", _SH_DENYNO);
         if (partnerLog) { std::fputs(text.c_str(), partnerLog); std::fflush(partnerLog); }
     };
-    cb.onRejected = [&](const std::string& why) { Log("rejected: %s", why.c_str()); OverlayNotify(L"Could not join: " + Wide(why)); };
+    // A rejection is usually passing ("Session is full" while the host still counts our old self
+    // after a reload, 2026-10-18 10:31): try again in 5 s instead of giving up for good.
+    ULONGLONG rejoinAt = 0;
+    cb.onRejected = [&](const std::string& why) { Log("rejected: %s (trying again in 5 s)", why.c_str()); OverlayNotify(L"Could not join: " + Wide(why)); rejoinAt = GetTickCount64() + 5000; };
     cb.onPlayerState = [&](uint8_t slot, const PlayerState& s) {
         remote[slot] = s;
         if (isHost) gate.ReportPosition(slot, s.pos);
@@ -359,6 +362,11 @@ void CoopMain() {
         last = now;
         ++tick;
         session.Poll();
+        if (!isHost && rejoinAt && now >= rejoinAt) {
+            rejoinAt = 0;
+            Hello again; again.playerName = cfg.get("session", "PlayerName", "Player"); again.wanted = wanted;
+            if (session.StartClient(updateHost, port, again)) Log("joining host %s:%u again", updateHost.c_str(), port);
+        }
         // No answer from the host: say so, so a blocked network shows up in the log (a VPN
         // blocking the LAN looked like nothing at all, 2026-10-17).
         if (!isHost && !session.connected() && now - lastJoinWait > 10000) {

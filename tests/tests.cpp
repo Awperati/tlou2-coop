@@ -24,10 +24,15 @@ static void TestTeleportUnknownObjective() {
 }
 
 static void TestStickWorld() {
+    {   // live clone: world = -stick
+        float sx, sy; StickForWorld(0.57f, -0.82f, 3.14159265f, sx, sy);
+        CHECK(std::fabs(sx + 0.57f) < 1e-3f && std::fabs(sy - 0.82f) < 1e-3f);
+        CHECK(std::fabs(std::remainder(StickTheta(0.99f, -0.16f, -0.99f, 0.16f) - 3.14159265f, 6.2831853f)) < 1e-3f);
+    }
     for (float th : {0.f, 1.f, -2.5f, 3.f}) {
         // a stick pushed half right, half forward, seen in the world rotated by th
         float sx = 0.6f, sy = -0.8f;
-        float re = sx, im = -sy;
+        float re = sx, im = sy;
         float wx = re * std::cos(th) - im * std::sin(th), wz = re * std::sin(th) + im * std::cos(th);
         float t = StickTheta(sx, sy, wx, wz);
         float ox, oy; StickForWorld(wx, wz, t, ox, oy);
