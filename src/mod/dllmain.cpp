@@ -256,7 +256,7 @@ void CoopMain() {
     cb.onPlayerState = [&](uint8_t slot, const PlayerState& s) {
         remote[slot] = s;
         if (isHost) gate.ReportPosition(slot, s.pos);
-        if ((bodyAuto == "always" || (bodyAuto == "client" && !isHost && slot == 0)) && GetTickCount64() - bodyCheckAt > 3000) {
+        if (!bridge.cloneDrive_ && (bodyAuto == "always" || (bodyAuto == "client" && !isHost && slot == 0)) && GetTickCount64() - bodyCheckAt > 3000) {
             bodyCheckAt = GetTickCount64();
             bridge.QueueAutoBody(bodyLook);
         }
@@ -277,7 +277,8 @@ void CoopMain() {
         Log("teleport to %.1f %.1f %.1f: %s", t.pos.x, t.pos.y, t.pos.z, ok ? "done" : "not mapped yet");
         OverlayCue(1);
     };
-    cb.onCharacterSelect = [&](uint8_t slot, CharacterId c) { Log("player %u is %s", slot, CharacterName(c)); };
+    CharacterId partnerChar = CharacterId::None;
+    cb.onCharacterSelect = [&](uint8_t slot, CharacterId c) { Log("player %u is %s", slot, CharacterName(c)); partnerChar = c; };
     cb.onEnemyStates = [&](const std::vector<EnemyState>& v) { if (syncEnemies) bridge.ApplyEnemyStates(v); };
     cb.onEnemyDamage = [&](uint8_t, const EnemyDamage& d) { if (syncEnemies) bridge.ApplyEnemyDamage(d); };
     cb.onCheckpointWritten = [&](const CheckpointEvent& e) { Log("m7: host wrote checkpoint #%u (task '%s')", e.seq, e.task.c_str()); };
@@ -343,6 +344,8 @@ void CoopMain() {
     ULONGLONG lastJoinWait = GetTickCount64();
     bool selfMovingLogged = false;
     std::string cloneLook; int cloneStage = 0; ULONGLONG cloneAt = 0, cloneWaitStart = 0;
+    const bool cloneEnabled = cfg.getBool("clone", "Enabled", false);
+    ULONGLONG lastCloneCheck = 0; bool cloneCineShown = false;
 
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
@@ -772,6 +775,37 @@ void CoopMain() {
         if (now - lastFiring >= 100) { lastFiring = now; bridge.PollFiring(); }
         bridge.TickPadMirror();
         bridge.TickCloneDrive();
+        // Clone mode ([clone] Enabled): the other player is a real second player (player 1) on
+        // this PC, wearing their look and driven by their stick and allowlisted buttons. The
+        // story companion is hidden on the host except in cinematics (where the plot shows her);
+        // the clone is hidden in cinematics instead. Respawned after a level load removes her.
+        if (cloneEnabled && now - lastCloneCheck >= 2000) {
+            lastCloneCheck = now;
+            bool linked = isHost ? session.peerCount() > 0 : session.connected();
+            auto pack = bridge.CurrentWorldPack();
+            bool chapter = !pack.empty() && pack != "world-game-start";
+            if (linked && chapter && cloneStage == 0) {
+                if (!bridge.HasPlayer(1)) {
+                    std::string look = bodyLook;   // partner: the host's look
+                    if (isHost) {
+                        const CharacterInfo* info = roster.character(partnerChar);
+                        look = info ? info->LookFor(Lower(pack)) : std::string();
+                    }
+                    if (look.empty()) look = "ellie-seattle";
+                    cloneLook = look; cloneStage = 1; cloneAt = now;
+                    bridge.cloneDrive_ = true;
+                    Log("clone mode: spawning the other player as '%s'", look.c_str());
+                }
+                bool cine = bridge.InCinematic();
+                if (cine != cloneCineShown) {
+                    cloneCineShown = cine;
+                    bridge.QueuePlayerShow(1, !cine);
+                    if (isHost) bridge.QueueCompanionHidden(!cine);
+                    Log("clone mode: %s", cine ? "cinematic, story companion shown, clone hidden" : "gameplay, clone shown, story companion hidden");
+                } else if (isHost && !cine) bridge.QueueCompanionHidden(true);
+            }
+            if (!linked && bridge.cloneDrive_) { bridge.cloneDrive_ = false; SetCloneWorldStick(false, 0, 0); SetCloneRawStick(false, 0, 0); }
+        }
         // clone <look>: want the look's packages, spawn player 1 as Ellie (always loaded), teleport
         // her beside us, apply Ellie's look (builds the body), then the wanted look once its
         // packages are in (the request waits on them by itself), then show her meshes.

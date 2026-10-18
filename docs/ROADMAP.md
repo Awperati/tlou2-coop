@@ -1042,3 +1042,11 @@ PCs, wearing their character's model.
   (+0x528); the raw-copy hook gives the clone only allowlisted bits ([clone] Buttons, default 1A0) with
   pressed/released edges. Bits measured on PC B with `padbits on`: A 0x20, B 0x80, LB 0x100, bit 63 always set
   (kept from the base pad). Live clone tests of (1)-(3) wait for PC A's game to be in front.
+- 11:00 clone mode built (off by default, `[clone] Enabled = true` in tlou2-coop\coop.ini to try): once both PCs
+  are linked and a chapter is loaded, each PC spawns the other player as player 1. The host uses the partner's
+  character look from the roster (dina-player for Dina); the partner uses [body] HostLook. Clone drive goes on,
+  and the NPC stand-ins (host body, puppeted companion) stay off. On the host the story companion is hidden,
+  except while a cinematic plays: then she is shown and the clone is hidden (and the other way round after).
+  She is respawned if a level load removes player 1. Not tested live yet. Open: the companion's dialogue still
+  plays from the hidden story companion on the host (remap to the clone not done); the clone's process name for
+  the speaker map is unknown.

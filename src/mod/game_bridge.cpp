@@ -1843,13 +1843,13 @@ void GameBridge::QueuePlayerBeside(unsigned index, float metres) {
 // set-all-meshes-visible (rva 0xD54D00) on a process pointer: draw control = sub_141AFD810(p),
 // show = sub_141484610(dc, -1, 0). Player 1's meshes came up hidden (head and props only).
 namespace {
-int SafeShowMeshes(uintptr_t proc) {
+int SafeShowMeshes(uintptr_t proc, bool visible) {
     using DcFn = uintptr_t (*)(uintptr_t);
     using ShowFn = void (*)(uintptr_t, uint32_t, uint64_t);
     __try {
         uintptr_t dc = reinterpret_cast<DcFn>(BuildRva(0x1AFD810))(proc);
         if (!dc) return 0;
-        reinterpret_cast<ShowFn>(BuildRva(0x1484610))(dc, 0xFFFFFFFFu, 0);
+        reinterpret_cast<ShowFn>(BuildRva(visible ? 0x1484610 : 0x147ECD0))(dc, 0xFFFFFFFFu, 0);   // show / hide (set-all-meshes-visible)
         return 1;
     } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
 }
@@ -1916,12 +1916,12 @@ void GameBridge::QueueCloneLookCheck() {
     });
 }
 
-void GameBridge::QueuePlayerShow(unsigned index) {
-    RunInScriptContext([this, index] {
+void GameBridge::QueuePlayerShow(unsigned index, bool visible) {
+    RunInScriptContext([this, index, visible] {
         uintptr_t p = PlayerProcess(index);
         if (!p) { Log("playershow: no player %u", index); return; }
-        int r = SafeShowMeshes(p);
-        Log("playershow: player %u meshes %s", index, r == 1 ? "set visible" : r == 0 ? "has no draw control" : "FAULT");
+        int r = SafeShowMeshes(p, visible);
+        Log("playershow: player %u meshes %s", index, r == 1 ? (visible ? "set visible" : "hidden") : r == 0 ? "has no draw control" : "FAULT");
     });
 }
 

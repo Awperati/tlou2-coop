@@ -229,7 +229,8 @@ public:
     void ActiveCount();
     uintptr_t PlayerProcess(unsigned index);   // entry i of the player table, game fiber only
     void QueuePlayerBeside(unsigned index, float metres);
-    void QueuePlayerShow(unsigned index);
+    void QueuePlayerShow(unsigned index, bool visible = true);
+    bool HasPlayer(unsigned index) { return PlayerProcess(index) != 0; }
     void QueuePlayerJoypad(unsigned index, int joypad);
     void QueuePlayerLook(unsigned index, const std::string& look);
     // Clone look: want the look's actor packages (QueueLoadActor) and report when all are loaded.
