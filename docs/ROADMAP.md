@@ -1050,3 +1050,7 @@ PCs, wearing their character's model.
   She is respawned if a level load removes player 1. Not tested live yet. Open: the companion's dialogue still
   plays from the hidden story companion on the host (remap to the clone not done); the clone's process name for
   the speaker map is unknown.
+- 11:05 dialogue in clone mode: the speaker lookup (sub_141B05470) resolves process user ids; the clone's is
+  'player-2' (SetUserId fix at spawn). Live check: get-object-health on sid:player-2 read 100 (the clone),
+  sid:player 83 (the host). Clone mode now maps the partner's character (host side) or the host's speakers
+  (partner side: player, ellie) to 'player-2', and back to themselves while a cinematic plays. Not heard yet.

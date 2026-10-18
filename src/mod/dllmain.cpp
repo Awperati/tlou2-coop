@@ -345,7 +345,7 @@ void CoopMain() {
     bool selfMovingLogged = false;
     std::string cloneLook; int cloneStage = 0; ULONGLONG cloneAt = 0, cloneWaitStart = 0;
     const bool cloneEnabled = cfg.getBool("clone", "Enabled", false);
-    ULONGLONG lastCloneCheck = 0; bool cloneCineShown = false;
+    ULONGLONG lastCloneCheck = 0; bool cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
 
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
@@ -797,6 +797,18 @@ void CoopMain() {
                     Log("clone mode: spawning the other player as '%s'", look.c_str());
                 }
                 bool cine = bridge.InCinematic();
+                // Dialogue: the other player's character speaks from the clone (process user id
+                // 'player-2', set at spawn; get-object-health on it read the clone's 100 against
+                // the host's 83, 10:55). In cinematics the story characters speak for themselves.
+                auto fnv64 = [](const std::string& t) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char ch : t) { h ^= ch; h *= 0x100000001b3ull; } return h; };
+                if (bridge.HasPlayer(1) && (cine != cloneSpeechCine || !cloneSpeechSet)) {
+                    cloneSpeechSet = true; cloneSpeechCine = cine;
+                    std::vector<std::string> who;
+                    if (isHost) { if (partnerChar != CharacterId::None) who.push_back(CharacterName(partnerChar)); }
+                    else who = bridge.hostSpeakers_;
+                    for (const auto& w : who) SetSpeakerMap(fnv64(w), fnv64(cine ? w : std::string("player-2")));
+                    Log("clone mode: %zu speaker(s) now play from %s", who.size(), cine ? "themselves (cinematic)" : "the clone");
+                }
                 if (cine != cloneCineShown) {
                     cloneCineShown = cine;
                     bridge.QueuePlayerShow(1, !cine);
