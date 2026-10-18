@@ -726,6 +726,7 @@ uint8_t g_rawSaved[18];
 uintptr_t g_rawTarget = 0;
 std::atomic<bool> g_rawOn{false};
 std::atomic<float> g_rawX{0}, g_rawY{0};
+std::atomic<uint64_t> g_rawHeld{0};
 std::atomic<uint32_t> g_rawHits{0};
 uint64_t HookedRawCopy(uint64_t slot, uint64_t raw, uint64_t idx) {
     if (g_rawOn.load() && static_cast<uint32_t>(idx) == 3 && raw) {
@@ -737,7 +738,14 @@ uint64_t HookedRawCopy(uint64_t slot, uint64_t raw, uint64_t idx) {
             for (int off : {0x00, 0x10}) { std::memcpy(buf + off, &x, 4); std::memcpy(buf + off + 4, &y, 4); }
             float z = 0.f;
             for (int off : {0x08, 0x0C, 0x18, 0x1C}) std::memcpy(buf + off, &z, 4);   // right stick
-            std::memset(buf + 0x518, 0, 0x20);                                         // button masks
+            // Button masks: +0x518 pressed this frame, +0x520 released, +0x528 held (sub_140399320).
+            // Only the allowlisted bits the other PC holds (SetCloneRawButtons); edges from the last copy.
+            static thread_local uint64_t prevHeld = 0;
+            uint64_t held = g_rawHeld.load();
+            uint64_t pressed = held & ~prevHeld, released = prevHeld & ~held;
+            std::memset(buf + 0x518, 0, 0x20);
+            std::memcpy(buf + 0x518, &pressed, 8); std::memcpy(buf + 0x520, &released, 8); std::memcpy(buf + 0x528, &held, 8);
+            prevHeld = held;
             ++g_rawHits;
             return reinterpret_cast<RawCopyFn>(g_rawTramp)(slot, reinterpret_cast<uint64_t>(buf), idx);
         }
@@ -759,6 +767,7 @@ bool RawCopyHookInstall(uintptr_t target) {
     return true;
 }
 void SetCloneRawStick(bool on, float x, float y) { g_rawX = x; g_rawY = y; g_rawOn = on; }
+void SetCloneRawButtons(uint64_t held) { g_rawHeld = held; }
 uint32_t CloneRawHits() { return g_rawHits.load(); }
 
 bool UserIdHookInstall(uintptr_t setUserId) {

@@ -183,6 +183,9 @@ void CoopMain() {
     int pausedSeen = -1;
     ULONGLONG pauseCheckAt = 0;
     bridge.bodyFile_ = dir + L"tlou2-coop\\body.txt";
+    // [clone] Buttons: hex mask of the partner's held buttons the clone gets (0 = none). Only
+    // movement buttons belong here; item/weapon buttons crashed the game with two players.
+    try { bridge.cloneButtonMask_ = std::stoull(cfg.get("clone", "Buttons", "0"), nullptr, 16); } catch (...) { bridge.cloneButtonMask_ = 0; }
     // Partner's own setup on joining ([character] AutoLook): wear their character's look,
     // and hide the story companion when they are playing that companion. Applied in the loop.
     const bool autoLook = cfg.getBool("character", "AutoLook", true);
@@ -256,7 +259,7 @@ void CoopMain() {
             bodyCheckAt = GetTickCount64();
             bridge.QueueAutoBody(bodyLook);
         }
-        bridge.SetCloneMove(s.moveX, s.moveZ);
+        bridge.SetCloneMove(s.moveX, s.moveZ, s.padHeld, &s.pos, s.yaw, (s.flags & kMoving) != 0);
         if (!bridge.cloneDrive_) bridge.DrivePuppet(slot, s);
     };
     cb.onObjective = [&](const Objective& o) { objective = o; };
@@ -338,7 +341,7 @@ void CoopMain() {
     }
     ULONGLONG lastJoinWait = GetTickCount64();
     bool selfMovingLogged = false;
-    std::string cloneLook; int cloneStage = 0; ULONGLONG cloneAt = 0;
+    std::string cloneLook; int cloneStage = 0; ULONGLONG cloneAt = 0, cloneWaitStart = 0;
 
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
@@ -665,6 +668,8 @@ void CoopMain() {
                             Log("dumpslot: slot %d -> %s.bin (%zu bytes)", sl, nm.c_str(), static_cast<size_t>(n));
                         }
                     }
+                    else if (line == "padbits on" || line == "padbits off") { bridge.logPadBits_ = line == "padbits on"; Log("padbits: %s", bridge.logPadBits_ ? "on" : "off"); }
+                    else if (line.rfind("clonebuttons ", 0) == 0) { bridge.cloneButtonMask_ = std::stoull(Trim(line.substr(13)), nullptr, 16); Log("clonebuttons: mask %016llx", static_cast<unsigned long long>(bridge.cloneButtonMask_)); }
                     else if (line == "clonedrive on" || line == "clonedrive off") { bridge.cloneDrive_ = line == "clonedrive on"; if (!bridge.cloneDrive_) { SetCloneWorldStick(false, 0, 0); SetCloneRawStick(false, 0, 0); } Log("clonedrive: %s", bridge.cloneDrive_ ? "on (the other player's stick drives player 1)" : "off"); }
                     else if (line.rfind("clone ", 0) == 0) {   // clone <look>: spawn player 1 beside us wearing <look>
                         cloneLook = Trim(line.substr(6)); cloneStage = 1; cloneAt = GetTickCount64();
@@ -766,12 +771,28 @@ void CoopMain() {
         if (now - lastFiring >= 100) { lastFiring = now; bridge.PollFiring(); }
         bridge.TickPadMirror();
         bridge.TickCloneDrive();
-        // clone <look>: spawn, then teleport beside us, then apply the look (it builds the body).
+        // clone <look>: want the look's packages, spawn player 1 as Ellie (always loaded), teleport
+        // her beside us, apply Ellie's look (builds the body), then the wanted look once its
+        // packages are in (the request waits on them by itself), then show her meshes.
         if (cloneStage && now >= cloneAt) {
-            if (cloneStage == 1) { bridge.QueueSpawnPlayer(1, cloneLook); cloneStage = 2; cloneAt = now + 150; }   // teleport at once: spawned at the world origin it can fall out of the map and die (Watchtower, 07:44)
+            if (cloneStage == 1) {
+                bridge.WantCloneLook(lookPackages(cloneLook));
+                bridge.QueueSpawnPlayer(1, "ellie-seattle"); cloneStage = 2; cloneAt = now + 150;   // teleport at once: at the world origin she can fall out of the map
+            }
             else if (cloneStage == 2) { bridge.QueuePlayerBeside(1, 2.f); cloneStage = 3; cloneAt = now + 1500; }
-            else if (cloneStage == 3) { bridge.QueuePlayerLook(1, cloneLook); cloneStage = 4; cloneAt = now + 2000; }
-            else { bridge.QueuePlayerShow(1); cloneStage = 0; Log("clone: player 1 in '%s' ready", cloneLook.c_str()); }
+            else if (cloneStage == 3) { bridge.QueuePlayerLook(1, "ellie-seattle"); cloneStage = 4; cloneAt = now + 2000; cloneWaitStart = now; }
+            else if (cloneStage == 4) {
+                bridge.QueuePlayerShow(1);
+                if (cloneLook == "ellie-seattle") { cloneStage = 0; Log("clone: player 1 ready as 'ellie-seattle'"); }
+                else { bridge.QueuePlayerLook(1, cloneLook); cloneStage = 5; cloneAt = now + 1000; }
+            }
+            else if (cloneStage == 5) {
+                bridge.QueueCloneLookCheck();
+                if (bridge.clonePkgsLoaded_) { bridge.QueuePlayerLook(1, cloneLook); cloneStage = 6; cloneAt = now + 2000; }
+                else if (now - cloneWaitStart > 90000) { cloneStage = 0; Log("clone: packages for '%s' still not loaded after 90 s; she stays Ellie", cloneLook.c_str()); }
+                else cloneAt = now + 1000;
+            }
+            else { bridge.QueuePlayerShow(1); cloneStage = 0; Log("clone: player 1 ready as '%s'", cloneLook.c_str()); }
         }
         if (!isHost && mySlot && now - lastPackCheck >= 2000) {
             lastPackCheck = now;

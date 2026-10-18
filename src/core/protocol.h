@@ -80,6 +80,9 @@ struct PlayerState {
     // The sender's left stick as a world-space direction (x, z; length 0..1), read from its own
     // player's joypad (Player+19632 +0xD0). Drives the other PC's player clone (2026-10-18).
     float moveX = 0, moveZ = 0;
+    // The sender's held-button mask from its own raw pad 0 (rva 0x824C860 + 0x528). The other PC
+    // passes only an allowlisted part to the clone (item buttons crashed the game, 07:50).
+    uint64_t padHeld = 0;
 };
 
 // Stick for the clone's joypad slot from a wanted world direction. The engine turns a slot

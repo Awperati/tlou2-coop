@@ -64,7 +64,7 @@ void Write(Writer& w, const PlayerState& s) {
     w.u16(s.animState); w.u8(s.health); w.u8(s.stance); w.u8(s.flags);
     w.u8(static_cast<uint8_t>(s.character));
     w.u8(s.shots); w.u64(s.shotTarget);
-    w.f32(s.moveX); w.f32(s.moveZ);
+    w.f32(s.moveX); w.f32(s.moveZ); w.u64(s.padHeld);
 }
 bool Read(Reader& r, PlayerState& s) {
     s.tick = r.u32(); s.pos = r.vec(); s.vel = r.vec(); s.yaw = r.f32(); s.pitch = r.f32();
@@ -75,6 +75,7 @@ bool Read(Reader& r, PlayerState& s) {
     // Optional tail: an older build sends none (a version bump would have kept it from
     // connecting, and so from fetching the update).
     if (r.ok() && r.remaining() >= 8) { s.moveX = r.f32(); s.moveZ = r.f32(); } else { s.moveX = s.moveZ = 0; }
+    s.padHeld = (r.ok() && r.remaining() >= 8) ? r.u64() : 0;
     return r.ok();
 }
 

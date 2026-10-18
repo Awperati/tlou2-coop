@@ -53,6 +53,7 @@ void SetCloneWorldStick(bool on, float x, float z);
 // Raw pad -> slot copy (rva 0x158F710): slot 3 gets this stick (slot space) while on.
 bool RawCopyHookInstall(uintptr_t target);
 void SetCloneRawStick(bool on, float x, float y);
+void SetCloneRawButtons(uint64_t held);
 uint32_t CloneRawHits();
 // CameraControlStrafe::UpdateCameraAssist (rva 0x8215E0) runs for player 0 only.
 bool CamAssistHookInstall(uintptr_t target);

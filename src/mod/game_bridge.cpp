@@ -238,6 +238,10 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
     if (firing_) s.flags |= 2;
     if (auto mx = Read<float>(p + 19632 + 0xD0)) s.moveX = *mx;   // NdPlayerJoypad world stick (x, y, z)
     if (auto mz = Read<float>(p + 19632 + 0xD8)) s.moveZ = *mz;
+    if (auto held = Read<uint64_t>(BuildRva(0x824C860) + 0x528)) {
+        s.padHeld = *held;
+        if (logPadBits_ && *held != lastPadHeld_) { Log("padbits: held %016llx", static_cast<unsigned long long>(*held)); lastPadHeld_ = *held; }
+    }
     {   // moving: compare with the position from at least 100 ms ago
         ULONGLONG now = GetTickCount64();
         if (!moveRefAt_ || now - moveRefAt_ > 400) { moveRefPos_ = s.pos; moveRefAt_ = now; }
@@ -1889,6 +1893,29 @@ void GameBridge::QueuePlayerJoypad(unsigned index, int joypad) {
     }, true);
 }
 
+void GameBridge::WantCloneLook(const std::vector<std::string>& packages) {
+    clonePkgs_.clear();
+    for (const auto& p : packages) if (IsActorPackage(p)) clonePkgs_.push_back(p);
+    for (const auto& p : clonePkgs_) QueueLoadActor(p);
+    clonePkgsLoaded_ = false;
+    Log("clone: wanting %zu actor packages for the clone's look", clonePkgs_.size());
+}
+
+void GameBridge::QueueCloneLookCheck() {
+    if (clonePkgsQueued_.exchange(true)) return;
+    std::vector<std::string> pkgs = clonePkgs_;
+    RunInScriptContext([this, pkgs] {
+        clonePkgsQueued_ = false;
+        bool all = true;
+        for (const auto& p : pkgs) {
+            uint64_t argv[8] = {Fnv1a(p)};
+            uint64_t ret[4] = {};
+            if (!SafeNative(BuildRva(0xD48660), 1, argv, ret) || !ret[0]) { all = false; break; }   // is-level-loaded?
+        }
+        clonePkgsLoaded_ = all;
+    });
+}
+
 void GameBridge::QueuePlayerShow(unsigned index) {
     RunInScriptContext([this, index] {
         uintptr_t p = PlayerProcess(index);
@@ -1909,7 +1936,10 @@ uintptr_t GameBridge::JoypadSlot(int slot) {
     return c1 && *c1 ? *c1 + 0x520 + 0x2570ull * slot : 0;
 }
 
-void GameBridge::SetCloneMove(float x, float z) { cloneMoveX_ = x; cloneMoveZ_ = z; cloneMoveAt_ = GetTickCount64(); }
+void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving) {
+    cloneMoveX_ = x; cloneMoveZ_ = z; cloneHeld_ = held; cloneMoveAt_ = GetTickCount64();
+    if (pos) { std::lock_guard lk(cloneMu_); cloneTarget_ = *pos; cloneTargetYaw_ = yaw; cloneTargetMoving_ = moving; cloneHasTarget_ = true; }
+}
 
 // clonedrive: the other player's world stick drives player 1 through joypad slot 3. The slot
 // stick is rotated into the clone camera's frame; that rotation (theta) is measured each tick
@@ -1938,11 +1968,30 @@ void GameBridge::TickCloneDrive() {
         if (mx * mx + mz * mz > 0.0025f) StickForWorld(mx, mz, cloneTheta_, sx, sy);
         // Slot 3 is filled from a raw pad every frame (sub_141397A40 -> sub_14158F710); the hook
         // swaps the other player's stick in at that copy (writes from outside were overwritten).
-        if (RawCopyHookInstall(BuildRva(0x158F710))) SetCloneRawStick(true, sx, sy);
+        if (RawCopyHookInstall(BuildRva(0x158F710))) { SetCloneRawStick(true, sx, sy); SetCloneRawButtons(cloneHeld_.load() & cloneButtonMask_); }
         auto src = Read<uint8_t>(slot + 0x14C);
         uint8_t zero = 0;
         if (src && *src != 0) SafeWrite(slot + 0x14C, &zero, 1);   // back to raw pad 0 (a live pad) as the base
         lastStickX_ = sx; lastStickY_ = sy;
+        // Position sync: the clone walks on the other player's stick, so she drifts (walls,
+        // slopes, frame timing). Snap her to the other player's real spot when she is more than
+        // 4 m off, or more than 1.5 m off once they have stood still for 1 s. At most every 2 s.
+        {
+            Vec3 tgt; float tyaw; bool tmov, have;
+            { std::lock_guard lk(cloneMu_); tgt = cloneTarget_; tyaw = cloneTargetYaw_; tmov = cloneTargetMoving_; have = cloneHasTarget_; }
+            ULONGLONG tn = GetTickCount64();
+            if (tmov) cloneStillSince_ = 0; else if (!cloneStillSince_) cloneStillSince_ = tn;
+            auto cp = Read<Vec3>(p + offPos_);
+            if (have && cp && tn - cloneFixAt_ > 2000) {
+                float d = Distance(*cp, tgt);
+                bool still = cloneStillSince_ && tn - cloneStillSince_ > 1000;
+                if (d > 4.f || (still && d > 1.5f)) {
+                    cloneFixAt_ = tn;
+                    bool ok = engineTeleport(p, tgt, tyaw);
+                    Log("clonedrive: drift %.1f m%s, snapped to the other player's spot: %s", d, still ? " (standing)" : "", ok ? "sent" : "FAILED");
+                }
+            }
+        }
         ULONGLONG t = GetTickCount64();
         if (t - lastCloneLog_ > 500 && (sx != 0 || sy != 0)) {
             lastCloneLog_ = t;

@@ -66,12 +66,12 @@ static void TestShots() {
 
 static void TestProtocolRoundTrip() {
     PlayerState s; s.tick = 42; s.pos = {1, 2, 3}; s.yaw = 1.5f; s.health = 77; s.character = CharacterId::Dina;
-    s.shots = 250; s.shotTarget = 0x1122334455667788ull;
+    s.shots = 250; s.shotTarget = 0x1122334455667788ull; s.padHeld = 0x8000000000000201ull;
     Writer w; Write(w, s);
     Reader r(w.data().data(), w.data().size());
     PlayerState o; CHECK(Read(r, o));
     CHECK(o.tick == 42 && o.pos.z == 3 && o.health == 77 && o.character == CharacterId::Dina);
-    CHECK(o.shots == 250 && o.shotTarget == 0x1122334455667788ull);
+    CHECK(o.shots == 250 && o.shotTarget == 0x1122334455667788ull && o.padHeld == 0x8000000000000201ull);
 
     // Truncated input must fail cleanly, never read past the end.
     Reader shortR(w.data().data(), 5);

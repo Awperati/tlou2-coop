@@ -207,9 +207,16 @@ public:
     void TickPadMirror();
     bool padMirror_ = false;
     // clonedrive on|off: the other player's stick drives player 1 (slot 3).
-    void SetCloneMove(float x, float z);
+    void SetCloneMove(float x, float z, uint64_t held = 0, const Vec3* pos = nullptr, float yaw = 0, bool moving = false);
+    Vec3 cloneTarget_; float cloneTargetYaw_ = 0; bool cloneTargetMoving_ = false, cloneHasTarget_ = false;
+    unsigned long long cloneFixAt_ = 0, cloneStillSince_ = 0;
+    std::mutex cloneMu_;
+    std::atomic<uint64_t> cloneHeld_{0};
     void TickCloneDrive();
     bool cloneDrive_ = false;
+    bool logPadBits_ = false;          // padbits on|off: log this PC's held-button mask when it changes
+    uint64_t lastPadHeld_ = 0;
+    uint64_t cloneButtonMask_ = 0;     // [clone] Buttons: which held bits reach the clone (0 = none yet)
     bool cloneWorldStick_ = false;   // also write the world stick before player 1's update (did not move her; off)
     std::atomic<bool> cloneDriveQueued_{false};
     std::atomic<float> cloneMoveX_{0}, cloneMoveZ_{0};
@@ -225,6 +232,11 @@ public:
     void QueuePlayerShow(unsigned index);
     void QueuePlayerJoypad(unsigned index, int joypad);
     void QueuePlayerLook(unsigned index, const std::string& look);
+    // Clone look: want the look's actor packages (QueueLoadActor) and report when all are loaded.
+    void WantCloneLook(const std::vector<std::string>& packages);
+    void QueueCloneLookCheck();
+    std::vector<std::string> clonePkgs_;
+    std::atomic<bool> clonePkgsLoaded_{false}, clonePkgsQueued_{false};
     // Names of the buddy's demeanors (Npc+7776 count, +7784 defs; def+0 char* name).
     void QueueDemeanorNames();
     // Player stance, sampled on a game fiber (player-is-crouched?/prone?/aiming? natives).
