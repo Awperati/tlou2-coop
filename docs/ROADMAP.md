@@ -1018,3 +1018,11 @@ PCs, wearing their character's model.
   still read 0 and player 1's world stick stayed 0). Next: see what sub_141590C30 / sub_141590600 /
   sub_141590D60 do after the copy (likely rebuild sticks from the history ring around +0x18C8), and patch the
   values they read, or hook after them.
+- 10:30, post-copy static read: sub_141590C30 is action-command bookkeeping (no sticks). The raw -> slot copy
+  sub_14158F710 itself is gated: if slot+0x2408 != 0, or byte_144259DAB == 0, it neutralises the slot; and if
+  byte_144259DAC == 0 and byte_148DFBCE3 == 0 it swaps buffers and resets it. Otherwise it copies the sticks
+  (slot+0x00 = raw+0x00 * scale, +0x04, +0x08, +0x0C, ...) and builds the rest. Live with PC A's game in the
+  background: 0x4259DAB = 1, 0x4259DAC = 0, so every slot is reset, player 0's included. The 10:21-10:25
+  clone tests ran with PC A unfocused (Firefox in front), so they could not show anything.
+  Decision: keep the hook on sub_14158F710 (patching the raw pad it copies for slot 3). It must be tested with
+  PC A's game already in front. Patching the focus gate is banned by the user, so no workaround.
