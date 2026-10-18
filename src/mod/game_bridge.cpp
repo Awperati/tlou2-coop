@@ -2150,11 +2150,17 @@ void GameBridge::TickCloneDrive() {
         // clone's, along the other player's aim. Read back her own aim for the log.
         bool aimNow = (held & 0x200) != 0;
         // Aim without a camera: answer player 1's aim queries with the other player's aim, from her eyes.
-        if (aimNow) {
+        // Not aiming: the same answer with the other player's body facing, level. She walks in strafe
+        // mode, facing her camera's look direction; with no live camera 1 that was a fixed, wrong
+        // direction (user 09:14: right way, wrong facing). Writing her rotation instead stopped her
+        // stick input (engine world 0 from 09:15), so FaceSync is off by default.
+        {
             float ay = cloneAimYaw_.load(), ap = cloneAimPitch_.load();
+            if (!aimNow) { std::lock_guard lk(cloneMu_); ay = cloneTargetYaw_; ap = 0.f; }
             float dx = std::cos(ap) * std::sin(ay), dy = std::sin(ap), dz = std::cos(ap) * std::cos(ay);
-            if (auto cp = Read<Vec3>(p + offPos_)) SetCloneAim(true, dx, dy, dz, cp->x, cp->y + 1.55f, cp->z);
-        } else SetCloneAim(false, 0, 0, 1, 0, 0, 0);
+            if (auto cp = Read<Vec3>(p + offPos_); cp && cloneHasTarget_) SetCloneAim(true, dx, dy, dz, cp->x, cp->y + 1.55f, cp->z);
+            else SetCloneAim(false, 0, 0, 1, 0, 0, 0);
+        }
         if (cloneAimOverride_ && aimNow) {
             // Static read (2026-10-19): the override builds Euler(arg0 about X = pitch, arg1 about Y = yaw)
             // with sub_14217F530 order 0 and turns +Z with it. Its blocks are Rx rows (1,0,0)(0,c,s)(0,-s,c)
