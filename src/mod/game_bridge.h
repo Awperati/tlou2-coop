@@ -227,6 +227,7 @@ public:
     unsigned long long cloneFixAt_ = 0, cloneStillSince_ = 0;
     std::mutex cloneMu_;
     std::atomic<uint64_t> cloneHeld_{0};
+    Vec3 plotEndPos_; float plotEndYaw_ = 0; std::atomic<bool> plotEndReady_{false};   // host: send the partner here
     void TickCloneDrive();
     bool cloneDrive_ = false;
     bool logPadBits_ = false;          // padbits on|off: log this PC's held-button mask when it changes

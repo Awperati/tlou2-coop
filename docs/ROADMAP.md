@@ -1104,3 +1104,12 @@ The queued script `scratchpad/clonetest.sh` does steps 1-3 by itself.
   was snapped, and ended 1 cm from PC B's real spot (-81.59 -7.38 -204.19 vs -81.58 -7.38 -204.20). Pass.
 - Check 6 plot swap: pending. No cinematic or companion scripted anim since 12:57; the only plot changes logged were
   the companion entering/leaving action pack cf882d141974350b (cover-like, not a trigger with UseActionPacks off).
+
+#### Plot swap test without the story (2026-10-19 06:32, PC A + `coop_lan_sim follow`)
+- `coop_lan_sim follow [addr]`: a partner that picks Dina and stands 2 m behind the host, for solo tests.
+- `plotsim <s>` forces a plot moment. Swap mechanics pass from the log: clone hidden, story Dina shown with AI on,
+  her lines from herself; at the end the clone is shown, moved onto Dina's spot, Dina hidden again.
+- Found: the drift snap pulled the clone straight back to the partner's old spot (6.8 m). Fixed: at the end of a
+  plot moment the host also sends the partner's own player to Dina's spot (TeleportTo), and snapping waits 5 s
+  (06:35: `plot moment over, partner sent to the companion's spot`).
+- Still pending: a real cinematic or scripted Dina moment in play (detection), and the partner side of the teleport on PC B.

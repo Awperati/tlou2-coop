@@ -352,7 +352,7 @@ void CoopMain() {
     // Action-pack types that should not take the companion's place from the clone (cover-like).
     std::set<uint64_t> ignoredAps;
     const bool useActionPacks = cfg.getBool("clone", "UseActionPacks", false);
-    for (auto& t : SplitList(cfg.get("clone", "IgnoreActionPacks", ""))) { try { ignoredAps.insert(std::stoull(t, nullptr, 16)); } catch (...) {} } bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
+    for (auto& t : SplitList(cfg.get("clone", "IgnoreActionPacks", ""))) { try { ignoredAps.insert(std::stoull(t, nullptr, 16)); } catch (...) {} } ULONGLONG plotSimUntil = 0; bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
 
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
@@ -755,6 +755,7 @@ void CoopMain() {
                         bridge.QueueMoveTo(name, m, motion, goal, owned);
                     }
                     else if (line == "release") bridge.ReleasePuppet();
+                    else if (line.rfind("plotsim ", 0) == 0) { plotSimUntil = GetTickCount64() + 1000ull * std::stoul(Trim(line.substr(8))); Log("plotsim: test plot moment for %s s", Trim(line.substr(8)).c_str()); }
                     else if (line.rfind("dropbody ", 0) == 0) bridge.DropRemoteBody(Trim(line.substr(9)));
                     else if (line.rfind("puppet ", 0) == 0) {
                         std::string target = Trim(line.substr(7));
@@ -844,9 +845,16 @@ void CoopMain() {
                 // Leap, Horse, Pullout, Entry, Positional, Search) are off as a trigger by default:
                 // the query returns an id per pack instance rather than its type, so cover cannot be
                 // told apart, and the companion's boosts and doors play as scripted anims anyway.
-                bool plotMove = isHost && (bridge.plotScripted_ || (useActionPacks && apNow != 0 && !ignoredAps.count(apNow)));
+                // plotsim <s>: a test plot moment for that long (the swap without waiting for the story).
+                bool plotMove = isHost && (now < plotSimUntil || bridge.plotScripted_ || (useActionPacks && apNow != 0 && !ignoredAps.count(apNow)));
                 bool cine = bridge.InCinematic() || plotMove;
                 if (cloneCineShown && !cine && isHost) bridge.QueuePlayerToBuddy(1);
+                if (isHost && bridge.plotEndReady_.exchange(false)) {
+                    TeleportTo t;
+                    { std::lock_guard lk(bridge.cloneMu_); t.pos = bridge.plotEndPos_; t.yaw = bridge.plotEndYaw_; }
+                    for (auto& [slot, st] : remote) session.SendTeleportTo(slot, t);
+                    Log("clone mode: plot moment over, partner sent to the companion's spot %.1f %.1f %.1f", t.pos.x, t.pos.y, t.pos.z);
+                }
                 // Dialogue: the other player's character speaks from the clone (process user id
                 // 'player-2', set at spawn; get-object-health on it read the clone's 100 against
                 // the host's 83, 10:55). In cinematics the story characters speak for themselves.

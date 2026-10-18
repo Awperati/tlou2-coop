@@ -22,10 +22,13 @@ int main(int argc, char** argv) {
     // walk x y z [addr]: a 3 m circle at 1.5 m/s. line x y z heading len speed [addr]: back
     // and forth along a straight line (heading in radians, x += sin, z += cos), 2 s stop at each end.
     // hostwalk / hostline: the same motion, but the sim is the host (tests the partner's side).
+    // follow [addr]: client that stands 2 m behind the host for an hour (a stand-in partner for solo tests).
     bool asHost = mode.rfind("host", 0) == 0 && mode.size() > 4;
     if (asHost) mode = mode.substr(4);
     bool line = mode == "line";
     bool walk = mode == "walk" || line;
+    bool follow = mode == "follow";
+    if (follow) mode = "client";
     Vec3 origin;
     float heading = 0.f, lineLen = 8.f, lineSpeed = 1.5f;
     if (walk) {
@@ -129,11 +132,13 @@ int main(int argc, char** argv) {
 
     ULONGLONG start = GetTickCount64(), last = start;
     int teleports = 0;
-    while (GetTickCount64() - start < (line ? 45000u : 30000u)) {
+    while (GetTickCount64() - start < (follow ? 3600000u : line ? 45000u : 30000u)) {
         ULONGLONG now = GetTickCount64();
         float dt = (now - last) / 1000.f; last = now;
         s.Poll();
-        if (line) {
+        if (follow) {
+            if (haveOther) { me.pos = {other.pos.x - std::sin(other.yaw) * 2.f, other.pos.y, other.pos.z - std::cos(other.yaw) * 2.f}; me.yaw = other.yaw; }
+        } else if (line) {
             float leg = lineLen / lineSpeed, cycle = 2.f * (leg + 2.f);
             float u = std::fmod((now - start) / 1000.f, cycle);
             bool back = u >= leg + 2.f;
@@ -155,6 +160,8 @@ int main(int argc, char** argv) {
             nextFire += fireEvery; ++me.shots; me.shotTarget = fireTarget;
             std::printf("t=%.1f shot %u\n", tsec, me.shots);
         }
+        static bool charSent = false;
+        if (follow && !charSent && s.connected()) { s.SendCharacterSelect(CharacterId::Dina); charSent = true; }
         s.SendPlayerState(me);
         for (auto& h : hits) if (!h.sent && tsec >= h.at && s.connected()) { s.SendEnemyDamage({h.sid, h.amount, static_cast<uint8_t>(h.alert ? kReportAlert : h.spawned ? kReportSpawned : 0)}); h.sent = true; std::printf("[client] t=%.1f reported a %.1f hit\n", tsec, h.amount); }
         if (!restartSent && tsec >= restartAt && s.connected()) {

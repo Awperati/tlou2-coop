@@ -1934,6 +1934,11 @@ void GameBridge::QueuePlayerToBuddy(unsigned index) {
         auto q = b ? Read<Quat>(b + offRot_) : std::nullopt;
         if (!p || !bp) return;
         bool ok = engineTeleport(p, *bp, q ? YawFromQuat(*q) : 0.f);
+        // The other PC's own player has to come here too, or the drift snap pulls the clone back
+        // to where they stood before the plot moment (plotsim 06:32: snapped 6.8 m straight away).
+        { std::lock_guard lk(cloneMu_); plotEndPos_ = *bp; plotEndYaw_ = q ? YawFromQuat(*q) : 0.f; }
+        cloneFixAt_ = GetTickCount64() + 3000;   // no snap for 5 s while the other player arrives
+        plotEndReady_ = true;
         Log("clone mode: player %u moved onto the companion's spot %.1f %.1f %.1f: %s", index, bp->x, bp->y, bp->z, ok ? "sent" : "FAILED");
     }, true);
 }
@@ -2034,7 +2039,7 @@ void GameBridge::TickCloneDrive() {
             ULONGLONG tn = GetTickCount64();
             if (tmov) cloneStillSince_ = 0; else if (!cloneStillSince_) cloneStillSince_ = tn;
             auto cp = Read<Vec3>(p + offPos_);
-            if (have && cp && tn - cloneFixAt_ > 2000) {
+            if (have && cp && tn > cloneFixAt_ && tn - cloneFixAt_ > 2000) {
                 float d = Distance(*cp, tgt);
                 bool still = cloneStillSince_ && tn - cloneStillSince_ > 1000;
                 if (d > 4.f || (still && d > 1.5f)) {
