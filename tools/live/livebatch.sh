@@ -33,5 +33,7 @@ for i in $(seq 1 30); do tail -n +$n "$G/tlou2-coop.log" | grep -aq "player 1 jo
 echo "-- relay join"; tail -n +$n "$G/tlou2-coop.log" | grep -a "relay\|joined\|left" | cut -c1-140
 b_cmd "stick l 0 32767 10000"; sleep 10.5; b_cmd "stick l 32767 0 10000"; sleep 11
 echo "-- relay walk"; tail -n +$n "$G/tlou2-coop.log" | grep -a "clonedrive: (want|drift)" -E | tail -4 | cut -c1-140
+echo "-- clone error while the partner walks (m): count, mean, p95, max"
+tail -n +$n "$G/tlou2-coop.log" | grep -a "clonedrift:" | sed 's/.*clonedrift: \([0-9.]*\) m.*/\1/' | sort -n | awk '{a[NR]=$1; s+=$1} END {if (NR) { k=int(NR*0.95+0.999); if (k<1) k=1; printf "%d samples, mean %.2f, p95 %.2f, max %.2f\n", NR, s/NR, a[k], a[NR] } else print "no samples"}'
 tail -2 "$TEMP/relay_live.out"
 echo done

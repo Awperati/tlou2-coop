@@ -228,7 +228,7 @@ public:
     // Instead B is pressed for her until her stance matches the other player's (0 stand, 1 crouch, 2 prone).
     bool cloneStanceSync_ = true;
     float cloneAimSign_ = 1.f;            // [clone] AimSign: right stick direction that turns her toward the target yaw
-    unsigned long long lastAimLog_ = 0;
+    unsigned long long lastAimLog_ = 0, lastErrLog_ = 0;
     std::atomic<int> cloneWantStance_{-1};
     unsigned long long stanceBUntil_ = 0, stanceNextAt_ = 0;
     Vec3 cloneTarget_; float cloneTargetYaw_ = 0; bool cloneTargetMoving_ = false, cloneHasTarget_ = false;

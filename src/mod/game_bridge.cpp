@@ -2134,6 +2134,12 @@ void GameBridge::TickCloneDrive() {
             ULONGLONG tn = GetTickCount64();
             if (tmov) cloneStillSince_ = 0; else if (!cloneStillSince_) cloneStillSince_ = tn;
             auto cp = Read<Vec3>(p + offPos_);
+            // Measurement (2026-10-19): the clone's distance from the other player's reported spot, every
+            // 0.5 s while they move, to size the walking error before any prediction work.
+            if (have && cp && tmov && tn - lastErrLog_ > 500) {
+                lastErrLog_ = tn;
+                Log("clonedrift: %.2f m behind the reported spot (moving)", Distance(*cp, tgt));
+            }
             if (have && cp && tn > cloneFixAt_ && tn - cloneFixAt_ > 2000) {
                 float d = Distance(*cp, tgt);
                 bool still = cloneStillSince_ && tn - cloneStillSince_ > 1000;
