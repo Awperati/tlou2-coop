@@ -542,6 +542,18 @@ uint64_t HookedRememberCheckpoint(uint64_t a1, uint64_t a2, uint64_t a3, uint64_
     ++g_cpCount;   // logged from the main loop, not here: keep the save path untouched
     return r;
 }
+// GameRestartEncounter(bool, bool) (sub_14105F8F0): the second restart path (pause menu "Restart
+// Encounter", native task-restart-encounter 0x4274D0). Static RE 2026-10-19: GameRestartCheckpoint's
+// only callers are the menu message-box handlers, the save-slot load (sub_1403678F0) and the native
+// task-restart-from-continue; the encounter restart did not reach our hook, so it counts here too.
+uint8_t* g_reTramp = nullptr;
+uint8_t g_reSaved[16];
+uintptr_t g_reTarget = 0;
+uint64_t HookedRestartEncounter(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
+                                uint64_t a7, uint64_t a8, uint64_t a9, uint64_t a10, uint64_t a11, uint64_t a12) {
+    ++g_rsCount;
+    return reinterpret_cast<Fwd12>(g_reTramp)(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
+}
 uint64_t HookedRestartCheckpoint(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
                                  uint64_t a7, uint64_t a8, uint64_t a9, uint64_t a10, uint64_t a11, uint64_t a12) {
     ++g_rsCount;
@@ -565,6 +577,17 @@ bool CheckpointHooksInstall(uintptr_t remember, uintptr_t restart) {
         } else Log("checkpoint hook: GameRestartCheckpoint prologue changed, not hooking");
     }
     return g_cpInstalled && g_rsInstalled;
+}
+bool RestartEncounterHookInstall(uintptr_t target) {
+    if (g_reTarget) return true;
+    // mov [rsp+10h],rbx; push rbp; push rdi; push r14; sub rsp,90h
+    static const uint8_t expect[16] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x55, 0x57, 0x41, 0x56, 0x48, 0x81, 0xEC, 0x90, 0x00, 0x00, 0x00};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedRestartEncounter), g_reSaved, g_reTramp)) {
+        Log("checkpoint hook: GameRestartEncounter prologue changed, not hooking"); return false;
+    }
+    g_reTarget = target;
+    Log("checkpoint hook: GameRestartEncounter hooked (counts as a restart)");
+    return true;
 }
 uint32_t CheckpointWrites() { return g_cpCount.load(); }
 uint32_t CheckpointRestarts() { return g_rsCount.load(); }
@@ -1104,6 +1127,7 @@ void FiberHookRemove() {
     if (g_rawTarget) { RemoveTrampoline(g_rawTarget, g_rawSaved, sizeof(g_rawSaved)); g_rawTarget = 0; }
     if (g_cpInstalled) { RemoveTrampoline(g_cpTarget, g_cpSaved, sizeof(g_cpSaved)); g_cpInstalled = false; Log("checkpoint hook: RememberCheckpoint removed"); }
     if (g_rsInstalled) { RemoveTrampoline(g_rsTarget, g_rsSaved, sizeof(g_rsSaved)); g_rsInstalled = false; Log("checkpoint hook: GameRestartCheckpoint removed"); }
+    if (g_reTarget) { RemoveTrampoline(g_reTarget, g_reSaved, sizeof(g_reSaved)); g_reTarget = 0; }
     g_printMode = 0;
     for (auto& p : g_print) if (p.on) { RemoveTrampoline(p.target, p.saved, sizeof(p.saved)); p.on = false; }
     if (g_nativeInstalled) { RemoveTrampoline(g_nativeTarget, g_nativeSaved, sizeof(g_nativeSaved)); g_nativeInstalled = false; Log("script hook: removed"); }

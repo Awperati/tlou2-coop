@@ -65,6 +65,7 @@ uint32_t CloneRawHits();
 bool CamAssistHookInstall(uintptr_t target);
 uint32_t CamAssistSkips();
 bool CamPickHookInstall(uintptr_t target);
+bool RestartEncounterHookInstall(uintptr_t target);
 bool LevelListenerHooksInstall(uintptr_t add, uintptr_t remove);
 bool CommandGroupHooksInstall(uintptr_t push, uintptr_t pop);
 // GetPlayer() returns this player on the calling thread until reset with 0.

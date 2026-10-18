@@ -878,6 +878,11 @@ void CoopMain() {
                     }
                     if (look.empty()) look = "ellie-seattle";
                     cloneLook = look; cloneStage = 1; cloneAt = now;
+                    // A mod reload finds the clone from the last instance still there: dress that one
+                    // instead of spawning another. Every reload spawned a new player 1 and orphaned the
+                    // old one, until a state-script pool ran out and the game crashed (08:37, null+0x10
+                    // in SsManager::OnSpawnStateScript after a day of reloads).
+                    if (bridge.HasPlayer(1)) { cloneStage = 3; Log("clone mode: player 1 is still there from before the reload, re-dressing her"); }
                     bridge.cloneDrive_ = true;
                     bridge.DropRemoteBody();
                     Log("clone mode: spawning the other player as '%s'", look.c_str());

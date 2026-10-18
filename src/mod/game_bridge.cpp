@@ -169,7 +169,7 @@ bool GameBridge::Init(const Ini& ini) {
         if (ini.getBool("engine", "dialog_facts_hook", true))
             DialogFactsHookInstall(BuildRva(0x3172A0), BuildRva(0x12432F0), BuildRva(0x1243A50), BuildRva(0x2B049E0), BuildRva(0x313FB0));
         if (ini.getBool("engine", "vox_hook", true)) VoxRequestHookInstall(BuildRva(0x331A80));
-        if (ini.getBool("engine", "checkpoint_hooks", true)) CheckpointHooksInstall(BuildRva(0x1200770), BuildRva(0x105F4E0));
+        if (ini.getBool("engine", "checkpoint_hooks", true)) { CheckpointHooksInstall(BuildRva(0x1200770), BuildRva(0x105F4E0)); RestartEncounterHookInstall(BuildRva(0x105F8F0)); }
         if (ini.getBool("engine", "demeanor_hooks", true)) DemeanorHooksInstall(BuildRva(0x1D4A120), BuildRva(0x1D51060));
         // Second-player safety, installed at start: a reload with player 1 alive left the camera
         // assist running for it and the game crashed (07:44).
