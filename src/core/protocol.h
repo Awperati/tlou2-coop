@@ -108,6 +108,16 @@ inline bool CloneCatchUp(float wantX, float wantZ, float errX, float errZ, float
     return e > sprintAt;
 }
 
+// Clone stick calibration from her real motion (2026-10-19). The engine's own world-stick field
+// matched the wanted direction exactly, yet the user saw her walk the wrong way: her motion follows
+// her own (idle) camera, not that field. So measure the angle between the direction we asked for
+// and the direction she actually moved, and turn theta by it. Returns the corrected theta.
+inline float ThetaFromMotion(float theta, float wantX, float wantZ, float movedX, float movedZ) {
+    float e = std::atan2(movedZ, movedX) - std::atan2(wantZ, wantX);   // the same angle convention as StickTheta
+    e = std::remainder(e, 6.2831853f);
+    return std::remainder(theta + e, 6.2831853f);
+}
+
 inline void StickForWorld(float wx, float wz, float theta, float& sx, float& sy) {
     float c = std::cos(-theta), s = std::sin(-theta);
     sx = wx * c - wz * s; sy = wx * s + wz * c;

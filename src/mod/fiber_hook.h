@@ -65,6 +65,9 @@ uint32_t CloneRawHits();
 bool CamAssistHookInstall(uintptr_t target);
 uint32_t CamAssistSkips();
 bool CamPickHookInstall(uintptr_t target);
+bool CloneAimHooksInstall(uintptr_t dirFn, uintptr_t rayFn);
+void SetCloneAim(bool on, float dx, float dy, float dz, float ex, float ey, float ez);
+uint32_t CloneAimHits();
 bool PickupHookInstall(uintptr_t target);
 std::vector<uintptr_t> TakePickedUp();
 // Reload-proof trampoline memory: the same slot for the same hooked address in every instance.

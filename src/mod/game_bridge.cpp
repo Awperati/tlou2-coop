@@ -173,7 +173,7 @@ bool GameBridge::Init(const Ini& ini) {
         if (ini.getBool("engine", "demeanor_hooks", true)) DemeanorHooksInstall(BuildRva(0x1D4A120), BuildRva(0x1D51060));
         // Second-player safety, installed at start: a reload with player 1 alive left the camera
         // assist running for it and the game crashed (07:44).
-        if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); LevelListenerHooksInstall(BuildRva(0x1A4D870), BuildRva(0x1A4E210)); ActiveUpdateHookInstall(BuildRva(0xAD61E0)); CommandGroupHooksInstall(BuildRva(0x15B6C90), BuildRva(0x15B6D70)); PickupHookInstall(BuildRva(0x88FBF0)); }
+        if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); LevelListenerHooksInstall(BuildRva(0x1A4D870), BuildRva(0x1A4E210)); ActiveUpdateHookInstall(BuildRva(0xAD61E0)); CommandGroupHooksInstall(BuildRva(0x15B6C90), BuildRva(0x15B6D70)); PickupHookInstall(BuildRva(0x88FBF0)); CloneAimHooksInstall(BuildRva(0xC6E800), BuildRva(0xC6F020)); }
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
@@ -2071,7 +2071,26 @@ void GameBridge::TickCloneDrive() {
         if (std::fabs(lastStickX_ - prevStickX_) < 0.03f && std::fabs(lastStickY_ - prevStickY_) < 0.03f) ++steadyTicks_;
         else steadyTicks_ = 0;
         prevStickX_ = lastStickX_; prevStickY_ = lastStickY_;
-        if (steadyTicks_ >= 3 && wx && wz && (lastStickX_ * lastStickX_ + lastStickY_ * lastStickY_) > 0.04f && (*wx * *wx + *wz * *wz) > 0.01f) {
+        // Calibrate from her real motion ([clone] ThetaFromMotion, default): over >= 0.4 s of one
+        // steady command, compare where she went with where we asked her to go.
+        if (cloneThetaFromMotion_) {
+            auto cpos = Read<Vec3>(p + offPos_);
+            unsigned long long tm = GetTickCount64();
+            bool sameCmd = std::fabs(lastCmdX_ - motionCmdX_) < 0.1f && std::fabs(lastCmdZ_ - motionCmdZ_) < 0.1f;
+            if (!cpos || !sameCmd || (lastCmdX_ * lastCmdX_ + lastCmdZ_ * lastCmdZ_) < 0.04f) {
+                motionRefAt_ = tm; if (cpos) motionRef_ = *cpos; motionCmdX_ = lastCmdX_; motionCmdZ_ = lastCmdZ_;
+            } else if (tm - motionRefAt_ >= 400) {
+                float dx = cpos->x - motionRef_.x, dz = cpos->z - motionRef_.z;
+                if (dx * dx + dz * dz > 0.25f * 0.25f) {
+                    float before = cloneTheta_;
+                    float meas = ThetaFromMotion(cloneTheta_, motionCmdX_, motionCmdZ_, dx, dz);
+                    cloneTheta_ = std::remainder(cloneTheta_ + 0.5f * std::remainder(meas - cloneTheta_, 6.2831853f), 6.2831853f);
+                    if (tm - lastThetaLog_ > 2000) { lastThetaLog_ = tm; Log("clonetheta: asked %.2f %.2f, moved %.2f %.2f m -> theta %.2f -> %.2f", motionCmdX_, motionCmdZ_, dx, dz, before, cloneTheta_); }
+                }
+                motionRefAt_ = tm; motionRef_ = *cpos;
+            }
+        }
+        if (!cloneThetaFromMotion_ && steadyTicks_ >= 3 && wx && wz && (lastStickX_ * lastStickX_ + lastStickY_ * lastStickY_) > 0.04f && (*wx * *wx + *wz * *wz) > 0.01f) {
             float meas = StickTheta(lastStickX_, lastStickY_, *wx, *wz);
             float d = std::remainder(meas - cloneTheta_, 6.2831853f);
             cloneTheta_ = std::remainder(cloneTheta_ + 0.5f * d, 6.2831853f);
@@ -2088,6 +2107,7 @@ void GameBridge::TickCloneDrive() {
         }
         if (cloneWorldStick_) { ActiveUpdateHookInstall(BuildRva(0xAD61E0)); SetCloneWorldStick(true, mx, mz); }
         float sx = 0, sy = 0;
+        lastCmdX_ = mx; lastCmdZ_ = mz;
         if (mx * mx + mz * mz > 0.0025f) StickForWorld(mx, mz, cloneTheta_, sx, sy);
         // Slot 3 is filled from a raw pad every frame (sub_141397A40 -> sub_14158F710); the hook
         // swaps the other player's stick in at that copy (writes from outside were overwritten).
@@ -2113,6 +2133,12 @@ void GameBridge::TickCloneDrive() {
         // entries, one per camera manager; sub_1407FA650(index) clears it): point camera 1, the
         // clone's, along the other player's aim. Read back her own aim for the log.
         bool aimNow = (held & 0x200) != 0;
+        // Aim without a camera: answer player 1's aim queries with the other player's aim, from her eyes.
+        if (aimNow) {
+            float ay = cloneAimYaw_.load(), ap = cloneAimPitch_.load();
+            float dx = std::cos(ap) * std::sin(ay), dy = std::sin(ap), dz = std::cos(ap) * std::cos(ay);
+            if (auto cp = Read<Vec3>(p + offPos_)) SetCloneAim(true, dx, dy, dz, cp->x, cp->y + 1.55f, cp->z);
+        } else SetCloneAim(false, 0, 0, 1, 0, 0, 0);
         if (cloneAimOverride_ && aimNow) {
             // Static read (2026-10-19): the override builds Euler(arg0 about X = pitch, arg1 about Y = yaw)
             // with sub_14217F530 order 0 and turns +Z with it. Its blocks are Rx rows (1,0,0)(0,c,s)(0,-s,c)
@@ -2135,7 +2161,7 @@ void GameBridge::TickCloneDrive() {
                     float gy = 0, gp = 0;
                     if (SafeNative(BuildRva(0x407A70), 0, a, r) && r[0]) if (auto d = Read<Vec3>(r[0])) { gy = std::atan2(d->x, d->z); gp = std::atan2(d->y, std::sqrt(d->x * d->x + d->z * d->z)); }
                     SetPlayerOverride(0);
-                    Log("cloneaim: want yaw %.2f pitch %.2f, clone aims yaw %.2f pitch %.2f (order %d)", cloneAimYaw_.load(), cloneAimPitch_.load(), gy, gp, cloneAimOrder_);
+                    Log("cloneaim: want yaw %.2f pitch %.2f, clone aims yaw %.2f pitch %.2f (aim queries answered: %u)", cloneAimYaw_.load(), cloneAimPitch_.load(), gy, gp, CloneAimHits());
                 });
             }
         } else if (cloneAimSet_) {

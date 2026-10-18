@@ -985,6 +985,64 @@ bool PickupHookInstall(uintptr_t target) {
 }
 std::vector<uintptr_t> TakePickedUp() { std::lock_guard lk(g_pickMu); return std::exchange(g_picked, {}); }
 
+// Clone aim without a camera (2026-10-19). Player aim rays come from the player's camera manager
+// (index Player+21800 / +21796) through sub_141B1AFB0 + unprojection; camera manager 1 has no live
+// camera, so player 1's aim read back a constant direction and the aim override did nothing. Two
+// aim queries are answered for player 1 from the other player's aim instead:
+//   sub_140C6E800(aimComp, out): aim direction through the reticle (camera-get-dir-through-reticle)
+//   sub_140C6F020(aimComp, out): aim ray, out+0 u16 0x101, out+0x10 origin, out+0x20 direction
+// aimComp+0 is the player. Other players go to the game's own code.
+namespace {
+using AimFn = uint64_t (*)(uint64_t comp, uint64_t out);
+uint8_t* g_aimDirTramp = nullptr; uint8_t* g_aimRayTramp = nullptr;
+uint8_t g_aimDirSaved[13], g_aimRaySaved[13];
+uintptr_t g_aimDirTarget = 0, g_aimRayTarget = 0;
+std::atomic<bool> g_cloneAimOn{false};
+std::atomic<float> g_aimDx{0}, g_aimDy{0}, g_aimDz{1}, g_eyeX{0}, g_eyeY{0}, g_eyeZ{0};
+std::atomic<uint32_t> g_aimHits{0};
+int AimCompPlayerIndex(uint64_t comp) {
+    __try { uintptr_t pl = *reinterpret_cast<uintptr_t*>(comp); return pl ? *reinterpret_cast<int*>(pl + 21800) : -1; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+}
+uint64_t HookedAimDir(uint64_t comp, uint64_t out) {
+    if (g_cloneAimOn.load() && out && AimCompPlayerIndex(comp) == 1) {
+        float* o = reinterpret_cast<float*>(out);
+        o[0] = g_aimDx.load(); o[1] = g_aimDy.load(); o[2] = g_aimDz.load(); o[3] = 0.f;
+        ++g_aimHits;
+        return out;
+    }
+    return reinterpret_cast<AimFn>(g_aimDirTramp)(comp, out);
+}
+uint64_t HookedAimRay(uint64_t comp, uint64_t out) {
+    if (g_cloneAimOn.load() && out && AimCompPlayerIndex(comp) == 1) {
+        *reinterpret_cast<uint16_t*>(out) = 0x101;
+        float* org = reinterpret_cast<float*>(out + 0x10);
+        float* dir = reinterpret_cast<float*>(out + 0x20);
+        org[0] = g_eyeX.load(); org[1] = g_eyeY.load(); org[2] = g_eyeZ.load(); org[3] = 1.f;
+        dir[0] = g_aimDx.load(); dir[1] = g_aimDy.load(); dir[2] = g_aimDz.load(); dir[3] = 0.f;
+        ++g_aimHits;
+        return out;
+    }
+    return reinterpret_cast<AimFn>(g_aimRayTramp)(comp, out);
+}
+} // namespace
+bool CloneAimHooksInstall(uintptr_t dirFn, uintptr_t rayFn) {
+    if (g_aimDirTarget) return true;
+    // mov [rsp+18h],rbx; push rdi; sub rsp,440h (both functions)
+    static const uint8_t expect[13] = {0x48, 0x89, 0x5C, 0x24, 0x18, 0x57, 0x48, 0x81, 0xEC, 0x40, 0x04, 0x00, 0x00};
+    if (!InstallTrampoline(dirFn, expect, sizeof(expect), reinterpret_cast<void*>(&HookedAimDir), g_aimDirSaved, g_aimDirTramp)) {
+        Log("clone aim hooks: prologue changed, not hooking"); return false;
+    }
+    g_aimDirTarget = dirFn;
+    if (InstallTrampoline(rayFn, expect, sizeof(expect), reinterpret_cast<void*>(&HookedAimRay), g_aimRaySaved, g_aimRayTramp)) g_aimRayTarget = rayFn;
+    Log("clone aim hooks: player 1's aim direction%s answered from the other player's aim", g_aimRayTarget ? " and aim ray" : "");
+    return true;
+}
+void SetCloneAim(bool on, float dx, float dy, float dz, float ex, float ey, float ez) {
+    g_aimDx = dx; g_aimDy = dy; g_aimDz = dz; g_eyeX = ex; g_eyeY = ey; g_eyeZ = ez; g_cloneAimOn = on;
+}
+uint32_t CloneAimHits() { return g_aimHits.load(); }
+
 std::string LevelListenerSkips() { return "add " + std::to_string(g_addSkips.load()) + ", remove " + std::to_string(g_remSkips.load()); }
 
 // Raw pad -> joypad slot copy (sub_14158F710; slot, raw pad, slot index), run every frame for
@@ -1200,6 +1258,8 @@ void FiberHookRemove() {
     if (g_pushTarget) { RemoveTrampoline(g_pushTarget, g_pushSaved, sizeof(g_pushSaved)); g_pushTarget = 0; }
     if (g_popTarget) { RemoveTrampoline(g_popTarget, g_popSaved, sizeof(g_popSaved)); g_popTarget = 0; }
     if (g_pickTarget2) { RemoveTrampoline(g_pickTarget2, g_pickSaved2, sizeof(g_pickSaved2)); g_pickTarget2 = 0; }
+    if (g_aimDirTarget) { RemoveTrampoline(g_aimDirTarget, g_aimDirSaved, sizeof(g_aimDirSaved)); g_aimDirTarget = 0; }
+    if (g_aimRayTarget) { RemoveTrampoline(g_aimRayTarget, g_aimRaySaved, sizeof(g_aimRaySaved)); g_aimRayTarget = 0; }
     if (g_addTarget) { RemoveTrampoline(g_addTarget, g_addSaved, sizeof(g_addSaved)); g_addTarget = 0; }
     if (g_remTarget) { RemoveTrampoline(g_remTarget, g_remSaved, sizeof(g_remSaved)); g_remTarget = 0; }
     g_rawOn = false;

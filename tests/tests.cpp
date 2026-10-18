@@ -187,6 +187,25 @@ static void TestRoster() {
 // oversize frames and floods are dropped.
 // Catch-up: a clone that walks 20 % slower than the other player on the same stick. Without the
 // pull her lag grows without bound; with it, it settles under a metre.
+// Stick calibration from motion: the clone's real mapping is off by 100 degrees; after a few
+// steady-command measurements theta converges and she walks where asked.
+static void TestThetaFromMotion() {
+    const float truth = 3.14159265f - 1.745f;   // the engine's real stick -> world turn
+    float theta = 3.14159265f;                   // our starting guess (world = -stick)
+    for (int i = 0; i < 8; ++i) {
+        float wantX = std::sin(0.3f * i), wantZ = std::cos(0.3f * i);
+        float sx, sy; StickForWorld(wantX, wantZ, theta, sx, sy);
+        // the engine turns the stick by truth: invert StickForWorld's convention with it
+        float c = std::cos(truth), s = std::sin(truth);
+        float movedX = c * sx - s * sy, movedZ = s * sx + c * sy;
+        float meas = ThetaFromMotion(theta, wantX, wantZ, movedX, movedZ);
+        theta = std::remainder(theta + 0.5f * std::remainder(meas - theta, 6.2831853f), 6.2831853f);
+    }
+    float err = std::fabs(std::remainder(theta - truth, 6.2831853f));
+    std::printf("  theta from motion: error after 8 steps %.3f rad\n", err);
+    CHECK(err < 0.02f);
+}
+
 // Alerts: one report per real alert, even when the other side never takes it.
 static void TestAlertLatch() {
     struct Sample { float t; bool here, host; };
@@ -403,6 +422,7 @@ int main() {
     TestRelaySession();
     TestCloneCatchUp();
     TestAlertLatch();
+    TestThetaFromMotion();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
