@@ -1,6 +1,7 @@
 # TLOU2 Co-op
 
 LAN co-op for *The Last of Us Part II Remastered* (PC). Two players play the story at once.
+How to play, on a LAN or over the internet: [docs/PLAYING.md](docs/PLAYING.md).
 Player 2 takes the chapter's companion: Dina, Lev, Jesse, and so on.
 Fall too far behind and you **hold T** (or Back on a controller) to teleport to your partner, Dying Light style.
 
