@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <map>
+#include <set>
 #include <random>
 #include <string>
 #include <sstream>
@@ -345,7 +346,10 @@ void CoopMain() {
     bool selfMovingLogged = false;
     std::string cloneLook; int cloneStage = 0; ULONGLONG cloneAt = 0, cloneWaitStart = 0, cloneLookCheckAt = 0; bool cloneLookPending = false;
     const bool cloneEnabled = cfg.getBool("clone", "Enabled", true);   // on unless a coop.ini says otherwise (user, 2026-10-18)
-    ULONGLONG lastCloneCheck = 0, player0Since = 0; bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
+    ULONGLONG lastCloneCheck = 0, player0Since = 0; uint64_t lastApLogged = 0; bool lastScriptedLogged = false;
+    // Action-pack types that should not take the companion's place from the clone (cover-like).
+    std::set<uint64_t> ignoredAps;
+    for (auto& t : SplitList(cfg.get("clone", "IgnoreActionPacks", ""))) { try { ignoredAps.insert(std::stoull(t, nullptr, 16)); } catch (...) {} } bool cloneSetUp = false, cloneCineShown = false, cloneSpeechSet = false, cloneSpeechCine = false;
 
     uint32_t tick = 0;
     ULONGLONG last = GetTickCount64(), lastSend = 0, lastStatus = 0, lastDiscover = 0;
@@ -823,7 +827,15 @@ void CoopMain() {
                 // companion does it herself and the clone steps aside; afterwards the clone takes
                 // over from where she ended up.
                 if (isHost && partnerChar != CharacterId::None) bridge.QueuePlotState(CharacterName(partnerChar));
-                bool plotMove = isHost && (bridge.plotScripted_ || bridge.plotAp_ != 0);
+                // npc-get-entered-ap-type gives 0 outside an action pack (sub_140636280), else the
+                // type's name id. Cover is an action pack too; log every type seen so cover-like ones
+                // can be told apart from traversal (boost, door, squeeze) and ignored.
+                uint64_t apNow = bridge.plotAp_;
+                if (apNow != lastApLogged || bridge.plotScripted_ != lastScriptedLogged) {
+                    lastApLogged = apNow; lastScriptedLogged = bridge.plotScripted_;
+                    Log("plot: companion scripted anim %d, action pack type %016llx", static_cast<int>(lastScriptedLogged), static_cast<unsigned long long>(apNow));
+                }
+                bool plotMove = isHost && (bridge.plotScripted_ || (apNow != 0 && !ignoredAps.count(apNow)));
                 bool cine = bridge.InCinematic() || plotMove;
                 if (cloneCineShown && !cine && isHost) bridge.QueuePlayerToBuddy(1);
                 // Dialogue: the other player's character speaks from the clone (process user id
