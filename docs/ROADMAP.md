@@ -1054,3 +1054,21 @@ PCs, wearing their character's model.
   'player-2' (SetUserId fix at spawn). Live check: get-object-health on sid:player-2 read 100 (the clone),
   sid:player 83 (the host). Clone mode now maps the partner's character (host side) or the host's speakers
   (partner side: player, ellie) to 'player-2', and back to themselves while a cinematic plays. Not heard yet.
+
+### Clone mode live test checklist (run when PC A's game is already in front; never force focus)
+Setup: both PCs on the same build (check the `build ...` stamp in both logs), PC B joined, clone mode on
+(log `clone: player 1 ready as 'dina-player'` on PC A, `'ellie-seattle'` on PC B). PC B commands go to its
+`tlou2-coop\cmd.txt` over SSH (`ssh -i ~/.ssh/tlou2_pcb sharn@192.168.0.238`); PC B's game must be in front too.
+The queued script `scratchpad/clonetest.sh` does steps 1-3 by itself.
+
+| # | Check | How | Pass |
+|---|---|---|---|
+| 1 | Look | screenshot of PC A | the clone wears Dina's model with a full body |
+| 2 | Movement | PC B `stick l 0 32767 3000`; read player 1's pos before/after (`players`, `proc <addr>`) | she walks 3+ m the way PC B walked; `clonedrive: want == engine world` |
+| 3 | Crouch | PC B `press b 300`, then `stick l 32767 0 2500` | she crouches (recording) and moves right |
+| 4 | Sprint / jump | PC B `press lb 2000` with the stick held; `press a 200` | she runs / jumps; no `ActionCommandManager` assert |
+| 5 | Snap-back | push her 5+ m off (or let PC B walk into a wall) | `clonedrive: drift ... snapped` and she lands on PC B's spot |
+| 6 | Plot swap | play to a cutscene or a Dina scripted moment (boost, door) | `clone mode: ... story companion shown, clone hidden`, then `gameplay, clone shown` and `player 1 moved onto the companion's spot` |
+| 7 | Dialogue | listen to a Dina line in normal play | it comes from the clone's position (`speaker(s) now play from the clone`) |
+| 8 | PC B's clone of the host | move PC A's own player (needs PC A in front) | on PC B player 1 (Ellie look) walks the same way; PC B log `clonedrive: want ...` |
+| 9 | Stability | play 10 minutes including a checkpoint load | no crash; the clone is respawned after the load (5 s after player 0) |
