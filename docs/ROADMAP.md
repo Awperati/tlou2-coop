@@ -11,7 +11,7 @@ Ranked. Claim an item in a message before starting; the main session works from 
    10 that call `task-restart-from-continue` are puzzle hints/skips (rope puzzles, dumpster, generator, wave manager);
    none calls `task-restart-encounter`. So a death does not reach a restart through those natives. Whether it passes
    GameRestartCheckpoint/GameRestartEncounter (both hooked, both log) is only answerable by a real death.
-2. **Protocol fuzz test**: random and bit-flipped bytes through every message Read (PlayerState with gesture/state
+2. **Protocol fuzz test** — DONE 465cac4 (ctest `fuzz`, 48k inputs over 12 message types in 0.15 s, clean): random and bit-flipped bytes through every message Read (PlayerState with gesture/state
    tails, WorldEvent, Objective, enemy messages): must fail cleanly or round-trip, never read past the end. tests.cpp.
 3. **Relay under loss** (claimed by the gesture session, 06:3x): coop_relay with 10-30 % dropped/reordered datagrams on loopback (lan_sim): the session
    reconnects and state flows; add a ctest that runs it in seconds.
