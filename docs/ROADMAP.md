@@ -1404,3 +1404,9 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 - Core: `JumpFromState` + `kState*` in protocol.h, tested (TestJumpFromState). Mod wiring to do (game_bridge.cpp,
   waiting for the fidget-sync edits there): in ReadLocalPlayer, read the state with sub_14133D6B0 under SEH and set
   kJumped from `JumpFromState`, keeping `JumpDetector` (speed) as the fallback; log state changes under `animlog`.
+- Traversal core (79e11b9, not wired): `src/core/traversal.h` maps the partner entering Jump / Edge / Ladder / Slide /
+  Evade / SqueezeThrough to a 150 ms press on the clone (A / A / Y / B / LB / Y); WallShimmy, LedgeDrop, FreeRope,
+  Zipline and Swim follow by the drift snap. Wiring plan: send the sender's state id in PlayerState (one u64 after the
+  gesture field the fidget session is adding), feed it to `TraversalCopy` on the receiver, OR its `Held()` into the
+  clone's buttons (skip a bit the partner's pad already holds), log `clonetraversal: <name>`. The button guesses
+  (Y for ladders and squeezes, B to slide) need one live check each.
