@@ -13,9 +13,9 @@ Ranked. Claim an item in a message before starting; the main session works from 
    GameRestartCheckpoint/GameRestartEncounter (both hooked, both log) is only answerable by a real death.
 2. **Protocol fuzz test**: random and bit-flipped bytes through every message Read (PlayerState with gesture/state
    tails, WorldEvent, Objective, enemy messages): must fail cleanly or round-trip, never read past the end. tests.cpp.
-3. **Relay under loss**: coop_relay with 10-30 % dropped/reordered datagrams on loopback (lan_sim): the session
+3. **Relay under loss** (claimed by the gesture session, 06:3x): coop_relay with 10-30 % dropped/reordered datagrams on loopback (lan_sim): the session
    reconnects and state flows; add a ctest that runs it in seconds.
-4. **Clock sync** (claimed by the gesture session, 06:15): NTP-style offset/latency in the session Pong.
+4. **Clock sync** — DONE f52f622 (gesture session): pongs carry the peer wall clock, `Session::peerClock`, "net: peer N clock" every 30 s, tools/logmerge.py. No receiver code compared sender time.
 
 Needs the owner (not in this backlog): the six traversal checks and the mouse-look lead (patches/traversal-wiring.md),
 the pickup name check and its checkpoint step, M7 checkpoint-write forwarding (overwrites the partner's save point),
