@@ -244,7 +244,9 @@ public:
     bool standTurning_ = false;
     JumpDetector jumpDet_;
     JumpFromState jumpState_;              // jump from the own player's "Jump" state (speed is the fallback)
-    TraversalCopy traversal_;              // receiver: partner state -> button presses on the clone
+    TraversalCopy traversal_;
+    YawLead yawLead_;                      // partner camera yaw, led by its turn rate (guarded by cloneMu_)
+    float cloneFaceLead_ = 0.15f;          // [clone] FaceLead: seconds of lead on the standing-turn target              // receiver: partner state -> button presses on the clone
     std::atomic<uint64_t> ownState_{0};    // own player state, sampled on the game fiber (PollGestures)
     std::atomic<bool> ownJumpSeen_{false};
     uint64_t lastOwnState_ = 0;

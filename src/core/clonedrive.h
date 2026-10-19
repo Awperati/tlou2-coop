@@ -54,6 +54,34 @@ private:
     float rX_ = 0, rZ_ = 0, cX_ = 0, cZ_ = 0, sX_ = 0, sY_ = 0;
 };
 
+// Facing lead (2026-10-20, owner: the smooth turn "is late" while PC B mouse-looks). The partner's camera yaw
+// arrives sampled (100 ms on the sender, then the network) and her turn through the game takes 1-1.5 s, so she
+// trails a moving camera. Feed every received yaw; Predict() extrapolates by the measured turn rate, leadS ahead,
+// and falls back to the last yaw once the camera has held still for stillMs. Angles wrap at +-pi.
+struct YawLead {
+    float leadS = 0.15f, maxRate = 6.f, smooth = 0.5f; unsigned stillMs = 250;
+    // Packets repeat the same yaw between the sender's samples, so the rate is measured from change to change.
+    void Add(unsigned long long now, float yaw) {
+        if (!have_) { have_ = true; last_ = yaw; movedT_ = now; return; }
+        float d = std::remainder(yaw - last_, 6.2831853f);
+        if (std::fabs(d) < 1e-4f) return;
+        float dt = static_cast<float>(now > movedT_ ? now - movedT_ : 1) / 1000.f;
+        float r = dt > static_cast<float>(stillMs) / 1000.f ? 0.f : d / dt;   // first change after a hold: no rate yet
+        if (r > maxRate) r = maxRate; if (r < -maxRate) r = -maxRate;
+        rate_ = rate_ + smooth * (r - rate_);
+        last_ = yaw; movedT_ = now;
+    }
+    float Predict(unsigned long long now) const {
+        if (!have_) return 0.f;
+        if (now - movedT_ > stillMs) return last_;
+        float ahead = leadS + static_cast<float>(now - movedT_) / 1000.f;
+        if (ahead > 0.3f) ahead = 0.3f;
+        return std::remainder(last_ + rate_ * ahead, 6.2831853f);
+    }
+private:
+    bool have_ = false; float last_ = 0, rate_ = 0; unsigned long long movedT_ = 0;
+};
+
 // After the other player stops, walk her the rest of the way instead of leaving her short (the standing
 // snap then teleported her, user 11:3x). Returns a world stick toward the error, 0 inside `within` metres;
 // slower when close so she does not overshoot.

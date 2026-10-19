@@ -2360,6 +2360,7 @@ void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, 
     if (jumped && !cloneJumpedPrev_ && !(held & 0x20)) { cloneJumpUntil_ = GetTickCount64() + 150; Log("clonejump: the other player jumped at y %.2f; tapping A", pos ? pos->y : 0.f); }
     cloneJumpedPrev_ = jumped;
     cloneAimYaw_ = aimYaw; cloneAimPitch_ = aimPitch;
+    { std::lock_guard lk(cloneMu_); yawLead_.Add(GetTickCount64(), aimYaw); }   // standing-turn lead (YawLead)
     cloneMoveX_ = x; cloneMoveZ_ = z; cloneHeld_ = held; cloneMoveAt_ = GetTickCount64();
     if (stance >= 0) cloneWantStance_ = stance;
     if (pos) { std::lock_guard lk(cloneMu_); cloneTarget_ = *pos; cloneTargetYaw_ = yaw; cloneTargetMoving_ = moving; cloneHasTarget_ = true; }
@@ -2630,7 +2631,10 @@ void GameBridge::TickCloneDrive() {
             // animation) through the game's teleport (same spot), not a raw rotation write. [clone] StandTurnTo =
             // body turns her to their body yaw instead (in the real game only moving turns the body).
             if (have && cp && offRot_) if (auto q = Read<Quat>(p + offRot_)) {
+                // Camera target: led by its turn rate (YawLead, clonedrive.h) so her game-driven turn does not trail a
+                // mouse-looking partner (owner 05:2x: "late"); [clone] FaceLead s, 0 = no lead.
                 float look = cloneStandTurnToBody_ ? tyaw : cloneAimYaw_.load();
+                if (!cloneStandTurnToBody_ && cloneFaceLead_ > 0.f) { std::lock_guard lk(cloneMu_); yawLead_.leadS = cloneFaceLead_; look = yawLead_.Predict(tn); }
                 float mine = YawFromQuat(*q), err = std::remainder(look - mine, 6.2831853f);
                 // Standing means: they stood 0.5 s and she got no stick (their move or her arrive walk) for 0.8 s.
                 // 12:00 log: turns fired mid-walk on their stop/start flicker, and each one cut her walk short.

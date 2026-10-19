@@ -213,6 +213,7 @@ void CoopMain() {
     bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
     bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
     bridge.cloneStandTurn_ = cfg.getBool("clone", "StandTurn", true);
+    bridge.cloneFaceLead_ = cfg.getFloat("clone", "FaceLead", 0.15f);
     bridge.cloneGestureSync_ = cfg.getBool("clone", "GestureSync", true);
     {   // [clone] FaceForce = stored | globals (on, true) | off (false, no): core/faceforce.h
         auto ffm = ParseFaceForce(cfg.get("clone", "FaceForce", "stored"));
@@ -911,6 +912,7 @@ void CoopMain() {
                     else if (line.rfind("jumptrace ", 0) == 0) { bridge.jumpTraceUntil_ = GetTickCount64() + 1000ull * static_cast<unsigned>(atoi(line.c_str() + 10)); Log("jumptrace: on"); }
                     else if (line == "facediff") { RequestFaceDiff(3); Log("facediff: next 3 forced updates"); }
                     else if (line == "faceptrs") Log("faceptrs:%s", FacePtrs().c_str());
+                    else if (line.rfind("facelead ", 0) == 0) { bridge.cloneFaceLead_ = static_cast<float>(atof(line.c_str() + 9)); Log("facelead: %.2f s", bridge.cloneFaceLead_); }
                     else if (line == "facetrace on" || line == "facetrace off") { bridge.faceTrace_ = line == "facetrace on"; Log("facetrace: %s", bridge.faceTrace_ ? "on" : "off"); }
                     else if (line == "gesturesync on" || line == "gesturesync off") { bridge.cloneGestureSync_ = line == "gesturesync on"; Log("gesturesync: %s", bridge.cloneGestureSync_ ? "on" : "off"); }
                     else if (line == "gesturelog on" || line == "gesturelog off") { bridge.gestureLog_ = line == "gesturelog on"; Log("gesturelog: %s", bridge.gestureLog_ ? "on" : "off"); }
@@ -999,7 +1001,7 @@ void CoopMain() {
         }
         testWasDown = testDown;
 
-        if (now - lastFiring >= 100) { lastFiring = now; bridge.PollFiring(); }
+        if (now - lastFiring >= 33) { lastFiring = now; bridge.PollFiring(); }   // also samples the camera yaw sent for her facing (was 100 ms)
         bridge.TickPadMirror();
         bridge.TickCloneDrive();
         // Clone mode ([clone] Enabled): the other player is a real second player (player 1) on

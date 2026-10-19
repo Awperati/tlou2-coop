@@ -374,6 +374,24 @@ static void TestTraversalCopy() {
     CHECK(r.Update(v += 300, fnv("Zipline")) == nullptr && r.Held(v) == 0);
 }
 
+static void TestYawLead() {
+    YawLead y; unsigned long long t = 0; float yaw = 3.0f;
+    // A camera turning at 2 rad/s, sampled every 100 ms: the prediction leads the last sample.
+    // Packets come every ~33 ms and repeat the yaw between samples (the rate must not triple).
+    for (int i = 0; i < 10; ++i) { for (int k = 0; k < 3; ++k) y.Add(t + 33 * k, yaw); t += 100; yaw = std::remainder(yaw + 0.2f, 6.2831853f); }
+    t -= 100; yaw = std::remainder(yaw - 0.2f, 6.2831853f);
+    float p = y.Predict(t);
+    float lead = std::remainder(p - yaw, 6.2831853f);
+    CHECK(lead > 0.2f && lead < 0.35f);                    // ~2 rad/s x 0.15 s, across the +-pi wrap
+    // The camera stops: within 250 ms the prediction falls back to the last yaw (no overshoot).
+    for (int i = 0; i < 4; ++i) { t += 100; y.Add(t, yaw); }
+    CHECK(std::fabs(std::remainder(y.Predict(t) - yaw, 6.2831853f)) < 1e-3f);
+    // A turn the other way leads the other way.
+    YawLead z; unsigned long long u = 0; float w = 0;
+    for (int i = 0; i < 6; ++i) { z.Add(u, w); u += 100; w -= 0.1f; }
+    CHECK(std::remainder(z.Predict(u - 100) - (w + 0.1f), 6.2831853f) < -0.1f);
+}
+
 static void TestJumpFromState() {
     auto fnv = [](const char* n) { uint64_t h = 0xCBF29CE484222325ull; for (; *n; ++n) { h ^= static_cast<uint8_t>(*n); h *= 0x100000001B3ull; } return h; };
     CHECK(fnv("Jump") == kStateJump && fnv("Fall") == kStateFall && fnv("Move") == kStateMove && fnv("Edge") == kStateEdge);
@@ -657,6 +675,7 @@ int main() {
     TestPickupClass();
     TestFaceForceParse();
     TestJumpFromState();
+    TestYawLead();
     TestTraversalCopy();
     TestJumpDetector();
     TestThetaSettledGuard();
