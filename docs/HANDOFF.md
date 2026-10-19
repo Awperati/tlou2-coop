@@ -17,7 +17,7 @@ Full findings log: [ROADMAP.md](ROADMAP.md). Player guide: [PLAYING.md](PLAYING.
 | Position | "Position matches correctly based on either side" (owner) |
 | Facing while walking | Her own locomotion. Matches the partner's body within ~0.1 rad (log) |
 | Facing while standing | Snaps to the partner's CAMERA yaw (teleport to the same spot). Owner: "still snaps to the right orientation". Choppy, no turn animation |
-| Smooth standing turn | On by default (`FaceForce = stored`). Live 10-20 04:4x: 11 clone turns, neither PC's own body moved. Owner eye check of the turn still open. See 4.1 |
+| Smooth standing turn | On by default (`FaceForce = stored`). Live 10-20 04:4x: 18 clone turns, neither PC's own body moved. Owner eye check of the turn still open. See 4.1 |
 | Stance | Crouch and prone confirmed by the owner |
 | Body | 8 meshes and 3 cloth props match PC B's own Dina. Owner: torso and arms back (14:0x) |
 | Hood | Owner: "Ellie hood is great" |
@@ -70,8 +70,8 @@ Not bugs (owner confirmed):
     The force never reaches player 0 with the lock in place. Lock give-ups: 0.
   - `facewatch ctl`: nothing but her own C31340 touches her [ctl+0x1B0] / [ctl+0x8E0].
   - `faceptrs`: no shared pointers. player+0x2E98 is the player's own movement controller.
-  - Turns: with the globals + lock, 7 clone turns. With `stored`, 4 more, plus 2 after the reload with `stored`
-    as the default. Each turn took 1-1.5 s. Own bodies stayed at -0.56 / -1.95 (PC A) and 2.90 / 2.88 (PC B),
+  - Turns: 10 with the globals + lock (6 on PC A, 4 on PC B), 4 with `stored`, and 4 more after the reload with
+    `stored` as the default. Each turn took 1-1.5 s. Own bodies stayed at -0.56 / -1.95 (PC A) and 2.90 / 2.88 (PC B),
     changing only when that PC walked.
   - So the 13:3x leak was the unlocked race. The lock went in at 13:36, but FaceForce was switched off before
     any turn was seen with it. The 13:39 "leak" was a body left over from before the lock.
