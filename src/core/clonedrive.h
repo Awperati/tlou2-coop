@@ -82,6 +82,13 @@ private:
     bool have_ = false; float last_ = 0, rate_ = 0; unsigned long long movedT_ = 0;
 };
 
+// The partner's held buttons for the clone, only while their packets are fresh (review 10-20). Packets stopping
+// (their game froze, crashed, or the link dropped) left the last mask held for up to the 10 s peer timeout: a
+// held fire (RT) or aim (LT) kept her firing. The stick already stops after 500 ms without news; so do buttons.
+inline uint64_t FreshHeld(uint64_t held, unsigned long long ageMs, unsigned long long maxAgeMs = 500) {
+    return ageMs > maxAgeMs ? 0 : held;
+}
+
 // After the other player stops, walk her the rest of the way instead of leaving her short (the standing
 // snap then teleported her, user 11:3x). Returns a world stick toward the error, 0 inside `within` metres;
 // slower when close so she does not overshoot.

@@ -8,6 +8,7 @@
 // pairs are the game's published default layout. Slide (mud slopes) and SqueezeThrough start by themselves when
 // she walks in, so they follow; the ladder press (Y) is the one pairing still to see live.
 #pragma once
+#include <atomic>
 #include <cstdint>
 
 namespace coop {
@@ -63,22 +64,39 @@ inline const TraversalState* FindTraversal(uint64_t id) {
 // returns it once and Held() gives the button to hold until its time is up, while her own state allows it
 // (TraversalAllowed; checked each frame, so a press stops as soon as she gets there herself). A state the
 // partner was already in (packet repeats, reconnects) does not press again.
+// Threads (review 10-20): Update runs on the mod's network thread (SetCloneMove), Held on a game job thread
+// (TickCloneDrive). The press (which state, until when) is one atomic word, so Held never pairs a new state
+// with the old deadline or the other way round (that tear could press the previous button for a frame).
 struct TraversalCopy {
-    const TraversalState* Update(unsigned long long now, uint64_t state) {
+    const TraversalState* Update(unsigned long long now, uint64_t state) {   // one writer thread
         const TraversalState* hit = nullptr;
         if (state != prev_) {
             const TraversalState* t = FindTraversal(state);
-            if (t && t->button) { hit = t; active_ = t; until_ = now + t->ms; }
+            if (t && t->button) { hit = t; press_.store(Pack(t, now + t->ms), std::memory_order_release); }
         }
         prev_ = state;
         return hit;
     }
-    uint64_t Held(unsigned long long now, uint64_t cloneState = 0) const {
-        if (!active_ || now >= until_) return 0;
-        return TraversalAllowed(*active_, cloneState) ? active_->button : 0;
+    uint64_t Held(unsigned long long now, uint64_t cloneState = 0) const {   // any thread
+        uint64_t w = press_.load(std::memory_order_acquire);
+        const TraversalState* t = Active(w);
+        if (!t || now >= (w & kUntilMask)) return 0;
+        return TraversalAllowed(*t, cloneState) ? t->button : 0;
+    }
+    // The word: table index + 1 in the top 8 bits (0 = none), the deadline (ms) in the low 56.
+    static constexpr uint64_t kUntilMask = (1ull << 56) - 1;
+    static uint64_t Pack(const TraversalState* t, unsigned long long until) {
+        uint64_t idx = static_cast<uint64_t>(t - kTraversalStates) + 1;
+        return (idx << 56) | (until & kUntilMask);
+    }
+    static const TraversalState* Active(uint64_t w) {
+        uint64_t idx = w >> 56;
+        constexpr uint64_t n = sizeof(kTraversalStates) / sizeof(kTraversalStates[0]);
+        return idx && idx <= n ? &kTraversalStates[idx - 1] : nullptr;
     }
 private:
-    uint64_t prev_ = 0; const TraversalState* active_ = nullptr; unsigned long long until_ = 0;
+    uint64_t prev_ = 0;
+    std::atomic<uint64_t> press_{0};
 };
 
 } // namespace coop

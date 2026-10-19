@@ -2523,7 +2523,7 @@ void GameBridge::TickCloneDrive() {
         // Mouse and keyboard on the other PC (user 09:18): their raw pad holds no trigger bits, so
         // take aiming and firing from the state flags (player-is-aiming? / player-is-firing?).
         uint64_t flagHeld = (cloneAimingFlag_.load() ? 0x200ull : 0) | (cloneFiringFlag_.load() ? 0x2000ull : 0);
-        uint64_t held = (cloneHeld_.load() | flagHeld) & cloneButtonMask_;
+        uint64_t held = FreshHeld((cloneHeld_.load() | flagHeld) & cloneButtonMask_, GetTickCount64() - cloneMoveAt_.load());   // none on stale news
         if (GetTickCount64() < cloneJumpUntil_) held |= 0x20;
         // No catch-up sprint: holding LB stopped her stick input (engine world 0, drift 2.7 m, 11:43 A/B: catch-up
         // on mean 1.32 m vs off 0.25 m). The steering pull alone is kept. [clone] CatchUpSprint to try again.

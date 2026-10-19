@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <utility>
@@ -376,6 +377,55 @@ static void TestTraversalCopy() {
     CHECK(r.Update(v += 300, fnv("FreeRope")) == nullptr && r.Held(v, fnv("FreeRope")) == 0);
     r.Update(v += 2000, move); r.Update(v += 16, fnv("Jump"));
     CHECK(r.Update(v += 300, fnv("Zipline")) == nullptr && r.Held(v) == 0);
+    // The press word (review 10-20): every state and a deadline 300 days of uptime in round-trip.
+    for (const auto& st : kTraversalStates) {
+        uint64_t w = TraversalCopy::Pack(&st, 25'920'000'000ull);
+        CHECK(TraversalCopy::Active(w) == &st && (w & TraversalCopy::kUntilMask) == 25'920'000'000ull);
+    }
+    CHECK(TraversalCopy::Active(0) == nullptr);
+}
+
+static void TestFreshHeld() {
+    // Fire (RT 0x2000) held when the partner's packets stop: released after 500 ms, like the stick.
+    CHECK(FreshHeld(0x2000, 0) == 0x2000 && FreshHeld(0x2000, 500) == 0x2000);
+    CHECK(FreshHeld(0x2000, 501) == 0 && FreshHeld(0x2220, 10000) == 0);
+    CHECK(FreshHeld(0x20, 900, 1000) == 0x20);
+}
+
+static void TestTraversalThreads() {
+    // Smoke test: Update on one thread (network), Held on another (game job), as in the bridge. Each step k
+    // presses a different button at time k*1000 (Jump A, Evade LB, Ladder Y); a reader that saw step k1
+    // before and k2 after its Held call may only get 0 or a step's button in [k1, k2 + 1] (a step's press is
+    // stored before its number). The press is one atomic word, so it cannot tear by construction; the old
+    // two-field version showed no tear here either on x64 (the window is a few instructions), so this guards
+    // the logic under concurrency, not the tear itself.
+    auto fnv = [](const char* n) { uint64_t h = 0xCBF29CE484222325ull; for (; *n; ++n) { h ^= static_cast<uint8_t>(*n); h *= 0x100000001B3ull; } return h; };
+    const uint64_t states[3] = {fnv("Jump"), fnv("Evade"), fnv("Ladder")}, buttons[3] = {0x20, 0x100, 0x10};
+    const uint64_t move = fnv("Move");
+    TraversalCopy c;
+    std::atomic<long> step{-1};
+    std::atomic<bool> stop{false};
+    long bad = 0, reads = 0;
+    std::thread reader([&] {
+        while (!stop) {
+            long k1 = step.load();
+            if (k1 < 0) continue;
+            uint64_t b = c.Held(static_cast<unsigned long long>(k1) * 1000);
+            long k2 = step.load();
+            ++reads;
+            if (!b) continue;
+            bool ok = false;
+            for (long k = k1; k <= k2 + 1 && !ok; ++k) ok = b == buttons[k % 3];   // +1: published after its Update
+            if (!ok) ++bad;
+        }
+    });
+    for (long k = 0; k < 200000; ++k) {
+        c.Update(static_cast<unsigned long long>(k) * 1000, move);           // leave the state, then enter the next
+        c.Update(static_cast<unsigned long long>(k) * 1000, states[k % 3]);
+        step.store(k);
+    }
+    stop = true; reader.join();
+    CHECK(bad == 0 && reads > 0);
 }
 
 static void TestClockSync() {
@@ -794,6 +844,8 @@ int main() {
     TestClockSync();
     TestLossySession();
     TestTraversalCopy();
+    TestTraversalThreads();
+    TestFreshHeld();
     TestJumpDetector();
     TestThetaSettledGuard();
     TestArriveStick();
