@@ -1410,3 +1410,9 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   gesture field the fidget session is adding), feed it to `TraversalCopy` on the receiver, OR its `Held()` into the
   clone's buttons (skip a bit the partner's pad already holds), log `clonetraversal: <name>`. The button guesses
   (Y for ladders and squeezes, B to slide) need one live check each.
+- Follow-through (49806e9): once she is in the same traversal state as the partner (hanging, shimmying, on a ladder,
+  swimming), her stick drive already moves her along with the partner's world stick, so no separate movement target is
+  needed there; what was missing was getting into and out of the state without pressing the wrong thing. Presses are
+  now gated by her own state (no jump while already airborne, no climb while already hanging) and LedgeDrop lets go
+  with B only while she hangs too. Still teleport-only: zipline and free rope entries (no single button).
+  Live check to add: hang on a ledge on PC B, then drop: PC A logs `clonetraversal: LedgeDrop` and she lets go.
