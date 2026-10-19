@@ -1391,3 +1391,16 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 - Sampler running on PC B since 05:16 (until 09:16 or the game exits): `tools/live/vramlog.ps1`, output
   `C:\Users\sharn\tlou2-vram.log`, one line a minute (VRAM, shared, working set, private). First line: 5.10 GB VRAM,
   1.67 GB shared. When the glitch comes back, note the time and read the lines just before it.
+
+## Player state machine ids and a real jump signal (2026-10-20, static RE)
+
+- `sub_14133D6B0(player, out)` returns a pointer to the player's current state name id, FNV-1a of the name (same
+  hash as our Fnv1a). Found in `get-player-jump-or-fall-top-pos-y` (0xE64350), which compares it with "Jump" and "Fall".
+- 114 distinct ids are compared right after calls to the getter; named from the exe's strings, the player states include:
+  Move, Jump, Fall, Script, GunMove, Edge, Prone, Inventory, Melee, Active, Dropped, DebugFly, GrenadeMove, Swim, PushPull, BoatDriving, MoveShield, Slide, Journal, Evade, RunNGun, BowMove, Cover, GunMoveShield, Ladder, WaitInitial, Dead, Carried, WallShimmy, FreeRope, ArrowPull, HitReaction, Drive, Off, RopeDriven, Taunt, NetMove, Rewind, ZeroG, Carry, KnockedDown, GunMoveHeavyWeapon, Zipline, Investigate, LedgeDrop, ReviveCharacter, Death, EncounterOver, CinematicSelectOver, FadeIn, AnimateOn, Teleporting, SplashScreen, Ragdoll, Thrown, Door, FrontEnd, BalanceFall, PlayerBalanceFallController, GrappleNpc, WallRope, DragRope, BoatGrapple, FallingGrab, MoveCarryNpc, ShieldDown, GunMoveCarry, MotionMatchMove, Pickup, AfterCollision, SqueezeThrough, WaterfallDeath, DeadInWater, WaterDeath, GroundLanding, Grapple, RideHorse, Igc
+- So a jump is the player entering "Jump" (0x15A477E9F9A165AD); falling is "Fall"; ledges, ladders and shimmies are
+  "Edge", "Ladder", "WallShimmy", "LedgeDrop". Player+12224 is the jump controller (vfunc +840: jump apex), Player+12768
+  the fall controller (vfunc +848).
+- Core: `JumpFromState` + `kState*` in protocol.h, tested (TestJumpFromState). Mod wiring to do (game_bridge.cpp,
+  waiting for the fidget-sync edits there): in ReadLocalPlayer, read the state with sub_14133D6B0 under SEH and set
+  kJumped from `JumpFromState`, keeping `JumpDetector` (speed) as the fallback; log state changes under `animlog`.
