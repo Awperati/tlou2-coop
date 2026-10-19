@@ -251,6 +251,7 @@ public:
     uint64_t lastAnimState_[2] = {};
     float lastY_ = 0; unsigned long long lastYAt_ = 0, lastVyLog_ = 0;
     bool cloneFaceForce_ = false;         // [clone] FaceForce: desired facing through her movement controller (off: turns player 0 too, 13:39)
+    bool cloneFaceStored_ = false;        // faceforce stored: through her stored facing (sub_140C34C80), no force globals
     unsigned cloneStandTurnMs_ = 80;     // [clone] StandTurnMs: ms between steps (0 = every tick)
     unsigned long long lastCmdMoveAt_ = 0, localMoveAt_ = 0;
     bool cloneCatchUp_ = true;            // [clone] CatchUp: steer toward the other player's spot

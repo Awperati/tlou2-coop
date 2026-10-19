@@ -1268,7 +1268,8 @@ bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle) {
 namespace {
 uint8_t* g_faceTramp = nullptr;
 uint8_t g_faceSaved[12];
-uintptr_t g_faceTarget = 0, g_faceFlag = 0, g_faceDir = 0;
+uintptr_t g_faceTarget = 0, g_faceFlag = 0, g_faceDir = 0, g_faceStore = 0;
+std::atomic<bool> g_faceStoredMode{false};
 std::atomic<uintptr_t> g_facePlayer{0};
 std::atomic<bool> g_faceForceOn{false};
 std::atomic<float> g_faceX{0}, g_faceZ{1};
@@ -1282,7 +1283,7 @@ thread_local bool t_faceForcing = false;
 // fiber switch inside an update can never freeze the game; g_faceSpinMiss counts give-ups.
 std::atomic<bool> g_faceLock{false};
 // facediff: one forced update, diffing player 0 and its controller around it (what leaks).
-std::atomic<uintptr_t> g_otherCtl{0}, g_otherPl{0};
+std::atomic<uintptr_t> g_otherCtl{0}, g_otherPl{0}, g_herCtl{0}, g_herPl{0};
 std::atomic<int> g_faceDiffReq{0};
 constexpr size_t kDiffPl = 0x5800, kDiffCtl = 0x800;
 void DiffLog(const char* what, const uint8_t* a, const uint8_t* b, size_t n) {
@@ -1293,6 +1294,7 @@ void DiffLog(const char* what, const uint8_t* a, const uint8_t* b, size_t n) {
     Log("facediff: %s %d dwords changed:%s", what, cnt, out.c_str());
 }
 std::atomic<uint32_t> g_faceSpinMiss{0};
+uintptr_t SafeQword(uintptr_t a) { __try { return *reinterpret_cast<uintptr_t*>(a); } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; } }
 bool FaceLockAcquire() {
     LARGE_INTEGER f, t0, t; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&t0);
     for (;;) {
@@ -1334,7 +1336,16 @@ uint64_t HookedFaceCtl(uint64_t ctl, uint64_t req) {
         return r;
     }
     ++g_faceCalls1;
+    g_herCtl = ctl; g_herPl = pl;
     if (!g_faceForceOn.load()) return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+    // Stored mode (A/B for the leak): no global at all. sub_140C34C80(ctl, dir) is how the
+    // controller keeps its last desired facing ([ctl+0x890] bound frame, [ctl+0x8E0] = 1); standing
+    // without a move request, sub_140C31340 faces that stored direction.
+    if (g_faceStoredMode.load() && g_faceStore) {
+        alignas(16) float d[4] = {g_faceX.load(), 0.f, g_faceZ.load(), 0.f};
+        reinterpret_cast<void (*)(uint64_t, const float*)>(g_faceStore)(ctl, d);
+        return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+    }
     auto* flag = reinterpret_cast<uint8_t*>(g_faceFlag);
     auto* dir = reinterpret_cast<float*>(g_faceDir);
     bool locked = FaceLockAcquire();
@@ -1359,11 +1370,11 @@ uint64_t HookedFaceCtl(uint64_t ctl, uint64_t req) {
 }
 } // namespace
 
-bool FaceCtlHookInstall(uintptr_t target, uintptr_t flag, uintptr_t dir) {
+bool FaceCtlHookInstall(uintptr_t target, uintptr_t flag, uintptr_t dir, uintptr_t storeFacing) {
     if (g_faceTarget) return true;
     // mov [rsp+18h],rbx; push rbp; push rsi; push rdi; sub rsp,60h
     static const uint8_t expect[12] = {0x48, 0x89, 0x5C, 0x24, 0x18, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x60};
-    g_faceFlag = flag; g_faceDir = dir;
+    g_faceFlag = flag; g_faceDir = dir; g_faceStore = storeFacing;
     if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedFaceCtl), g_faceSaved, g_faceTramp)) {
         Log("face hook: prologue changed, not hooking"); return false;
     }
@@ -1372,6 +1383,7 @@ bool FaceCtlHookInstall(uintptr_t target, uintptr_t flag, uintptr_t dir) {
     return true;
 }
 void RequestFaceDiff(int n) { g_faceDiffReq = n; }
+void SetFaceForceStored(bool on) { g_faceStoredMode = on; }
 void FaceCtlHookRemove() { if (g_faceTarget) { RemoveTrampoline(g_faceTarget, g_faceSaved, sizeof(g_faceSaved)); g_faceTarget = 0; Log("face hook: removed"); } }
 void SetCloneFaceDir(uintptr_t player, bool on, float x, float z) { g_facePlayer = player; g_faceX = x; g_faceZ = z; g_faceForceOn = on; }
 void TakeFaceCtlCounts(uint32_t& clone, uint32_t& other) { clone = g_faceCalls1.exchange(0); other = g_faceCallsOther.exchange(0); }
@@ -1379,6 +1391,32 @@ std::string FaceCtlSeen() {
     std::string out; char b[64];
     snprintf(b, sizeof(b), " nested %u spin give-ups %u", g_faceNested.exchange(0), g_faceSpinMiss.exchange(0)); out += b;
     for (auto& s : g_faceSeen) if (uintptr_t c = s.first.exchange(0)) { snprintf(b, sizeof(b), " ctl %p -> %p", reinterpret_cast<void*>(c), reinterpret_cast<void*>(s.second.load())); out += b; }
+    return out;
+}
+
+// facewatch: what reads the clone's forced facing. Her controller's desired facing [ctl+0x1B0]
+// and stored-facing flag [ctl+0x8E0] (sub_140C34C80), and the force globals (only C31340 reads
+// them in the static code, rva 0xC31A36/0xC31A44).
+std::vector<HwWatchSlot> FaceWatchSlots(bool ctl, bool glob) {
+    std::vector<HwWatchSlot> v;
+    uintptr_t c = g_herCtl.load();
+    if (ctl && c) { v.push_back({c + 0x1B0, 8, false, "clone ctl+1B0"}); v.push_back({c + 0x8E0, 1, false, "clone ctl+8E0"}); }
+    if (glob && g_faceFlag) { v.push_back({g_faceFlag, 1, false, "force flag"}); v.push_back({g_faceDir, 8, false, "force dir"}); }
+    return v;
+}
+
+// faceptrs: per-player pointers that could be shared between the two players (single-player
+// engine): the key/value store (+0x50B8, desired facing key 0xF8EDCB8F4C46F387), the objects at
+// +0x2E98 / +0x2F88 / +0x2FC0 / +0x2FC8 (virtual +0x150 callers), the move setting (+0x52C8).
+std::string FacePtrs() {
+    static const uint32_t offs[] = {0x50B8, 0x2E98, 0x2F88, 0x2FC0, 0x2FC8, 0x52C8};
+    std::string out; char b[96];
+    auto line = [&](const char* who, uintptr_t pl, uintptr_t ctl) {
+        snprintf(b, sizeof(b), " %s pl %p ctl %p vt %p:", who, reinterpret_cast<void*>(pl), reinterpret_cast<void*>(ctl), reinterpret_cast<void*>(ctl ? SafeQword(ctl) : 0)); out += b;
+        for (uint32_t o : offs) { snprintf(b, sizeof(b), " +%X=%p", o, reinterpret_cast<void*>(pl ? SafeQword(pl + o) : 0)); out += b; }
+    };
+    line("player 0", g_otherPl.load(), g_otherCtl.load());
+    line("clone", g_herPl.load(), g_herCtl.load());
     return out;
 }
 

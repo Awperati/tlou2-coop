@@ -74,12 +74,26 @@ Not bugs (owner confirmed):
   PC B body 1.56 = its clone's target).
   - Ruled out: a cross-thread race (updates serialized, 0 give-ups), nesting (0), GetPlayer inside her update.
   - Ruled out: a write to player 0 or its controller during her update. A `facediff` memory diff over 0x5800 + 0x800 bytes showed 0 dwords changed.
-- **Next:** find what player 0 reads later.
-  - Candidates: a "last updated controller" or locomotion singleton, a camera-facing field, or the setting
-    system keyed by hash -1470104441.
-  - Method: watchpoint-style diffs across the whole frame with the force on vs off, or IDA xrefs to
-    sub_140C34C80 / [ctl+0x1B0] readers.
-- Switches: `faceforce on|off` (off removes the hook), `standturnto camera|body`, `standturnstep <rad>`, `standturnms <ms>`.
+- **Static RE (10-20 night, PC B off, so no live run):**
+  - Only sub_140C31340 reads the flag and dir (rva 0xC31A36 / 0xC31A44). The native sub_140DB63B0 is the only other writer.
+  - The forced dir goes only into her own state: [ctl+0x1B0], her stored facing [ctl+0x890] + [ctl+0x8E0]=1
+    (sub_140C34C80), and her player's key/value store (player+0x50B8, key 0xF8EDCB8F4C46F387, player-local dir).
+    sub_141F819E0 / sub_141F80BF0 are pure maths.
+  - Controller: vtable 0x142CC3CC0, size 0x950, desired-facing getter slot +0x150 (sub_140C2EB10).
+    Per-frame update sub_140C37110 (slot +0x158), enter sub_140C35ED0. Each controller sits at player+0x14ADC0.
+  - PC B log 13:31-13:40 (force on, lock on, 0 give-ups, 0 nested): its own yaw followed the clone's yaw each time
+    (-1.21, 0.18, 1.56). With the force off it did not. 13:1x: its own player kept her yaw while walking,
+    as if player 0 itself saw the force.
+- **Next (one live run, both standing):**
+  1. `faceforce on`, then `facewatch 3000 glob`. The report lists every instruction that touched the flag/dir,
+     with the `rdi` (= controller in C31340) and how often the flag was set then.
+     A hit at 0xC31A36 with player 0's controller and "set" > 0 means player 0 reads the force after all.
+  2. `facewatch 3000 ctl`: every reader of her [ctl+0x1B0] / [ctl+0x8E0]. Anything outside sub_140C31340 /
+     her own anim is the leak path. `faceptrs` prints both players' pointers to name the `rdi` values.
+  3. `faceforce stored`: turns her through her stored facing (sub_140C34C80), no globals at all.
+     If player 0 stays put and she still turns smoothly, that is the fix.
+  - `facewatch` uses debug registers on all game threads (offline test: 3/3 clean). Untried in the game.
+- Switches: `faceforce on|stored|off` (off removes the hook), `standturnto camera|body`, `standturnstep <rad>`, `standturnms <ms>`.
 
 ### 4.2 Jump
 - **Sender:** `JumpDetector` (protocol.h). Fires on a rise above 1.1 m/s with a sudden onset (more than 0.8 m/s
@@ -114,7 +128,8 @@ Not bugs (owner confirmed):
 - Build `cmd /c ".\build.cmd"` (tests run). Deploy `cmd /c ".\deploy.cmd"` (hot reload on PC A; PC B pulls from share.py).
 - Commands go as lines in `<game>\tlou2-coop\cmd.txt`. On PC B, over SSH: `(echo cmd)>> file`.
   - Clone and test commands: `clonebody i`, `props i`, `redress`, `catchup on|off`, `clonetheta r`, `faceforce`,
-    `standturn*`, `lookanswer on|off`, `animlog on|off`, `jumptrace s`, `facediff`, `peek addr n`, `look <id>`, `leaks`.
+    `standturn*`, `lookanswer on|off`, `animlog on|off`, `jumptrace s`, `facediff`, `facewatch [ms] [ctl|glob]`,
+    `faceptrs`, `peek addr n`, `look <id>`, `leaks`.
   - Virtual pad: `stick l|r x y ms`, `press a 150`, `trigger l|r|lr v ms`.
 - Logs: `<game>\tlou2-coop.log`, rotated to `.prev1-3.log` on each reload. Key lines:
   - `clonedrive:` (want, engine world, game in front)

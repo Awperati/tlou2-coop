@@ -446,6 +446,7 @@ void CoopMain() {
     const int testKey = cfg.get("debug", "TestTeleportKey", "F10").empty() ? 0 : ParseKey(cfg.get("debug", "TestTeleportKey", "F10"));
     bool prevPressed = false, toggled = false;
     PromptState prevPrompt = PromptState::Hidden;
+    unsigned long long faceWatchUntil = 0;   // facewatch report time
 
     while (g_run) {
         ULONGLONG now = GetTickCount64();
@@ -902,7 +903,19 @@ void CoopMain() {
                     else if (line == "animlog on" || line == "animlog off") { bridge.cloneAnimLog_ = line == "animlog on"; Log("animlog: %s", bridge.cloneAnimLog_ ? "on" : "off"); }
                     else if (line.rfind("jumptrace ", 0) == 0) { bridge.jumpTraceUntil_ = GetTickCount64() + 1000ull * static_cast<unsigned>(atoi(line.c_str() + 10)); Log("jumptrace: on"); }
                     else if (line == "facediff") { RequestFaceDiff(3); Log("facediff: next 3 forced updates"); }
-                    else if (line == "faceforce on" || line == "faceforce off") { bridge.cloneFaceForce_ = line == "faceforce on"; Log("faceforce: %s", bridge.cloneFaceForce_ ? "on" : "off"); }
+                    else if (line == "faceptrs") Log("faceptrs:%s", FacePtrs().c_str());
+                    else if (line.rfind("facewatch", 0) == 0) {   // facewatch [ms] [ctl|glob]: who reads the clone's forced facing
+                        std::istringstream fw(line.substr(9)); unsigned ms = 3000; std::string what; fw >> ms >> what;
+                        auto slots = FaceWatchSlots(what != "glob", what != "ctl");
+                        std::string err;
+                        if (slots.empty()) Log("facewatch: nothing to watch (faceforce hook off or the clone's controller not seen yet)");
+                        else if (HwWatchArm(slots, err)) { faceWatchUntil = GetTickCount64() + std::clamp(ms, 200u, 20000u); Log("facewatch: armed for %u ms on %s (%zu addresses)", ms, err.c_str(), slots.size()); }
+                        else Log("facewatch: not armed: %s", err.c_str());
+                    }
+                    else if (line == "faceforce on" || line == "faceforce off" || line == "faceforce stored") {
+                        bridge.cloneFaceForce_ = line != "faceforce off"; bridge.cloneFaceStored_ = line == "faceforce stored";
+                        Log("faceforce: %s", bridge.cloneFaceStored_ ? "stored (her controller's stored facing, no globals)" : bridge.cloneFaceForce_ ? "on (force globals)" : "off");
+                    }
                     else if (line == "lookanswer on" || line == "lookanswer off") { bridge.cloneLookAnswer_ = line == "lookanswer on"; Log("lookanswer: %s", bridge.cloneLookAnswer_ ? "on" : "off"); }
                     else if (line == "catchup on" || line == "catchup off") { bridge.cloneCatchUp_ = line == "catchup on"; Log("catchup: %s", bridge.cloneCatchUp_ ? "on" : "off"); }
                     else if (line.rfind("relay ", 0) == 0) {
@@ -1166,6 +1179,11 @@ void CoopMain() {
 
         if (now - lastLevelPoll >= 500) { lastLevelPoll = now; bridge.PollLevels(); bridge.PollTasks(); bridge.PollCinematic(); }
 
+        if (faceWatchUntil && now >= faceWatchUntil) {
+            faceWatchUntil = 0;
+            for (const auto& l : HwWatchReport()) Log("facewatch: %s", l.c_str());
+            Log("facewatch: done;%s", FacePtrs().c_str());   // the controllers, to name the rdi values
+        }
         if (self && now - lastPosLog >= 5000) {
             lastPosLog = now;
             Log("player pos %.2f %.2f %.2f yaw %.2f", self->pos.x, self->pos.y, self->pos.z, self->yaw);
@@ -1190,6 +1208,7 @@ void CoopMain() {
         Sleep(16);
     }
     session.Stop();
+    HwWatchStop();
     if (!selfPuppet) bridge.ReleasePuppet();   // a reload keeps her; the new instance retakes her
     for (int i = 0; i < 20; ++i) Sleep(50);   // let the release run in a script call
     bridge.Shutdown();

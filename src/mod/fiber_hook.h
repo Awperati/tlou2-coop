@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <utility>
+#include "mod/hw_watch.h"
 
 namespace coop {
 
@@ -55,12 +56,15 @@ std::vector<std::pair<uintptr_t, uint32_t>> NativeTraceDump();
 std::string ActiveUpdateCounts();
 // Clone drive: write this world stick into player 1 before each Active::Update (needs the hook).
 void SetCloneWorldStick(bool on, float x, float z);
-bool FaceCtlHookInstall(uintptr_t target, uintptr_t flag, uintptr_t dir);
+bool FaceCtlHookInstall(uintptr_t target, uintptr_t flag, uintptr_t dir, uintptr_t storeFacing);
+void SetFaceForceStored(bool on);   // true: her stored facing (sub_140C34C80) instead of the force globals
 void SetCloneFaceDir(uintptr_t player, bool on, float x, float z);
 void TakeFaceCtlCounts(uint32_t& clone, uint32_t& other);
 std::string FaceCtlSeen();
 void FaceCtlHookRemove();
 void RequestFaceDiff(int n);
+std::vector<HwWatchSlot> FaceWatchSlots(bool ctl, bool glob);   // facewatch targets (empty: hook or clone not seen)
+std::string FacePtrs();                                         // faceptrs: per-player pointers to compare
 // Raw pad -> slot copy (rva 0x158F710): slot 3 gets this stick (slot space) while on.
 bool RawCopyHookInstall(uintptr_t target);
 void SetCloneRawStick(bool on, float x, float y);

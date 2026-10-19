@@ -26,6 +26,7 @@ add_library(coop_mod SHARED
     src/mod/overlay.cpp
     src/mod/main_thread.cpp
     src/mod/fiber_hook.cpp
+    src/mod/hw_watch.cpp
     src/mod/input_inject.cpp
 )
 set_target_properties(coop_mod PROPERTIES OUTPUT_NAME "coop")

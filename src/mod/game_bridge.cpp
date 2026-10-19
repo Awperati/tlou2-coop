@@ -2469,7 +2469,8 @@ void GameBridge::TickCloneDrive() {
                 bool still = cloneStillSince_ && tn - cloneStillSince_ > 500 && tn - lastCmdMoveAt_ > 800;
                 // Only while standing: walking, her own locomotion already faces their body yaw (12:06: within 0.1),
                 // and forcing it then cost drift (12:20: mean 0.66 m vs 0.22 m).
-                if (cloneFaceForce_) FaceCtlHookInstall(BuildRva(0xC31230), BuildRva(0x40FC87E), BuildRva(0x40FC880));
+                SetFaceForceStored(cloneFaceStored_);
+                if (cloneFaceForce_) FaceCtlHookInstall(BuildRva(0xC31230), BuildRva(0x40FC87E), BuildRva(0x40FC880), BuildRva(0xC34C80));
                 else FaceCtlHookRemove();   // off = not hooked at all (12:5x test: is the hook itself the fault?)
                 // Not while this PC's own player walks: the force leaks into player 0's turning (13:1x, PC B:
                 // its own body stayed at 0.6-0.9 while walking 2.40; with the hook removed it turned). The
