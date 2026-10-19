@@ -26,6 +26,13 @@ using namespace coop;
 static int g_fail = 0, g_pass = 0;
 #define CHECK(x) do { if (x) ++g_pass; else { ++g_fail; std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #x); } } while (0)
 
+// Network test ports, unique per process (10-20 07:43: two predeploy runs at once failed on the same fixed
+// loopback ports, 9-30 checks). Each run gets its own block of 200 ports in 20000-39999.
+static uint16_t TP(uint16_t base) {
+    static const uint16_t off = static_cast<uint16_t>(20000 + (GetCurrentProcessId() % 100) * 200);
+    return static_cast<uint16_t>(off + (base - 47800));
+}
+
 static void TestTeleportUnknownObjective() {
     TeleportConfig cfg;
     Objective o; o.isTransition = 1;   // spot not mapped: 0,0,0
@@ -638,7 +645,7 @@ static void TestCloneCatchUp() {
 
 static void TestRelaySession() {
     Relay relay;
-    CHECK(relay.Start(47960, "correct-horse", 300));
+    CHECK(relay.Start(TP(47960), "correct-horse", 300));
     Session host, client, stranger;
     bool welcomed = false, strangerWelcomed = false, gotState = false, gotTeleport = false;
     Session::Callbacks hcb;
@@ -653,12 +660,12 @@ static void TestRelaySession() {
     scb.onWelcome = [&](const Welcome&) { strangerWelcomed = true; };
     stranger.setCallbacks(scb);
 
-    CHECK(host.StartHostViaRelay("relay-test", "127.0.0.1", 47960, 3, "correct-horse"));
+    CHECK(host.StartHostViaRelay("relay-test", "127.0.0.1", TP(47960), 3, "correct-horse"));
     Hello h; h.playerName = "p2";
     client.SetRelaySecret("correct-horse");
-    CHECK(client.StartClient("127.0.0.1", 47960, h));
+    CHECK(client.StartClient("127.0.0.1", TP(47960), h));
     stranger.SetRelaySecret("wrong-secret");
-    CHECK(stranger.StartClient("127.0.0.1", 47960, h));
+    CHECK(stranger.StartClient("127.0.0.1", TP(47960), h));
     bool requested = false;
     for (int i = 0; i < 600 && !(gotState && gotTeleport); ++i) {
         relay.Poll(); host.Poll(); client.Poll(); stranger.Poll();
@@ -678,14 +685,14 @@ static void TestRelaySession() {
     CHECK(relay.stats().droppedSecret > 0);
 
     uint64_t over = relay.stats().droppedOversize;
-    CHECK(RelayTestSend(47960, std::vector<uint8_t>(kRelayMaxFrame + 100, 0x43)));
+    CHECK(RelayTestSend(TP(47960), std::vector<uint8_t>(kRelayMaxFrame + 100, 0x43)));
     for (int i = 0; i < 20; ++i) { relay.Poll(); Sleep(2); }
     CHECK(relay.stats().droppedOversize == over + 1);
     host.Stop(); client.Stop(); stranger.Stop(); relay.Stop();
 
     Relay slow;   // rate limit: 20 packets/s per sender, burst 40
-    CHECK(slow.Start(47961, "correct-horse", 20));
-    CHECK(RelayTestSend(47961, RelaySecretFrame(kRelayJoin, "correct-horse"), 200));
+    CHECK(slow.Start(TP(47961), "correct-horse", 20));
+    CHECK(RelayTestSend(TP(47961), RelaySecretFrame(kRelayJoin, "correct-horse"), 200));
     for (int i = 0; i < 50; ++i) { slow.Poll(); Sleep(2); }
     CHECK(slow.stats().droppedRate >= 100);
     CHECK(slow.partners() == 1);
@@ -698,7 +705,7 @@ static void TestLossySession() {
     // once, player states must keep flowing and never go backwards, and a 2 s blackout (under the
     // 10 s peer timeout) must not drop the partner.
     LossyProxy proxy;
-    CHECK(proxy.Start(47981, "127.0.0.1", 47980, 25, 15, 40, 7));
+    CHECK(proxy.Start(TP(47981), "127.0.0.1", TP(47980), 25, 15, 40, 7));
     Session host, client;
     bool welcomed = false;
     int statesGot = 0, backwards = 0; uint32_t lastTick = 0; bool any = false;
@@ -710,9 +717,9 @@ static void TestLossySession() {
     Session::Callbacks ccb;
     ccb.onWelcome = [&](const Welcome&) { welcomed = true; };
     client.setCallbacks(ccb);
-    CHECK(host.StartHost("lossy", 47980, 2, false));
+    CHECK(host.StartHost("lossy", TP(47980), 2, false));
     Hello h; h.playerName = "p2";
-    CHECK(client.StartClient("127.0.0.1", 47981, h));
+    CHECK(client.StartClient("127.0.0.1", TP(47981), h));
     uint32_t tick = 1; int sentStates = 0, sentEvents = 0;
     auto run = [&](int ms, bool send) {
         for (uint64_t end = NowMs() + ms; NowMs() < end;) {
@@ -769,9 +776,9 @@ static void TestLoopbackSession() {
     ccb.onPaused = [&](uint8_t slot, const PauseEvent& e) { gotPauseOnClient = slot == 0 && e.paused == 0; };
     client.setCallbacks(ccb);
 
-    CHECK(host.StartHost("test", 47890, 2, false));
+    CHECK(host.StartHost("test", TP(47890), 2, false));
     Hello h; h.playerName = "p2";
-    CHECK(client.StartClient("127.0.0.1", 47890, h));
+    CHECK(client.StartClient("127.0.0.1", TP(47890), h));
 
     bool requested = false;
     for (int i = 0; i < 600 && !(gotState && gotTeleport); ++i) {
@@ -817,7 +824,7 @@ static void TestLoopbackSession() {
     welcomed = false;
     for (int i = 0; i < 50; ++i) { client.Poll(); Sleep(5); }
     CHECK(!client.connected());
-    CHECK(host.StartHost("test", 47890, 2, false));
+    CHECK(host.StartHost("test", TP(47890), 2, false));
     for (int i = 0; i < 600 && !client.connected(); ++i) { host.Poll(); client.Poll(); Sleep(5); }
     CHECK(client.connected());
     CHECK(welcomed);
@@ -826,7 +833,7 @@ static void TestLoopbackSession() {
     Session extra; std::string why;
     Session::Callbacks ecb; ecb.onRejected = [&](const std::string& r) { why = r; };
     extra.setCallbacks(ecb);
-    extra.StartClient("127.0.0.1", 47890, h);
+    extra.StartClient("127.0.0.1", TP(47890), h);
     for (int i = 0; i < 600 && why.empty(); ++i) { host.Poll(); client.Poll(); extra.Poll(); Sleep(5); }
     CHECK(!why.empty());
 }
