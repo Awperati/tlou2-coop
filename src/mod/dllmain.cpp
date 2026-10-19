@@ -900,6 +900,7 @@ void CoopMain() {
                     else if (line.rfind("standturnms ", 0) == 0) { bridge.cloneStandTurnMs_ = static_cast<unsigned>(atoi(line.c_str() + 12)); Log("standturnms: %u", bridge.cloneStandTurnMs_); }
                     else if (line.rfind("standturnstep ", 0) == 0) { bridge.cloneStandTurnStep_ = static_cast<float>(atof(line.c_str() + 14)); Log("standturnstep: %.2f rad", bridge.cloneStandTurnStep_); }
                     else if (line == "animlog on" || line == "animlog off") { bridge.cloneAnimLog_ = line == "animlog on"; Log("animlog: %s", bridge.cloneAnimLog_ ? "on" : "off"); }
+                    else if (line.rfind("jumptrace ", 0) == 0) { bridge.jumpTraceUntil_ = GetTickCount64() + 1000ull * static_cast<unsigned>(atoi(line.c_str() + 10)); Log("jumptrace: on"); }
                     else if (line == "facediff") { RequestFaceDiff(3); Log("facediff: next 3 forced updates"); }
                     else if (line == "faceforce on" || line == "faceforce off") { bridge.cloneFaceForce_ = line == "faceforce on"; Log("faceforce: %s", bridge.cloneFaceForce_ ? "on" : "off"); }
                     else if (line == "lookanswer on" || line == "lookanswer off") { bridge.cloneLookAnswer_ = line == "lookanswer on"; Log("lookanswer: %s", bridge.cloneLookAnswer_ ? "on" : "off"); }

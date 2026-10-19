@@ -249,10 +249,12 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
         if (!moveRefAt_ || now - moveRefAt_ > 400) { moveRefPos_ = s.pos; moveRefAt_ = now; }
         else if (now - moveRefAt_ >= 100) { movingNow_ = IsMoving(moveRefPos_, s.pos, static_cast<unsigned>(now - moveRefAt_)); moveRefPos_ = s.pos; moveRefAt_ = now; }
         if (movingNow_) s.flags |= kMoving;
+        if (now < jumpTraceUntil_) Log("jt %llu %.3f %.3f %.3f", now, s.pos.y, s.pos.x, s.pos.z);   // jumptrace <s>
         bool jumpedNow = jumpDet_.Update(now, s.pos.y, s.pos.x, s.pos.z);
         if (jumpedNow) s.flags |= kJumped;
         if (jumpedNow && !jumpSentPrev_) Log("jump: own player jumped at y %.2f, telling the other PC", s.pos.y);
         jumpSentPrev_ = jumpedNow;
+        if (jumpDet_.lastVy > 0.8f && jumpDet_.lastDtMs != lastJumpDbgDt_) { lastJumpDbgDt_ = jumpDet_.lastDtMs; Log("jump: window %u ms, rise %.2f m/s, ground %.2f m/s", jumpDet_.lastDtMs, jumpDet_.lastVy, jumpDet_.lastVh); }
         // Research: the largest rise per state tick, logged every 5 s while it is above 0.5 m/s.
         if (lastStateYAt_ && now > lastStateYAt_) { float vy = (s.pos.y - lastStateY_) * 1000.f / static_cast<float>(now - lastStateYAt_); if (vy > maxRise_) maxRise_ = vy; }
         lastStateY_ = s.pos.y; lastStateYAt_ = now;

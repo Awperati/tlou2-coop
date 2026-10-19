@@ -242,6 +242,8 @@ public:
     bool standTurning_ = false;
     JumpDetector jumpDet_;
     bool jumpSentPrev_ = false;
+    unsigned lastJumpDbgDt_ = 0;
+    unsigned long long jumpTraceUntil_ = 0;
     float lastStateY_ = 0, maxRise_ = 0; unsigned long long lastStateYAt_ = 0, lastRiseLog_ = 0;
     bool cloneJumpedPrev_ = false;
     unsigned long long cloneJumpUntil_ = 0;
