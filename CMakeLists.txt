@@ -53,6 +53,10 @@ enable_testing()
 add_executable(coop_tests tests/tests.cpp)
 target_link_libraries(coop_tests PRIVATE coop_core)
 add_test(NAME coop_tests COMMAND coop_tests)
+# Protocol fuzz (2026-10-20): random, truncated and bit-flipped input through every message Read.
+add_executable(coop_fuzz tests/fuzz.cpp)
+target_link_libraries(coop_fuzz PRIVATE coop_core)
+add_test(NAME fuzz COMMAND coop_fuzz 4000)
 # Hot-reload code patching (2026-10-20): code swapped under running threads must never tear.
 add_executable(coop_patch_race tests/patch_race.cpp)
 target_include_directories(coop_patch_race PRIVATE src)
