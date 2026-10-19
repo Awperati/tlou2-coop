@@ -11,7 +11,7 @@ namespace coop {
 struct ThetaCalibrator {
     // Tuned with TestThetaCalibratorReplay (simulated mouse-and-keyboard walks, turning lag 0.35 s).
     unsigned settleMs = 600, windowMs = 800;   // replay: theta error 0.031 rad, path error 0.47 m with catch-up
-    float gain = 0.4f, minMove = 0.4f, maxMove = 4.f, stickTol = 0.2f, cmdTol = 0.25f, maxErr = 2.1f;
+    float gain = 0.4f, settledGain = 0.15f, minMove = 0.4f, maxMove = 4.f, stickTol = 0.2f, cmdTol = 0.25f, maxErr = 2.1f;
 
     float theta = 3.14159265f;
     // Last accepted measurement, for the log.
@@ -34,13 +34,29 @@ struct ThetaCalibrator {
         float e = std::remainder(ThetaFromMotion(theta, cX_, cZ_, dx, dz) - theta, 6.2831853f);
         if (std::fabs(e) > maxErr) return false;
         lastBefore = theta; lastAskX = cX_; lastAskZ = cZ_; lastMovedX = dx; lastMovedZ = dz;
-        theta = std::remainder(theta + gain * e, 6.2831853f);
+        // Once settled, smaller steps: single walks scatter by 10-20 degrees (11:3x log) and a full-gain
+        // step made theta wobble around the right value.
+        float g = accepted_ >= 5 ? settledGain : gain;
+        theta = std::remainder(theta + g * e, 6.2831853f);
+        ++accepted_;
         return true;
     }
 
 private:
     unsigned long long refAt_ = 0;
+    int accepted_ = 0;
     float rX_ = 0, rZ_ = 0, cX_ = 0, cZ_ = 0, sX_ = 0, sY_ = 0;
 };
+
+// After the other player stops, walk her the rest of the way instead of leaving her short (the standing
+// snap then teleported her, user 11:3x). Returns a world stick toward the error, 0 inside `within` metres;
+// slower when close so she does not overshoot.
+inline void ArriveStick(float errX, float errZ, float& outX, float& outZ, float within = 0.35f, float maxDist = 4.f) {
+    float d = std::sqrt(errX * errX + errZ * errZ);
+    outX = outZ = 0.f;
+    if (d < within || d > maxDist) return;
+    float mag = d * 0.6f; if (mag < 0.3f) mag = 0.3f; if (mag > 0.7f) mag = 0.7f;
+    outX = errX / d * mag; outZ = errZ / d * mag;
+}
 
 } // namespace coop

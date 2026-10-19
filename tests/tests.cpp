@@ -238,6 +238,14 @@ static std::pair<float, float> RunCalibration(ThetaCalibrator cal, unsigned seed
     return {std::fabs(std::remainder(cal.theta - truth, 6.2831853f)), sumErr / nErr};
 }
 
+static void TestArriveStick() {
+    float x, z;
+    ArriveStick(0.2f, 0.1f, x, z); CHECK(x == 0 && z == 0);                 // close enough: stand
+    ArriveStick(2.f, 0.f, x, z); CHECK(x > 0.65f && x <= 0.7f && z == 0);    // far: capped walk toward
+    ArriveStick(0.f, -0.5f, x, z); CHECK(z < 0 && std::fabs(z) >= 0.3f);     // near: slow, still moving
+    ArriveStick(5.f, 0.f, x, z); CHECK(x == 0);                              // too far: leave it to the snap
+}
+
 static void TestThetaCalibratorReplay() {
     struct P { unsigned settle, window; float gain; };
     const P grid[] = {{600, 800, 0.4f}, {500, 700, 0.4f}, {300, 500, 0.4f}, {500, 700, 0.6f}, {800, 1000, 0.4f}, {300, 600, 0.25f}};
@@ -503,6 +511,7 @@ int main() {
     TestThetaFromMotion();
     TestThetaCalibratorReplay();
     TestPickupPolicy();
+    TestArriveStick();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

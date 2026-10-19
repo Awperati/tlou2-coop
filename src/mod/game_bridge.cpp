@@ -2174,6 +2174,11 @@ void GameBridge::TickCloneDrive() {
         // Catch-up ([clone] CatchUp): while the other player moves, pull her stick toward their
         // reported spot and sprint when she is 0.8 m+ behind (core CloneCatchUp, unit-tested).
         bool catchSprint = false;
+        if (cloneCatchUp_ && mx == 0 && mz == 0 && GetTickCount64() - cloneMoveAt_ < 500) {   // they stopped: arrive
+            Vec3 tgt; bool have;
+            { std::lock_guard lk(cloneMu_); tgt = cloneTarget_; have = cloneHasTarget_; }
+            if (have) if (auto cp = Read<Vec3>(p + offPos_)) ArriveStick(tgt.x - cp->x, tgt.z - cp->z, mx, mz);
+        }
         if (cloneCatchUp_ && (mx != 0 || mz != 0)) {
             Vec3 tgt; bool have, tmov;
             { std::lock_guard lk(cloneMu_); tgt = cloneTarget_; have = cloneHasTarget_; tmov = cloneTargetMoving_; }
