@@ -1453,3 +1453,17 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 - Next (needs one live run, owner idle): on the receiver, before kill-entity, call sub_140885320(pickup, 1) after the
   pickup's state says "taken" (find which of vfuncs +1112/+1120 is the remaining count by reading them before and
   after a real pickup on the taking PC), then restart the checkpoint and check the pickup stays gone.
+
+## Clone jump thrown to the origin (10-20 07:20, PC B crash): cause and next step
+
+- PC B log: `clonetraversal: Jump` at 07:20:16.895; 190 ms later she was 213.8 m off; a snap put her back (0.00 m) but
+  within 0.7 s she was ~210 m off again and drifted to 477 m (falling); the game removed her and a camera crashed on the
+  null player. Two earlier copied jumps (07:20:03, :09) threw her 3.6-4 m. PC B's game was not in front the whole time
+  ("game in front 0"), so the A press still reached her jump (not focus-gated, unlike her stick).
+- Static: `KickPlayerJumpProbes` (sub_140E1F330, player-jump.cpp) loops `for i < engine player count` (component 0
+  vfunc +200, 1 in the story) and kicks `Player+12224` (jump controller) vfunc +656. Player 1 is never kicked, so her
+  jump runs on stale/empty landing probes (JumpLandingSearch / EdgeChecker), most likely a zero target.
+- Fixes in place: traversal presses off by default (5e4db0c); a broken clone snaps back every 250 ms; camera-assist
+  faults are caught. New (not live): with `traversal on`, her jump probes are kicked each tick (KickJumpProbes).
+- Live check (owner idle, both games in front): `traversal on` on PC B, jump once on PC A in open ground: PC B logs
+  `clonetraversal: Jump`, no `broken spot` line, clonedrift stays under 4 m. Then near a ledge. `traversal off` to back out.
