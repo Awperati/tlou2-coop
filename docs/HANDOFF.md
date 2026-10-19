@@ -86,12 +86,12 @@ Not bugs (owner confirmed):
 - **Engine facts (static RE):** only sub_140C31340 reads the flag/dir (rva 0xC31A36 / 0xC31A44). Controller vtable
   0x142CC3CC0, size 0x950, desired-facing getter slot +0x150 (sub_140C2EB10), update sub_140C37110, enter sub_140C35ED0;
   stored facing [ctl+0x890] + [ctl+0x8E0] via sub_140C34C80. player+0x2E98 = the player's own controller.
-- **Open:** the turn is smooth but late while PC B mouse-looks (owner 05:2x). Lead added in 676f843 (FaceLead 0.15 s,
-  camera sampled every 33 ms). Delay budget from the code: sample <= 33 ms + send every 50 ms + receiver tick ~16 ms,
-  so under 0.1 s of transport; the rest is the game's own turn (04:4x: about 1-1.5 s for ~1 rad). Standing gates
-  (partner still 0.5 s, no clone stick 0.8 s) do not apply to mouse-look.
-  - Measure: `facetrace on` on the clone's PC, turn PC B's camera, then
-    `python -I tools/facetrace.py <log> [from] [to]`: per turn the target's start/settle, when she reached it, and the lag.
+- **Turn delay (owner 07:2x "2-3 s late"), fixed 93cb149:** the force had waited for the partner to stand 0.5 s and her
+  stick to idle 0.8 s, and while the partner walked 40-54 % of their stick samples never reached her engine, so she
+  held a fixed heading for seconds. Now the force runs whenever her own engine stick has idled 150 ms (target: their body
+  yaw while they move, their camera while they stand). Owner's recorded run 07:52 (100 ms facetrace): she reaches the
+  target 0.2-0.45 s after it settles (one 1.2 s), was ~2 s; 0 drift snaps. `python -I tools/facetrace.py <log> [from] [to]`.
+  Still open: why her engine ignores a partner stick sample that often (seen 10-19 too).
 - Research tools: `facewatch [ms] [ctl|glob]` (debug-register watchpoints, offline 20/20 clean, ran live 10-20), `faceptrs`.
 - Switches: `faceforce on|stored|off` (off removes the hook), `standturnto camera|body`, `standturnstep <rad>`, `standturnms <ms>`.
 
