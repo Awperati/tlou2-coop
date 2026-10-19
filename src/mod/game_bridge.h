@@ -238,7 +238,7 @@ public:
     bool cloneLookAnswer_ = false;        // [clone] LookAnswer: answer her aim queries with their camera look always
     unsigned long long lastFaceYawLog_ = 0, lastStandTurn_ = 0, lastStandTurnLog_ = 0;
     float cloneStandTurnStep_ = 0.f;      // [clone] StandTurnStep: rad per 80 ms step (0 = one snap, the owner-checked baseline)
-    bool cloneStandTurnToBody_ = true;    // [clone] StandTurnTo = body (default: what PC B shows) | camera
+    bool cloneStandTurnToBody_ = false;   // [clone] StandTurnTo = camera (default; owner 13:30: "relative to the actual screen on PC-B") | body
     bool standTurning_ = false;
     bool cloneFaceForce_ = true;          // [clone] FaceForce: desired facing through her movement controller
     unsigned cloneStandTurnMs_ = 80;     // [clone] StandTurnMs: ms between steps (0 = every tick)
