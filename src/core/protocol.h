@@ -132,23 +132,27 @@ inline float StickTheta(float sx, float sy, float wx, float wz) {
 constexpr uint8_t kMoving = 0x10;
 constexpr uint8_t kJumped = 0x20;   // the sender's player started a jump in the last 300 ms (JumpDetector)
 
-// Jump start from the player's height (2026-10-19; no jump state found yet, so this is the fallback):
-// rising faster than riseSpeed m/s over >= 50 ms, from a spot where it was not already rising.
-// Held for holdMs so a lost packet does not drop it. Ladders and knock-ups can trigger it too.
+// Jump start from the player's motion (2026-10-19; no jump state found yet, so this is the fallback):
+// rising faster than riseSpeed m/s and steeper than steep (rise over ground speed) over >= 50 ms, from a
+// spot where it was not already rising. A real jump on PC B peaked at ~1.45 m/s (13:47 log), so 2 m/s
+// missed it; slopes and stairs stay under ~0.8 of the ground speed. Held for holdMs so a lost packet does
+// not drop it. Ladders and knock-ups can still trigger it.
 struct JumpDetector {
-    float riseSpeed = 2.0f; unsigned holdMs = 300, minDtMs = 50;
-    bool Update(unsigned long long now, float y) {
-        if (!refAt_) { refAt_ = now; refY_ = y; return false; }
+    float riseSpeed = 1.0f, steep = 0.9f; unsigned holdMs = 300, minDtMs = 50;
+    bool Update(unsigned long long now, float y, float x = 0, float z = 0) {
+        if (!refAt_) { refAt_ = now; refY_ = y; refX_ = x; refZ_ = z; return false; }
         if (now - refAt_ >= minDtMs) {
-            float vy = (y - refY_) * 1000.f / static_cast<float>(now - refAt_);
-            bool rising = vy > riseSpeed;
+            float dt = static_cast<float>(now - refAt_) / 1000.f;
+            float vy = (y - refY_) / dt, vh = std::sqrt((x - refX_) * (x - refX_) + (z - refZ_) * (z - refZ_)) / dt;
+            bool rising = vy > riseSpeed && vy > steep * vh;
+            refX_ = x; refZ_ = z;
             if (rising && !wasRising_) until_ = now + holdMs;
             wasRising_ = rising; refAt_ = now; refY_ = y;
         }
         return now < until_;
     }
 private:
-    unsigned long long refAt_ = 0, until_ = 0; float refY_ = 0; bool wasRising_ = false;
+    unsigned long long refAt_ = 0, until_ = 0; float refY_ = 0, refX_ = 0, refZ_ = 0; bool wasRising_ = false;
 };
 constexpr float kMovingSpeed = 0.5f;
 // Moving test from two positions taken dtMs apart (horizontal only).

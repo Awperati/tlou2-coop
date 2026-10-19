@@ -249,7 +249,7 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
         if (!moveRefAt_ || now - moveRefAt_ > 400) { moveRefPos_ = s.pos; moveRefAt_ = now; }
         else if (now - moveRefAt_ >= 100) { movingNow_ = IsMoving(moveRefPos_, s.pos, static_cast<unsigned>(now - moveRefAt_)); moveRefPos_ = s.pos; moveRefAt_ = now; }
         if (movingNow_) s.flags |= kMoving;
-        if (jumpDet_.Update(now, s.pos.y)) s.flags |= kJumped;
+        if (jumpDet_.Update(now, s.pos.y, s.pos.x, s.pos.z)) s.flags |= kJumped;
     }
     s.shots = shots_;
     s.shotTarget = shotTarget_;

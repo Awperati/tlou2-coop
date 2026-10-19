@@ -317,12 +317,15 @@ static void TestThetaSettledGuard() {
 
 static void TestJumpDetector() {
     JumpDetector j; bool any = false, during = false;
-    float y = 0;   // walk flat, then a jump (4 m/s up for 0.25 s), land, walk on, then a 1.2 m/s ramp
+    // Walk at 1.5 m/s; a real-size jump (1.5 m/s up for 0.2 s, 13:47 log), land, walk on, then a ramp
+    // rising 1.2 m/s at the same walk (steep 0.8).
+    float y = 0, x = 0;
     for (unsigned long long t = 0; t < 4000; t += 16) {
-        if (t >= 1000 && t < 1250) y += 4.f * 0.016f;
-        if (t >= 1250 && t < 1500) y -= 4.f * 0.016f;
+        x += 1.5f * 0.016f;
+        if (t >= 1000 && t < 1200) y += 1.5f * 0.016f;
+        if (t >= 1200 && t < 1400) y -= 1.5f * 0.016f;
         if (t >= 2500) y += 1.2f * 0.016f;
-        bool f = j.Update(t, y);
+        bool f = j.Update(t, y, x, 0.f);
         if (f && t < 1000) any = true;          // nothing before the jump
         if (f && t >= 1000 && t < 1400) during = true;
         if (f && t >= 1700) any = true;          // not on the ramp
