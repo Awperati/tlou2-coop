@@ -329,7 +329,10 @@ void CoopMain() {
             bridge.QueueApplyMeshMask(1, mask, e.args[0]);
             return;
         }
-        if (e.eventId == kWorldPickupTaken && ReadPickupArgs(e.args, sid, name)) bridge.QueuePickupCheck(sid, name, pickupPolicy.Despawn(name));
+        if (e.eventId == kWorldPickupTaken && ReadPickupArgs(e.args, sid, name)) {
+            Log("pickup: '%s' is a %s", name.c_str(), pickupPolicy.Class(name));
+            bridge.QueuePickupCheck(sid, name, pickupPolicy.Despawn(name));
+        }
     };
     cb.onCheckpointWritten = [&](const CheckpointEvent& e) { Log("m7: host wrote checkpoint #%u (task '%s')", e.seq, e.task.c_str()); };
     cb.onCheckpointRestart = [&](uint8_t slot, const RestartEvent& e) {

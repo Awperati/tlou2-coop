@@ -32,6 +32,12 @@ struct PickupPolicy {
         if (rule == LootRule::PerPlayer) return false;
         return !collectible;   // Mixed
     }
+    // For the log: which list a name falls in (collectibles first, as in Despawn).
+    const char* Class(const std::string& name) const {
+        if (Has(name, perPlayer)) return "collectible (per player)";
+        if (Has(name, alwaysShared)) return "story item (always shared)";
+        return "loot (shared in mixed)";
+    }
     static std::vector<std::string> Split(const std::string& s) {
         std::vector<std::string> out; std::string cur;
         for (char c : s) { if (c == ',') { if (!cur.empty()) out.push_back(cur); cur.clear(); } else if (c != ' ' && c != '	') cur += c; }

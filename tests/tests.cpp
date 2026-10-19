@@ -305,6 +305,13 @@ static void TestThetaCalibratorReplay() {
 }
 
 // Pickups: each loot rule on sample names, and the event payload round trip.
+static void TestPickupClass() {
+    PickupPolicy p;
+    CHECK(std::string(p.Class("item-pickup-ammo-pistol-1230")) == "loot (shared in mixed)");
+    CHECK(std::string(p.Class("obj-col-journal-12")) == "collectible (per player)");
+    CHECK(std::string(p.Class("obj-the-door-key")) == "story item (always shared)");
+}
+
 static void TestPickupPolicy() {
     // Real pickup names from world-watchtower.psarc (pak68/*-ingame.pak).
     const char* loot[] = {"item-pickup-ammo-pistol-1230", "item-pickup-alcohol-small-96", "item-pickup-explosive-large-39",
@@ -551,6 +558,7 @@ int main() {
     TestThetaFromMotion();
     TestThetaCalibratorReplay();
     TestPickupPolicy();
+    TestPickupClass();
     TestArriveStick();
     TestCatchUpModes();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
