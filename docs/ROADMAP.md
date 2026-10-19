@@ -1364,3 +1364,14 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   (the game's whole-set hide, then a masked show; a per-mesh hide faulted). Live: PC B's Ellie clone took the host's
   0x18d of 11 meshes (4 changed). The look poll keeps that mask instead of showing every mesh. Risk to watch: if a
   mesh is hidden on the host by its own camera (close-up), the clone mirrors that too.
+
+#### Owner-approved live run 2026-10-19 11:43-11:48 (both games in front)
+- Aim, seen on video (full-frame recording): the clone, full body with arms and jacket, raises the pistol two-handed
+  while PC B holds aim, then lowers it; log: her aim equals PC B's (yaw -0.22 / pitch -0.04), ~3700 queries answered.
+- Catch-up sprint (LB) stopped her stick input (engine world 0 while behind): catch-up ON with sprint gave mean
+  1.32 m, 2 snaps. Sprint is now off ([clone] CatchUpSprint=false); the steering pull stays. Rerun: 34 samples,
+  median 0.10 m; the mean 0.77 m / 2 snaps come from the run starting 4-5 m off and one jump at a direction change.
+  Catch-up OFF (11:2x): mean 0.25 m. Both fine; the pull mostly matters after walls/slopes.
+- Hood: owner confirmed "hood looks right on PC B" with the full-mask mirror (before narrowing). Narrowed at 11:42 to
+  the variant meshes (hood, bandage, gas can, nocloth): same applied mask 0x18d, so the look should be unchanged.
+- Body regression check: clone 8 meshes 6 visible, 3/3 cloth props visible.

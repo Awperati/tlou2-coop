@@ -233,6 +233,7 @@ public:
     // clone's stance drift from the other PC's (crawling on one PC, crouching on the other, 12:06).
     // Instead B is pressed for her until her stance matches the other player's (0 stand, 1 crouch, 2 prone).
     bool cloneStanceSync_ = true;
+    bool cloneCatchUpSprint_ = false;
     bool cloneCatchUp_ = true;            // [clone] CatchUp: steer and sprint toward the other player's spot
     float cloneAimSign_ = 1.f;            // [clone] AimSign: right stick direction that turns her toward the target yaw
     unsigned long long lastAimLog_ = 0, lastErrLog_ = 0;

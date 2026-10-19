@@ -2315,7 +2315,9 @@ void GameBridge::TickCloneDrive() {
         // take aiming and firing from the state flags (player-is-aiming? / player-is-firing?).
         uint64_t flagHeld = (cloneAimingFlag_.load() ? 0x200ull : 0) | (cloneFiringFlag_.load() ? 0x2000ull : 0);
         uint64_t held = (cloneHeld_.load() | flagHeld) & cloneButtonMask_;
-        if (catchSprint) held |= 0x100;   // LB: sprint to catch up
+        // No catch-up sprint: holding LB stopped her stick input (engine world 0, drift 2.7 m, 11:43 A/B: catch-up
+        // on mean 1.32 m vs off 0.25 m). The steering pull alone is kept. [clone] CatchUpSprint to try again.
+        if (catchSprint && cloneCatchUpSprint_) held |= 0x100;
         if (cloneStanceSync_) {
             held &= ~0x80ull;   // B (crouch/prone) comes from the stance sync below, not the other pad
             unsigned long long now = GetTickCount64();

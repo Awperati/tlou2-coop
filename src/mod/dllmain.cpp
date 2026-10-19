@@ -210,6 +210,7 @@ void CoopMain() {
     // buttons belong here; item/weapon buttons crashed the game with two players.
     bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
     bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
+    bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
     bridge.cloneThetaFromMotion_ = cfg.getBool("clone", "ThetaFromMotion", true);
     bridge.cloneFaceSync_ = cfg.getBool("clone", "FaceSync", false);
     bridge.cloneAimSign_ = cfg.getFloat("clone", "AimSign", 1.f);
