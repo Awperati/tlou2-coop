@@ -2421,9 +2421,13 @@ void GameBridge::TickCloneDrive() {
                 // Standing means: they stood 0.5 s and she got no stick (their move or her arrive walk) for 0.8 s.
                 // 12:00 log: turns fired mid-walk on their stop/start flicker, and each one cut her walk short.
                 bool still = cloneStillSince_ && tn - cloneStillSince_ > 500 && tn - lastCmdMoveAt_ > 800;
-                // Game-driven facing ([clone] FaceForce): her movement controller's desired facing = target.
+                // Only while standing: walking, her own locomotion already faces their body yaw (12:06: within 0.1),
+                // and forcing it then cost drift (12:20: mean 0.66 m vs 0.22 m).
                 FaceCtlHookInstall(BuildRva(0xC31230), BuildRva(0x40FC87E), BuildRva(0x40FC880));
-                SetCloneFaceDir(p, cloneFaceForce_, std::sin(look), std::cos(look));
+                SetCloneFaceDir(p, cloneFaceForce_ && still, std::sin(look), std::cos(look));
+                // Game-driven facing ([clone] FaceForce): her movement controller's desired facing = target.
+                // Target = their body yaw (12:19: with the camera yaw she strafed while their body turned to walk).
+
                 if (tn - lastFaceYawLog_ > 1000) {
                     lastFaceYawLog_ = tn;
                     uint32_t c1 = 0, co = 0; TakeFaceCtlCounts(c1, co);
