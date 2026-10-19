@@ -90,6 +90,9 @@ struct PlayerState {
     // The idle gesture the sender's own player plays on gesture layer 1 (nose wipe etc.; string id,
     // 0 = none). The other PC plays the same one on the clone when it starts (2026-10-20).
     uint64_t gesture = 0;
+    // The sender's player state machine state (name id, FNV-1a: kState*, traversal.h; 0 = unknown). The other PC
+    // copies jumps, ledge climbs, ladders and dodges from it (2026-10-20).
+    uint64_t state = 0;
 };
 
 // Stick for the clone's joypad slot from a wanted world direction. The engine turns a slot

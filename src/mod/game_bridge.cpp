@@ -251,9 +251,14 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
         else if (now - moveRefAt_ >= 100) { movingNow_ = IsMoving(moveRefPos_, s.pos, static_cast<unsigned>(now - moveRefAt_)); moveRefPos_ = s.pos; moveRefAt_ = now; }
         if (movingNow_) s.flags |= kMoving;
         if (now < jumpTraceUntil_) Log("jt %llu %.3f %.3f %.3f", now, s.pos.y, s.pos.x, s.pos.z);   // jumptrace <s>
-        bool jumpedNow = jumpDet_.Update(now, s.pos.y, s.pos.x, s.pos.z);
+        // Jump: from the player's own "Jump" state when it is readable, else from the rise speed (fallback).
+        s.state = ownState_.load();
+        bool byState = jumpState_.Update(now, ownJumpSeen_.exchange(false) ? kStateJump : s.state);
+        bool bySpeed = jumpDet_.Update(now, s.pos.y, s.pos.x, s.pos.z);
+        bool jumpedNow = s.state ? byState : bySpeed;
         if (jumpedNow) s.flags |= kJumped;
-        if (jumpedNow && !jumpSentPrev_) Log("jump: own player jumped at y %.2f, telling the other PC", s.pos.y);
+        if (jumpedNow && !jumpSentPrev_) Log("jump: own player jumped (%s) at y %.2f, telling the other PC", s.state ? "state" : "speed", s.pos.y);
+        if (cloneAnimLog_ && s.state != lastOwnState_) { lastOwnState_ = s.state; Log("animstate: own player state %016llx", static_cast<unsigned long long>(s.state)); }
         jumpSentPrev_ = jumpedNow;
         if (jumpDet_.lastVy > 0.8f && jumpDet_.lastDtMs != lastJumpDbgDt_) { lastJumpDbgDt_ = jumpDet_.lastDtMs; Log("jump: window %u ms, rise %.2f m/s, ground %.2f m/s", jumpDet_.lastDtMs, jumpDet_.lastVy, jumpDet_.lastVh); }
         // Research: the largest rise per state tick, logged every 5 s while it is above 0.5 m/s.
@@ -2061,12 +2066,18 @@ static uint64_t GestureOf(uintptr_t proc, int layer) {
 // partner's started on the clone (GestureSync), and with gesturelog every layer change.
 // Idle gestures (owner 10-20: "wiping nose"): player 0 plays one about every 20 s on layer 1,
 // each 2.5-3.6 s; the clone never starts her own.
+static uint64_t PlayerStateOf(uintptr_t p);   // below, next to PlayerStanceOf
 void GameBridge::PollGestures() {
     if (gesturePollQueued_.exchange(true)) return;
     RunOnGameFiber([this] {
         gesturePollQueued_ = false;
         uintptr_t p0 = PlayerProcess(0), p1 = PlayerProcess(1);
         ownGesture_ = GestureOf(p0, 1);
+        // Own player state for the packet (traversal copying); any entry into "Jump" is kept until the next
+        // packet reads it, so a jump shorter than the poll still goes out.
+        uint64_t st = PlayerStateOf(p0);
+        if (st == kStateJump && ownState_.load() != kStateJump) ownJumpSeen_ = true;
+        ownState_ = st;
         uint64_t want = partnerGesture_.load();
         if (!want) clonePlayedGesture_ = 0;
         else if (cloneGestureSync_ && p1 && want != clonePlayedGesture_) {
@@ -2334,8 +2345,15 @@ uintptr_t GameBridge::JoypadSlot(int slot) {
     return c1 && *c1 ? *c1 + 0x520 + 0x2570ull * slot : 0;
 }
 
-void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving, int stance, float aimYaw, float aimPitch, uint8_t flags) {
+void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving, int stance, float aimYaw, float aimPitch, uint8_t flags, uint64_t state) {
     cloneAimingFlag_ = (flags & 1) != 0; cloneFiringFlag_ = (flags & 2) != 0;
+    // Traversal (core/traversal.h): the partner entering Jump, Edge, Ladder or Evade presses the button that
+    // starts it on the clone (A, A, Y, LB) for 150 ms. With a state from the sender, this replaces the kJumped tap.
+    if (state) {
+        if (auto* t = traversal_.Update(GetTickCount64(), state); t && !(held & t->button))
+            Log("clonetraversal: %s -> button %llx at y %.2f", t->name, static_cast<unsigned long long>(t->button), pos ? pos->y : 0.f);
+        flags &= static_cast<uint8_t>(~kJumped);
+    }
     // Jump (kJumped rising edge): tap A for 150 ms, unless their pad already holds A (a pad partner's A
     // reaches her through the button copy).
     bool jumped = (flags & kJumped) != 0;
@@ -2345,6 +2363,17 @@ void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, 
     cloneMoveX_ = x; cloneMoveZ_ = z; cloneHeld_ = held; cloneMoveAt_ = GetTickCount64();
     if (stance >= 0) cloneWantStance_ = stance;
     if (pos) { std::lock_guard lk(cloneMu_); cloneTarget_ = *pos; cloneTargetYaw_ = yaw; cloneTargetMoving_ = moving; cloneHasTarget_ = true; }
+}
+
+// The player's state machine state name id: sub_14133D6B0(player, out) -> pointer to it (FNV-1a of "Move",
+// "Jump", "Fall", "Edge", "Ladder"...; found via get-player-jump-or-fall-top-pos-y 0xE64350, 2026-10-20). 0 if unreadable.
+static uint64_t PlayerStateOf(uintptr_t p) {
+    __try {
+        if (!p) return 0;
+        alignas(16) uint8_t buf[16] = {};
+        auto r = reinterpret_cast<uint64_t* (*)(uintptr_t, void*)>(BuildRva(0x133D6B0))(p, buf);
+        return r ? *r : 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
 
 // A player's stance from its own vtable, as player-is-crouched? (0xC9DF90) and player-is-prone?
@@ -2498,6 +2527,7 @@ void GameBridge::TickCloneDrive() {
         uint64_t flagHeld = (cloneAimingFlag_.load() ? 0x200ull : 0) | (cloneFiringFlag_.load() ? 0x2000ull : 0);
         uint64_t held = (cloneHeld_.load() | flagHeld) & cloneButtonMask_;
         if (GetTickCount64() < cloneJumpUntil_) held |= 0x20;
+        if (uint64_t tb = traversal_.Held(GetTickCount64()); tb && !(cloneHeld_.load() & tb)) held |= tb;
         // No catch-up sprint: holding LB stopped her stick input (engine world 0, drift 2.7 m, 11:43 A/B: catch-up
         // on mean 1.32 m vs off 0.25 m). The steering pull alone is kept. [clone] CatchUpSprint to try again.
         if (catchSprint && cloneCatchUpSprint_) held |= 0x100;

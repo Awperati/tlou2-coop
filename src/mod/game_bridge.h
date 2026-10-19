@@ -6,6 +6,7 @@
 #include "core/config.h"
 #include "core/protocol.h"
 #include "core/clonedrive.h"
+#include "core/traversal.h"
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -227,7 +228,7 @@ public:
     void TickPadMirror();
     bool padMirror_ = false;
     // clonedrive on|off: the other player's stick drives player 1 (slot 3).
-    void SetCloneMove(float x, float z, uint64_t held = 0, const Vec3* pos = nullptr, float yaw = 0, bool moving = false, int stance = -1, float aimYaw = 0, float aimPitch = 0, uint8_t flags = 0);
+    void SetCloneMove(float x, float z, uint64_t held = 0, const Vec3* pos = nullptr, float yaw = 0, bool moving = false, int stance = -1, float aimYaw = 0, float aimPitch = 0, uint8_t flags = 0, uint64_t state = 0);
     std::atomic<bool> cloneAimingFlag_{false}, cloneFiringFlag_{false};
     // Stance sync ([clone] StanceSync): crouch is a toggle, so passing the B button through let the
     // clone's stance drift from the other PC's (crawling on one PC, crouching on the other, 12:06).
@@ -242,6 +243,11 @@ public:
     bool cloneStandTurnToBody_ = false;   // [clone] StandTurnTo = camera (default; owner 13:30: "relative to the actual screen on PC-B") | body
     bool standTurning_ = false;
     JumpDetector jumpDet_;
+    JumpFromState jumpState_;              // jump from the own player's "Jump" state (speed is the fallback)
+    TraversalCopy traversal_;              // receiver: partner state -> button presses on the clone
+    std::atomic<uint64_t> ownState_{0};    // own player state, sampled on the game fiber (PollGestures)
+    std::atomic<bool> ownJumpSeen_{false};
+    uint64_t lastOwnState_ = 0;
     bool jumpSentPrev_ = false;
     unsigned lastJumpDbgDt_ = 0;
     unsigned long long jumpTraceUntil_ = 0;

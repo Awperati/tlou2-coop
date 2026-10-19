@@ -75,17 +75,19 @@ static void TestShots() {
 static void TestProtocolRoundTrip() {
     PlayerState s; s.tick = 42; s.pos = {1, 2, 3}; s.yaw = 1.5f; s.health = 77; s.character = CharacterId::Dina;
     s.shots = 250; s.shotTarget = 0x1122334455667788ull; s.padHeld = 0x8000000000000201ull;
-    s.aimYaw = -1.25f; s.aimPitch = 0.5f; s.gesture = 0xD8AD71F5DB29687Full;
+    s.aimYaw = -1.25f; s.aimPitch = 0.5f; s.gesture = 0xD8AD71F5DB29687Full; s.state = kStateJump;
     Writer w; Write(w, s);
     Reader r(w.data().data(), w.data().size());
     PlayerState o; CHECK(Read(r, o));
     CHECK(o.tick == 42 && o.pos.z == 3 && o.health == 77 && o.character == CharacterId::Dina);
     CHECK(o.shots == 250 && o.shotTarget == 0x1122334455667788ull && o.padHeld == 0x8000000000000201ull);
     CHECK(o.aimYaw == -1.25f && o.aimPitch == 0.5f);
-    CHECK(o.gesture == 0xD8AD71F5DB29687Full);
+    CHECK(o.gesture == 0xD8AD71F5DB29687Full && o.state == kStateJump);
+    // A sender without the state field (gesture last): the state reads as unknown.
+    { Reader r2(w.data().data(), w.data().size() - 8); PlayerState g; CHECK(Read(r2, g) && g.state == 0 && g.gesture == 0xD8AD71F5DB29687Full); }
     // An older sender stops after the aim: the gesture reads as none.
-    Reader oldR(w.data().data(), w.data().size() - 8);
-    PlayerState old; CHECK(Read(oldR, old) && old.gesture == 0 && old.aimPitch == 0.5f);
+    Reader oldR(w.data().data(), w.data().size() - 16);
+    PlayerState old; CHECK(Read(oldR, old) && old.gesture == 0 && old.state == 0 && old.aimPitch == 0.5f);
 
     // Truncated input must fail cleanly, never read past the end.
     Reader shortR(w.data().data(), 5);
