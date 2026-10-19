@@ -87,7 +87,7 @@ Not bugs (owner confirmed):
   stored facing [ctl+0x890] + [ctl+0x8E0] via sub_140C34C80. player+0x2E98 = the player's own controller.
 - **Open:** the turn is smooth but late while PC B mouse-looks (owner 05:2x). Lead added in 676f843 (FaceLead 0.15 s,
   camera sampled every 33 ms). Delay budget from the code: sample <= 33 ms + send every 50 ms + receiver tick ~16 ms,
-  so under 0.1 ms of transport; the rest is the game's own turn (04:4x: about 1-1.5 s for ~1 rad). Standing gates
+  so under 0.1 s of transport; the rest is the game's own turn (04:4x: about 1-1.5 s for ~1 rad). Standing gates
   (partner still 0.5 s, no clone stick 0.8 s) do not apply to mouse-look.
   - Measure: `facetrace on` on the clone's PC, turn PC B's camera, then
     `python -I tools/facetrace.py <log> [from] [to]`: per turn the target's start/settle, when she reached it, and the lag.
