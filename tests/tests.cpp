@@ -6,6 +6,7 @@
 #include "core/protocol.h"
 #include "core/relay.h"
 #include "core/clonedrive.h"
+#include "core/pickups.h"
 #include "core/roster.h"
 #include "core/session.h"
 #include "core/teleport.h"
@@ -255,6 +256,25 @@ static void TestThetaCalibratorReplay() {
     CHECK(pe / 5 < 1.0f);
 }
 
+// Pickups: each loot rule on sample names, and the event payload round trip.
+static void TestPickupPolicy() {
+    PickupPolicy p;
+    CHECK(!p.Despawn("pickup-ammo-pistol-12"));                 // Log: never remove
+    p.rule = LootRule::Shared;
+    CHECK(p.Despawn("pickup-ammo-pistol-12") && p.Despawn("collectible-coin-3"));
+    p.rule = LootRule::PerPlayer;
+    CHECK(!p.Despawn("pickup-ammo-pistol-12") && !p.Despawn("collectible-coin-3"));
+    CHECK(p.Despawn("pickup-key-gate-2"));                       // keys always shared
+    p.rule = LootRule::Mixed;
+    CHECK(p.Despawn("pickup-ammo-pistol-12"));                   // ordinary loot shared
+    CHECK(!p.Despawn("collectible-trading-card-7"));             // collectibles each
+    CHECK(p.Despawn("story-letter-key-1"));                      // story/key beats collectible
+    CHECK(PickupPolicy::Parse("mixed") == LootRule::Mixed && PickupPolicy::Parse("x") == LootRule::Log);
+    uint64_t sid = 0; std::string name;
+    CHECK(ReadPickupArgs(PickupArgs(0x1122334455667788ull, "pickup-rag-4"), sid, name));
+    CHECK(sid == 0x1122334455667788ull && name == "pickup-rag-4");
+}
+
 // Alerts: one report per real alert, even when the other side never takes it.
 static void TestAlertLatch() {
     struct Sample { float t; bool here, host; };
@@ -473,6 +493,7 @@ int main() {
     TestAlertLatch();
     TestThetaFromMotion();
     TestThetaCalibratorReplay();
+    TestPickupPolicy();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

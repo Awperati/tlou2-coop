@@ -24,6 +24,7 @@
 #include "core/roster.h"
 #include "core/session.h"
 #include "core/relay.h"
+#include "core/pickups.h"
 #include "core/teleport.h"
 #include "mod/fiber_hook.h"
 #include "mod/game_bridge.h"
@@ -295,8 +296,11 @@ void CoopMain() {
     cb.onCharacterSelect = [&](uint8_t slot, CharacterId c) { Log("player %u is %s", slot, CharacterName(c)); partnerChar = c; };
     cb.onEnemyStates = [&](const std::vector<EnemyState>& v) { if (syncEnemies) bridge.ApplyEnemyStates(v); };
     cb.onEnemyDamage = [&](uint8_t, const EnemyDamage& d) { if (syncEnemies) bridge.ApplyEnemyDamage(d); };
+    PickupPolicy pickupPolicy;   // [sync] Pickups = log (default) | shared | perplayer | mixed
+    pickupPolicy.rule = PickupPolicy::Parse(Lower(cfg.get("sync", "Pickups", "log")));
     cb.onWorldEvent = [&](uint8_t, const WorldEvent& e) {
-        if (e.eventId == kWorldPickupTaken && e.args.size() >= 8) { uint64_t sid; std::memcpy(&sid, e.args.data(), 8); bridge.QueuePickupCheck(sid); }
+        uint64_t sid = 0; std::string name;
+        if (e.eventId == kWorldPickupTaken && ReadPickupArgs(e.args, sid, name)) bridge.QueuePickupCheck(sid, name, pickupPolicy.Despawn(name));
     };
     cb.onCheckpointWritten = [&](const CheckpointEvent& e) { Log("m7: host wrote checkpoint #%u (task '%s')", e.seq, e.task.c_str()); };
     cb.onCheckpointRestart = [&](uint8_t slot, const RestartEvent& e) {
@@ -431,9 +435,9 @@ void CoopMain() {
             for (const auto& d : bridge.TakeDamageOut()) session.SendEnemyDamage(d);
         }
         if (auto picked = TakePickedUp(); !picked.empty()) bridge.QueueNamePickups(std::move(picked));
-        for (uint64_t sid : bridge.TakePickupOut()) {
+        for (const auto& [sid, name] : bridge.TakePickupOut()) {
             if (!session.connected()) continue;
-            WorldEvent we; we.eventId = kWorldPickupTaken; we.args.resize(8); std::memcpy(we.args.data(), &sid, 8);
+            WorldEvent we; we.eventId = kWorldPickupTaken; we.args = PickupArgs(sid, name);
             session.SendWorldEvent(we);
         }
         if (uint32_t w = CheckpointWrites(); w != cpWritesSeen) {

@@ -177,9 +177,9 @@ public:
     void ApplyEnemyDamage(const EnemyDamage& d);
     std::vector<EnemyDamage> TakeDamageOut();
     void QueueNamePickups(std::vector<uintptr_t> procs);
-    std::vector<uint64_t> TakePickupOut();
-    void QueuePickupCheck(uint64_t sid);
-    std::vector<uint64_t> pickupOut_;
+    std::vector<std::pair<uint64_t, std::string>> TakePickupOut();
+    void QueuePickupCheck(uint64_t sid, const std::string& name, bool despawn);
+    std::vector<std::pair<uint64_t, std::string>> pickupOut_;
     std::mutex enemyMu_;
     std::vector<EnemyState> enemyOut_;
     std::vector<EnemyDamage> damageOut_;

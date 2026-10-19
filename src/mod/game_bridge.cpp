@@ -2038,17 +2038,24 @@ void GameBridge::QueueNamePickups(std::vector<uintptr_t> procs) {
             std::string name = ProcessName(p);
             if (name.empty() || name == "?") continue;
             std::lock_guard lk(enemyMu_);
-            pickupOut_.push_back(Fnv1a(name));
+            pickupOut_.push_back({Fnv1a(name), name});
             Log("pickup: '%s' taken here, telling the other PC", name.c_str());
         }
     }, true);
 }
-std::vector<uint64_t> GameBridge::TakePickupOut() { std::lock_guard lk(enemyMu_); return std::exchange(pickupOut_, {}); }
-void GameBridge::QueuePickupCheck(uint64_t sid) {
-    RunInScriptContext([sid] {
+std::vector<std::pair<uint64_t, std::string>> GameBridge::TakePickupOut() { std::lock_guard lk(enemyMu_); return std::exchange(pickupOut_, {}); }
+void GameBridge::QueuePickupCheck(uint64_t sid, const std::string& name, bool despawn) {
+    RunInScriptContext([sid, name, despawn] {
         uint64_t argv[8] = {sid}, ret[4] = {};
         bool here = SafeNative(BuildRva(0xD3BA00), 1, argv, ret) && (ret[0] & 0xFF);
-        Log("pickup: %016llx taken on the other PC; it %s here (log-only, not removed)", static_cast<unsigned long long>(sid), here ? "exists" : "does not exist");
+        if (here && despawn) {   // kill-entity 0xD4BB40: despawn by name id
+            uint64_t k[8] = {sid}, kr[4] = {};
+            bool ok = SafeNative(BuildRva(0xD4BB40), 1, k, kr) != 0;
+            Log("pickup: '%s' taken on the other PC, removed here: %s", name.c_str(), ok ? "done" : "FAULT");
+        } else {
+            Log("pickup: '%s' (%016llx) taken on the other PC; it %s here (%s)", name.c_str(), static_cast<unsigned long long>(sid),
+                here ? "exists" : "does not exist", despawn ? "nothing to remove" : "kept by the loot rule");
+        }
     });
 }
 

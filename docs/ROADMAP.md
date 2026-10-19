@@ -1307,3 +1307,17 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   host's 11 Ellie meshes (PC B shows 9; the host's own player hides 4 more, which look camera-dependent).
 - Gotcha: over SSH, `echo cmd 0>> file` in cmd.exe treats `0>>` as a stream redirect and drops the 0; use
   `(echo cmd 0)>> file` when a command ends in a single digit.
+
+#### Pickups: loot rules (design, 2026-10-19)
+| | (a) SHARED (recommended, as `mixed`) | (b) PER-PLAYER |
+|---|---|---|
+| Other PC does | despawns the pickup by name (kill-entity 0xD4BB40) | nothing (each keeps their copy) |
+| Fits | co-op feel: one world, no double loot | no ammo "stealing"; double supplies |
+| Risks | despawning a story item or key the other PC still needs for a script; a checkpoint reload respawns it there (ItemPickup::UpdateCheckpointRecord 0x885320 only records pickups taken locally) | story keys/items picked by one player missing in the other's world state is fine, but scripted gates may wait on the other player's own pickup |
+| Exceptions | collectibles (coins, cards, artifacts, journal entries, workbenches, supplements) stay per-player in `mixed` | keys and story items still shared |
+- Detection: ProcessPickup::PickedUp::Enter (0x88FBF0) hooked; the pickup process name goes to the other PC as
+  WorldEvent kWorldPickupTaken (name id + name). The other PC checks entity-exists? (0xD3BA00) and, per rule,
+  kill-entity (0xD4BB40).
+- Built: core PickupPolicy (rules + pattern lists, unit-tested on sample names, payload round trip), `[sync] Pickups`
+  = log (default, report only) | shared | perplayer | mixed. Despawn runs only when the rule says so.
+- Before switching off `log`: collect real pickup names from play (`pickup:` lines) and fix the pattern lists.
