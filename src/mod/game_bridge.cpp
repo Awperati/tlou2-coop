@@ -2423,14 +2423,14 @@ void GameBridge::TickCloneDrive() {
                 bool still = cloneStillSince_ && tn - cloneStillSince_ > 500 && tn - lastCmdMoveAt_ > 800;
                 if (tn - lastFaceYawLog_ > 1000) {
                     lastFaceYawLog_ = tn;
-                    Log("cloneface: clone yaw %.2f, other body %.2f (error %.2f), other camera %.2f, %s", mine, tyaw, err, cloneAimYaw_.load(), still ? "standing" : "moving");
+                    Log("cloneface: clone yaw %.2f, other body %.2f, other camera %.2f (error %.2f), %s, aim queries answered %u", mine, tyaw, cloneAimYaw_.load(), err, still ? "standing" : "moving", CloneAimHits());
                 }
                 // Smooth ([clone] StandTurnStep rad, 0 = one snap): start past 0.35 rad, then step at most
                 // StandTurnStep every 80 ms until within 0.05 rad (a snap every 1.5 s read as jerky).
-                if (!still || std::fabs(err) < 0.05f) standTurning_ = false;
-                else if (std::fabs(err) > 0.35f) standTurning_ = true;
                 float step = cloneStandTurnStep_;
-                if (cloneStandTurn_ && standTurning_ && tn - cloneFixAt_ > 1000 && tn - lastStandTurn_ > (step > 0 ? 80u : 1500u)) {
+                if (!still || std::fabs(err) < 0.05f) standTurning_ = false;
+                else if (std::fabs(err) > (step > 0 ? 0.12f : 0.35f)) standTurning_ = true;   // stepping: follow closely
+                if (cloneStandTurn_ && standTurning_ && tn - cloneFixAt_ > 1000 && tn - lastStandTurn_ >= (step > 0 ? cloneStandTurnMs_ : 1500u)) {
                     lastStandTurn_ = tn;
                     float to = step > 0 && std::fabs(err) > step ? mine + (err > 0 ? step : -step) : look;
                     bool ok = engineTeleport(p, *cp, to);
