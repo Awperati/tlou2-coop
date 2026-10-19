@@ -122,6 +122,9 @@ Not bugs (owner confirmed):
 ## 5. Dev loop and tools
 
 - Build `cmd /c ".\build.cmd"` (tests run). Deploy `cmd /c ".\deploy.cmd"` (hot reload on PC A; PC B pulls from share.py).
+- Before a deploy: `bash tools/live/predeploy.sh` (build without the slow patch_race test, coop_tests, git state,
+  share.py, PC B over SSH, game PIDs; read-only). `--deploy` then deploys and waits until each running PC's mod
+  log restarted after the deploy (its own clock). Run summaries: `python -I tools/logstats.py <logs> [--from HH:MM]`.
 - Commands go as lines in `<game>\tlou2-coop\cmd.txt`. On PC B, over SSH: `(echo cmd)>> file`.
   - Clone and test commands: `clonebody i`, `props i`, `redress`, `catchup on|off`, `clonetheta r`, `faceforce`,
     `standturn*`, `lookanswer on|off`, `animlog on|off`, `jumptrace s`, `facediff`, `facewatch [ms] [ctl|glob]`,
