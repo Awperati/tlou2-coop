@@ -277,7 +277,9 @@ public:
     std::vector<uint8_t> MeshEntries(unsigned index);
     uint32_t ReadMeshMask(unsigned index, int* count);
     void QueueApplyMeshMask(unsigned index, uint32_t mask, int count);
-    std::atomic<uint32_t> remoteMask_{0}; std::atomic<int> remoteMaskCount_{-1};   // the other PC's own player
+    std::atomic<uint32_t> remoteMask_{0}; std::atomic<int> remoteMaskCount_{-1};
+    std::set<uint64_t> variantMeshIds_;   // set once at start (looks.ini), read on the game fiber after
+    void SetVariantMeshIds(std::set<uint64_t> ids) { variantMeshIds_ = std::move(ids); }   // the other PC's own player
     void QueueCloneMeshPoll();
     std::atomic<int> meshTotal_{-1}, meshVisible_{-1};
     bool HasPlayer(unsigned index) { return PlayerProcess(index) != 0; }

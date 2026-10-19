@@ -2087,7 +2087,16 @@ void GameBridge::QueueCloneMeshPoll() {
         uintptr_t p = PlayerProcess(1);
         int total = 0, vis = 0;
         if (!p || SafeMeshCounts(p, &total, &vis) != 1) return;
-        if (remoteMaskCount_.load() == total) SafeApplyMeshMask(p, remoteMask_.load(), total);
+        if (remoteMaskCount_.load() == total) {
+            uint32_t applied = 0, rm = remoteMask_.load();
+            uintptr_t arr0 = 0; int t0 = 0, v0 = 0;
+            if (SafeMeshCounts(p, &t0, &v0, &arr0) == 1)
+                for (int i = 0; i < total && i < 32; ++i) {
+                    auto id = Read<uint64_t>(arr0 + 912ull * i + 0x18);
+                    if (!(id && variantMeshIds_.count(*id)) || ((rm >> i) & 1)) applied |= 1u << i;
+                }
+            SafeApplyMeshMask(p, applied, total);
+        }
         else if (vis < total) SafeShowMeshes(p, true);
         // Her cloth props count too (hidden cloth was her missing arms).
         auto inv = Read<uintptr_t>(p + 11264);
@@ -2123,7 +2132,14 @@ void GameBridge::QueueApplyMeshMask(unsigned index, uint32_t mask, int count) {
             Log("meshmask: player %u has %d meshes, the other PC %d: not mirrored", index, total, count);
             return;
         }
-        int changed = SafeApplyMeshMask(p, mask, total);
+        // Mirror only the variant meshes; every other mesh stays shown (the host's own camera may hide some).
+        uint32_t applied = 0;
+        for (int i = 0; i < total && i < 32; ++i) {
+            auto id = Read<uint64_t>(arr + 912ull * i + 0x18);
+            bool variant = id && variantMeshIds_.count(*id);
+            if (!variant || ((mask >> i) & 1)) applied |= 1u << i;
+        }
+        int changed = SafeApplyMeshMask(p, applied, total);
         if (changed) Log("meshmask: player %u now %08x of %d meshes (%d changed; the other PC's own look state)", index, mask, count, changed);
     });
 }

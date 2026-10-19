@@ -5,7 +5,7 @@ D="$(cd "$(dirname "$0")" && pwd)"; G="/e/Games/The Last of Us - Part II Remaste
 C='E:\Games\The Last of Us - Part II Remastered\tlou2-coop\cmd.txt'
 b_cmd() { ssh -i ~/.ssh/tlou2_pcb -o BatchMode=yes sharn@192.168.0.238 "($1)>> \"$C\"" 2>/dev/null; }
 a_cmd() { printf '%s\n' "$1" >> "$G/tlou2-coop/cmd.txt"; }
-ok() { local s; s=$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$D/fg.ps1")"); echo "$s" | grep -q "fg: tlou-ii" && [ "$(echo "$s" | awk '{print $3}')" -gt 60000 ]; }
+ok() { local s; s=$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$D/fg.ps1")"); echo "$s" | grep -q "fg: tlou-ii" && { [ -n "$OWNER_OK" ] || [ "$(echo "$s" | awk "{print $3}")" -gt 60000 ]; }; }
 stats() { grep -a "clonedrift:" | sed 's/.*clonedrift: \([0-9.]*\) m.*/\1/' | sort -n | awk '{a[NR]=$1; s+=$1} END {if (NR) { k=int(NR*0.95+0.999); printf "%d samples, mean %.2f, p95 %.2f, max %.2f\n", NR, s/NR, a[k], a[NR] } else print "no samples"}'; }
 # One run at a time; wait (read-only) until the owner is idle with the game in front. MODES="on" runs one half.
 LOCK="$TEMP/tlou2-catchup.lock"

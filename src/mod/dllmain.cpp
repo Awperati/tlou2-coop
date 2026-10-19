@@ -135,6 +135,21 @@ void CoopMain() {
             for (auto& p : SplitList(looksIni.get(sec, key))) out.push_back(p);
         return out;
     };
+    // Look parts that are state variants (hood up/down, bandages, the backpack gas can): only these are
+    // mirrored from the other PC's own player onto the clone. Mesh ids are the FNV-1a of the part names
+    // (clonebody ids resolved against looks.ini, 11:40). Head, body, hair, backpack stay visible.
+    std::set<uint64_t> variantIds;
+    {
+        std::set<uint64_t>& ids = variantIds;
+        auto Fnv1a64 = [](const std::string& t) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char ch : t) { h ^= ch; h *= 0x100000001b3ull; } return h; };
+        for (const auto& sec : looksIni.sections()) {
+            if (sec.rfind("look.", 0) != 0) continue;
+            for (const auto& part : SplitList(looksIni.get(sec, "parts")))
+                if (part.find("hood") != std::string::npos || part.find("bandage") != std::string::npos ||
+                    part.find("gas-can") != std::string::npos || part.find("nocloth") != std::string::npos)
+                    ids.insert(Fnv1a64(part));
+        }
+    }
     Log("roster: %zu characters, %zu chapters", roster.Playable().size(), roster.chapterCount());
 
     TeleportConfig tc;
@@ -157,6 +172,7 @@ void CoopMain() {
     // Let the engine finish booting before scanning memory.
     for (int i = 0; i < (g_reloaded ? 0 : 100) && g_run; ++i) Sleep(100);
     GameBridge bridge;
+    bridge.SetVariantMeshIds(variantIds);   // look variant meshes mirrored from the other PC (hood etc.)
     bridge.Init(offsets);
     if (cfg.getBool("debug", "InputInject", true)) InputInjectInstall();
 
