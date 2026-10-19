@@ -345,8 +345,11 @@ static void TestPickupPolicy() {
     const char* loot[] = {"item-pickup-ammo-pistol-1230", "item-pickup-alcohol-small-96", "item-pickup-explosive-large-39",
                           "item-pickup-parts-medium-196", "item-pickup-supplements-small-371", "item-pickup-ammo-rifle-1248"};
     const char* collect[] = {"coll-wat-approach-tower-letter", "obj-col-the-soldier-note-1", "card-ai", "int-wat-shambler-journal-1",
-                             "wat-freeway-under-bridge-execution-note"};
-    const char* story[] = {"obj-the-radio-door-key-1", "the-auditorium-keys", "obj-the-seattle-map-2"};
+                             "wat-freeway-under-bridge-execution-note",
+                             // Seattle levels (world-seattle-arrival / world-theater, 2026-10-20)
+                             "collect-sea-hub-generator-note-1", "collectible-sea-isaac-letter-1", "collectible-sea-horse-fedra-census-1",
+                             "coll-manual-stealth", "collectible-sea-horse-pet-store-key-1"};
+    const char* story[] = {"obj-the-radio-door-key-1", "the-auditorium-keys", "obj-the-seattle-map-2", "sea-hub-pet-store-key", "ss-sea-horse-pet-key"};
     PickupPolicy p;
     for (auto n : loot) CHECK(!p.Despawn(n));                  // log: never remove
     p.rule = LootRule::Shared;

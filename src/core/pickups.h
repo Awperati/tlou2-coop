@@ -16,8 +16,8 @@ struct PickupPolicy {
     LootRule rule = LootRule::Log;
     // Substrings of the pickup process name, from the game's level data (config/pickups.ini has the
     // same lists and is what the mod reads; these defaults match it).
-    std::vector<std::string> alwaysShared = {"obj-the-", "-key-", "-keys", "door-key"};
-    std::vector<std::string> perPlayer = {"coll-", "obj-col-", "card-", "journal", "-note", "coin", "artifact", "safe-"};
+    std::vector<std::string> alwaysShared = {"obj-the-", "-key", "door-key"};
+    std::vector<std::string> perPlayer = {"coll-", "collect-", "collectible-", "obj-col-", "card-", "journal", "-note", "-letter", "-census", "coin", "artifact", "safe-"};
 
     static bool Has(const std::string& name, const std::vector<std::string>& pats) {
         for (const auto& p : pats) if (!p.empty() && name.find(p) != std::string::npos) return true;
