@@ -1327,3 +1327,15 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   `the-auditorium-keys`. config/pickups.ini holds the classes (AlwaysShared, PerPlayer); PickupPolicy reads it and
   TestPickupPolicy runs on these real names (collectibles checked before story objects, so `obj-col-` stays a
   collectible). Default stays `log` until a live pickup confirms the process name equals the level-data name.
+
+#### Live batch 2026-10-19 11:15 (PC A in front after a crash)
+- Crash 11:12:16 on PC A: "device removed" in the renderer (same stack as 10-18 12:32, ndgi::AssertDeviceRemoved), no
+  mod frame. The mod instance had done no game-thread work for the hour before (game paused in the background); the
+  crash came as the game was brought back. No GPU driver event was logged. Unexplained; watch for a repeat.
+- Aim: pass by log. With LT held from PC B, the clone's own aim read back exactly the partner's (yaw 2.44, pitch -0.09);
+  ~280 aim queries/s answered for player 1. Fire from PC B: no crash. Not seen on video (she was off the cropped frame).
+- Body: 8 meshes, 6 visible, the same as the reference Dina look.
+- Reload audit in-game: players 2 -> 2, packages 579 -> 579, trampoline slots 23 -> 23, handles flat.
+- Catch-up A/B: off mean 1.28 m / p95 2.56 (8 samples); on mean 0.28 m / p95 0.47 (2 samples; too few, rerun).
+- Relay with both games and PC A in front: the clone drove through the relay (engine world stick follows the command),
+  641 packets forwarded, 0 dropped; back to LAN after.
