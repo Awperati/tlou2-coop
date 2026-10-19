@@ -2,7 +2,11 @@
 // FNV-1a of the name, read with sub_14133D6B0 on the sender) tells the clone when they jump, climb a ledge,
 // take a ladder, slide or dodge. Entering one of these states presses the button that starts it on the clone,
 // in her own surroundings; the drift snap covers a miss. Game-free so it can be unit-tested.
-// Buttons are the raw pad bits (A 0x20 jump/climb, B 0x80 crouch, Y 0x10 interact, LB 0x100 dodge).
+// Buttons are the raw pad bits, in the game's default pad layout (PlayStation glyphs in its joypad script:
+// cross, circle, triangle, square, l1 -> A 0x20 jump/climb, B 0x80 crouch, Y 0x10 interact, LB 0x100 dodge).
+// Checked offline 2026-10-20: dc1/joypad.bin names only the glyphs (actions are hashed), so the action->button
+// pairs are the game's published default layout. Slide (mud slopes) and SqueezeThrough start by themselves when
+// she walks in, so they follow; the ladder press (Y) is the one pairing still to see live.
 #pragma once
 #include <cstdint>
 
@@ -17,9 +21,9 @@ inline constexpr TraversalState kTraversalStates[] = {
     {0x15A477E9F9A165ADull, Traversal::Jump,    0x20,  150, "Jump"},
     {0x6503256C2DE2745Cull, Traversal::Climb,   0x20,  150, "Edge"},
     {0x16948826BF750B89ull, Traversal::Ladder,  0x10,  150, "Ladder"},
-    {0xEAF5B9CD31C0B966ull, Traversal::Slide,   0x80,  150, "Slide"},
     {0xAD64C266D7665E26ull, Traversal::Dodge,   0x100, 150, "Evade"},
-    {0xDD860669F287283Cull, Traversal::Squeeze, 0x10,  150, "SqueezeThrough"},
+    {0xEAF5B9CD31C0B966ull, Traversal::Slide,   0,     0,   "Slide"},
+    {0xDD860669F287283Cull, Traversal::Squeeze, 0,     0,   "SqueezeThrough"},
     {0x6A1BC0BFDD271822ull, Traversal::Follow,  0,     0,   "WallShimmy"},
     {0x30D1FD450727A3CBull, Traversal::Follow,  0,     0,   "LedgeDrop"},
     {0x9ACB4182871CE5A3ull, Traversal::Follow,  0,     0,   "FreeRope"},

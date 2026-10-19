@@ -348,7 +348,9 @@ static void TestTraversalCopy() {
     CHECK(c.Update(t += 400, move) == nullptr);
     auto* l = c.Update(t += 16, ladder); CHECK(l && c.Held(t) == 0x10);
     c.Update(t += 1000, move);
-    auto* s = c.Update(t += 16, slide); CHECK(s && s->kind == Traversal::Slide && c.Held(t) == 0x80);
+    CHECK(!c.Update(t += 16, slide) && c.Held(t) == 0);       // mud slides start by themselves: follow only
+    c.Update(t += 500, move);
+    auto* e = c.Update(t += 16, fnv("Evade")); CHECK(e && e->kind == Traversal::Dodge && c.Held(t) == 0x100);
     CHECK(FindTraversal(move) == nullptr);
 }
 
