@@ -66,6 +66,10 @@ The clone's input, like the host's, is focus-gated: with PC A's game in the back
 2. Dialogue by ear; barks (`vox_hook`) untested.
 3. Checkpoint-write forwarding still log-only (no writes to the user's save).
 4. A death most likely restarts through task-restart-from-continue (hooked); not proven.
+5. GPU "device removed" crashes (renderer, ndgi::AssertDeviceRemoved, no mod frame; AMD RX 9070 XT). Timeline:
+   10-15 07:57, 19:03, 19:58; 10-18 12:32 (after a level-listener hang, since fixed); 10-19 11:12:16, as the game
+   came back to the front after ~1 hour paused in the background (no game-thread work in that time, no driver
+   event logged). Track whether crashes follow a long background pause.
 
 ## 6. Key engine facts (rva = addr - 0x140000000)
 

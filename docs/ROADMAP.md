@@ -1339,3 +1339,6 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 - Catch-up A/B: off mean 1.28 m / p95 2.56 (8 samples); on mean 0.28 m / p95 0.47 (2 samples; too few, rerun).
 - Relay with both games and PC A in front: the clone drove through the relay (engine world stick follows the command),
   641 packets forwarded, 0 dropped; back to LAN after.
+- Catch-up A/B rerun (11:2x, tools/live/catchup_ab.sh, 6 x 4 s walks): catch-up off 34 samples, mean 0.25 m,
+  p95 0.41, max 0.48, 0 snaps (theta already calibrated in this session). The "on" half and the wide aim recording
+  were stopped when the owner became active / the game left the front.
