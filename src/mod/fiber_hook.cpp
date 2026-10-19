@@ -811,12 +811,21 @@ uint8_t* g_camTramp = nullptr;
 uint8_t g_camSaved[18];
 uintptr_t g_camTarget = 0;
 std::atomic<uint32_t> g_camSkips{0};
+std::atomic<uint32_t> g_camFaults{0};
 uint64_t HookedCamAssist(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
                          uint64_t a7, uint64_t a8, uint64_t a9, uint64_t a10, uint64_t a11, uint64_t a12) {
     int idx = 0;
     __try { idx = a1 ? *reinterpret_cast<int*>(a1 + 21800) : 0; } __except (EXCEPTION_EXECUTE_HANDLER) {}
     if (idx != 0) { ++g_camSkips; return 0; }
-    return reinterpret_cast<Fwd12>(g_camTramp)(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
+    // PC B 10-20 07:20:35: after the game removed a clone that fell out of the world, player 0's camera assist
+    // still followed her and read a null player (AV in sub_14133D450 via the locator, stack through 0x821A57).
+    // Skip this frame's assist instead of taking the game down; the clone is respawned right after.
+    __try {
+        return reinterpret_cast<Fwd12>(g_camTramp)(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12);
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
+        ++g_camFaults;
+        return 0;
+    }
 }
 } // namespace
 
@@ -833,6 +842,7 @@ bool CamAssistHookInstall(uintptr_t target) {
     return true;
 }
 uint32_t CamAssistSkips() { return g_camSkips.load(); }
+uint32_t CamAssistFaults() { return g_camFaults.load(); }
 
 // Player state camera pick (sub_140C5A3B0, vtable method; this = state, out = camera id hash). It
 // reads a camera controller at this+224 that player 1 does not have: the clone going prone

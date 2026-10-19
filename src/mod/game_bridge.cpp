@@ -2346,7 +2346,11 @@ void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, 
     cloneAimingFlag_ = (flags & 1) != 0; cloneFiringFlag_ = (flags & 2) != 0;
     // Traversal (core/traversal.h): the partner entering Jump, Edge, Ladder or Evade presses the button that
     // starts it on the clone (A, A, Y, LB) for 150 ms. With a state from the sender, this replaces the kJumped tap.
-    if (state) {
+    // [clone] Traversal (default off since 10-20 07:20): on PC B a copied jump press threw the clone to the world
+    // origin and out of the world (213-477 m drift), then the game removed her and a camera crashed on the null
+    // player. Until that is understood, no traversal press and no kJumped tap: she follows by stick and snap.
+    if (!cloneTraversal_) flags &= static_cast<uint8_t>(~kJumped);
+    if (state && cloneTraversal_) {
         if (auto* t = traversal_.Update(GetTickCount64(), state); t && !(held & t->button))
             Log("clonetraversal: %s -> button %llx at y %.2f", t->name, static_cast<unsigned long long>(t->button), pos ? pos->y : 0.f);
         flags &= static_cast<uint8_t>(~kJumped);
@@ -2446,6 +2450,7 @@ void GameBridge::TickCloneDrive() {
     RunOnGameFiber([this] {
         cloneDriveQueued_ = false;
         uintptr_t p = PlayerProcess(1), slot = JoypadSlot(3);
+        if (uint32_t cf = CamAssistFaults(); cf != lastCamFaults_) { lastCamFaults_ = cf; Log("camera assist: caught fault #%u (camera on a removed clone; frame skipped)", cf); }
         // Jump research (2026-10-19): log each anim state change of both players, to find the jump/vault ids.
         if (cloneAnimLog_) for (int i = 0; i < 2; ++i) {
             uint64_t st = AnimStateOf(PlayerProcess(i));
@@ -2543,7 +2548,7 @@ void GameBridge::TickCloneDrive() {
         }
         // Gated by her own state (traversal.h): no jump press while she is already in the air, B (let go)
         // only while she hangs on the ledge too. After the stance sync, which clears B from the other pad.
-        if (uint64_t tb = traversal_.Held(GetTickCount64(), PlayerStateOf(p)); tb && !(cloneHeld_.load() & tb)) held |= tb;
+        if (uint64_t tb = cloneTraversal_ ? traversal_.Held(GetTickCount64(), PlayerStateOf(p)) : 0; tb && !(cloneHeld_.load() & tb)) held |= tb;
         // Aim turn: while the other player aims (LT), turn the clone's camera with her right stick
         // until her facing matches theirs (a player aiming faces the camera). Sign: [clone] AimSign.
         float rx = 0.f;
@@ -2678,13 +2683,20 @@ void GameBridge::TickCloneDrive() {
                     if (step <= 0) standTurning_ = false;
                 }
             }
-            if (have && cp && tn > cloneFixAt_ && tn - cloneFixAt_ > 2000) {
+            // Broken clone (10-20 07:20, PC B): thrown to the world origin and falling, 213-477 m off. The 2 s snap
+            // spacing let her fall out of the world. Far drift or a spot at the origin snaps at once (every 250 ms
+            // at most), and never to a partner spot at the origin (CloneSpotBroken, clonedrive.h).
+            bool broken = have && cp && CloneSpotBroken(*cp, tgt);
+            if (have && cp && !NearOrigin(tgt) && tn > cloneFixAt_ && tn - cloneFixAt_ > (broken ? 250u : 2000u)) {
                 float d = Distance(*cp, tgt);
+                if (broken) { cloneFixAt_ = tn; bool ok = engineTeleport(p, tgt, tyaw); Log("clonedrive: broken spot (%.0f m off, at %.1f %.1f %.1f), snapped at once: %s", d, cp->x, cp->y, cp->z, ok ? "sent" : "FAILED"); }
+                else {
                 bool still = cloneStillSince_ && tn - cloneStillSince_ > 1000;
                 if (d > 4.f || (still && d > 1.5f)) {
                     cloneFixAt_ = tn;
                     bool ok = engineTeleport(p, tgt, tyaw);
                     Log("clonedrive: drift %.1f m%s, snapped to the other player's spot: %s", d, still ? " (standing)" : "", ok ? "sent" : "FAILED");
+                }
                 }
             }
         }

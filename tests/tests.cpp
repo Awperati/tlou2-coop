@@ -486,6 +486,14 @@ static void TestGestureSync() {
     GestureSync same; CHECK(same.Update(wipe, false, wipe) == 0 && same.Update(wipe, false, 0) == 0);
 }
 
+static void TestCloneSpotBroken() {
+    Vec3 partner{-67.6f, -6.8f, -205.0f};
+    CHECK(!CloneSpotBroken({-69.0f, -6.8f, -203.5f}, partner));       // 2 m behind: fine
+    CHECK(CloneSpotBroken({0.2f, -0.3f, 0.1f}, partner));              // at the world origin (10-20 07:20)
+    CHECK(CloneSpotBroken({-67.6f, -290.0f, -205.0f}, partner));      // falling out of the world
+    CHECK(NearOrigin({0, 0, 0}) && !NearOrigin(partner));
+}
+
 static void TestYawLead() {
     YawLead y; unsigned long long t = 0; float yaw = 3.0f;
     // A camera turning at 2 rad/s, sampled every 100 ms: the prediction leads the last sample.
@@ -840,6 +848,7 @@ int main() {
     TestFaceForceParse();
     TestJumpFromState();
     TestYawLead();
+    TestCloneSpotBroken();
     TestGestureSync();
     TestClockSync();
     TestLossySession();

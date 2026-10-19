@@ -89,6 +89,14 @@ inline uint64_t FreshHeld(uint64_t held, unsigned long long ageMs, unsigned long
     return ageMs > maxAgeMs ? 0 : held;
 }
 
+// Broken clone positions (10-20 07:20): a spot within 1 m of the world origin is an unset transform, and a clone
+// more than 50 m from her partner is falling or stuck, not walking behind.
+inline bool NearOrigin(const Vec3& p) { return std::fabs(p.x) < 1.f && std::fabs(p.y) < 1.f && std::fabs(p.z) < 1.f; }
+inline bool CloneSpotBroken(const Vec3& clone, const Vec3& partner) {
+    float dx = clone.x - partner.x, dy = clone.y - partner.y, dz = clone.z - partner.z;
+    return NearOrigin(clone) || dx * dx + dy * dy + dz * dz > 50.f * 50.f;
+}
+
 // After the other player stops, walk her the rest of the way instead of leaving her short (the standing
 // snap then teleported her, user 11:3x). Returns a world stick toward the error, 0 inside `within` metres;
 // slower when close so she does not overshoot.

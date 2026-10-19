@@ -74,6 +74,7 @@ uint32_t CloneRawHits();
 // CameraControlStrafe::UpdateCameraAssist (rva 0x8215E0) runs for player 0 only.
 bool CamAssistHookInstall(uintptr_t target);
 uint32_t CamAssistSkips();
+uint32_t CamAssistFaults();   // access violations caught in the camera assist (removed clone)
 bool CamPickHookInstall(uintptr_t target);
 bool CloneAimHooksInstall(uintptr_t dirFn, uintptr_t rayFn);
 void SetCloneAim(bool on, float dx, float dy, float dz, float ex, float ey, float ez);
