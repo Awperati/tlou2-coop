@@ -1352,3 +1352,9 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 - Arms missing on PC A only: her 8 mesh entries are byte-identical (pointers aside) to PC B's own Dina player, whose
   arms show (`meshdump`). So it is not mesh visibility. Suspect: a camera-near fade from her idle camera manager 1.
 - Hood: the host's look id is 'ellie-seattle' on both PCs; the hood up/down difference is a runtime state, not the look.
+- Arms found (11:40): the clone's cloth props (3 ProcessCharCloth objects in her prop inventory, Player+11264) were
+  all hidden (0/1 visible meshes) while the host's are shown (1/1). Cloth is separate objects with their own draw
+  control, so the body show never reached them; her jacket/sleeves cloth is what was missing. Now every show of
+  player 1 (and the look poll) shows her props too; `props <i>` lists them read-only and checks that the GetPlayer()
+  override returns player 1 only. Live 11:41: all 3 cloth props 1/1 visible. Arrive confirmed by the user ("walks and
+  stops in place"), 0 snaps since 11:32.

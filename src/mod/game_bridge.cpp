@@ -1987,7 +1987,12 @@ void GameBridge::QueuePlayerShow(unsigned index, bool visible) {
         uintptr_t p = PlayerProcess(index);
         if (!p) { Log("playershow: no player %u", index); return; }
         int r = SafeShowMeshes(p, visible);
-        Log("playershow: player %u meshes %s", index, r == 1 ? (visible ? "set visible" : "hidden") : r == 0 ? "has no draw control" : "FAULT");
+        // Her cloth (jacket, sleeves: ProcessCharCloth props at Player+11264) is separate objects with their
+        // own draw control; they stayed hidden on the clone (props 0/1 visible, 11:40), which is her
+        // missing arms. Show them with her.
+        int cloth = ShowPlayerProps(p, visible);
+        Log("playershow: player %u meshes %s, %d cloth/props %s", index, r == 1 ? (visible ? "set visible" : "hidden") : r == 0 ? "has no draw control" : "FAULT",
+            cloth, visible ? "shown" : "hidden");
     });
 }
 
@@ -2066,6 +2071,14 @@ void GameBridge::QueueCloneMeshPoll() {
         int total = 0, vis = 0;
         if (!p || SafeMeshCounts(p, &total, &vis) != 1) return;
         if (vis < total) SafeShowMeshes(p, true);
+        // Her cloth props count too (hidden cloth was her missing arms).
+        auto inv = Read<uintptr_t>(p + 11264);
+        for (uint32_t i = 0; inv && *inv && i < 48; ++i) {
+            uintptr_t obj = SafePropObject(*inv, i);
+            if (obj == ~uintptr_t(0)) break;
+            int t = 0, v = 0;
+            if (obj && SafeMeshCounts(obj, &t, &v) == 1) { if (v < t) SafeShowMeshes(obj, true); total += t; vis += v; }
+        }
         meshTotal_ = total; meshVisible_ = vis;
     });
 }
@@ -2080,6 +2093,44 @@ std::vector<uint8_t> GameBridge::MeshEntries(unsigned index) {
     SIZE_T got = 0;
     if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(arr), out.data(), out.size(), &got)) out.clear();
     return out;
+}
+
+// Read-only: player <index>'s prop inventory (Player+11264, as for the companion), each prop's name
+// and whether it is visible, plus which player the GetPlayer() override really returns (weapon
+// natives act on GetPlayer(): it must be player 1, never player 0, the owner's own Ellie).
+int GameBridge::ShowPlayerProps(uintptr_t p, bool visible) {
+    auto inv = Read<uintptr_t>(p + 11264);
+    int n = 0;
+    for (uint32_t i = 0; inv && *inv && i < 48; ++i) {
+        uintptr_t obj = SafePropObject(*inv, i);
+        if (obj == ~uintptr_t(0)) break;
+        if (obj && SafeShowMeshes(obj, visible) == 1) ++n;
+    }
+    return n;
+}
+
+void GameBridge::QueuePlayerProps(unsigned index) {
+    RunOnGameFiber([this, index] {
+        uintptr_t p = PlayerProcess(index), p0 = PlayerProcess(0);
+        if (!p) { Log("props: no player %u", index); return; }
+        SetPlayerOverride(p);
+        uintptr_t got = reinterpret_cast<uintptr_t (*)()>(BuildRva(0xDA8A80))();
+        SetPlayerOverride(0);
+        Log("props: GetPlayer() with the override = %p, player %u = %p, player 0 = %p (%s)", reinterpret_cast<void*>(got), index,
+            reinterpret_cast<void*>(p), reinterpret_cast<void*>(p0), got == p && got != p0 ? "override hits player 1 only" : "OVERRIDE NOT SAFE");
+        auto inv = Read<uintptr_t>(p + 11264);
+        std::string names; int n = 0;
+        for (uint32_t i = 0; inv && *inv && i < 48; ++i) {
+            uintptr_t obj = SafePropObject(*inv, i);
+            if (obj == ~uintptr_t(0)) break;
+            if (!obj) continue;
+            int t = 0, v = 0;
+            SafeMeshCounts(obj, &t, &v);
+            names += " " + ProcessName(obj) + "(" + std::to_string(v) + "/" + std::to_string(t) + ")";
+            ++n;
+        }
+        Log("props: player %u has %d props:%s", index, n, names.c_str());
+    }, true);
 }
 
 void GameBridge::QueueCloneBody(unsigned index) {

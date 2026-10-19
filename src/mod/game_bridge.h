@@ -272,6 +272,8 @@ public:
     void QueueGiveWeapon(unsigned index, const std::string& name, int ammo);
     void QueueWeaponInfo(unsigned index);
     void QueueCloneBody(unsigned index);
+    void QueuePlayerProps(unsigned index);
+    int ShowPlayerProps(uintptr_t player, bool visible);
     std::vector<uint8_t> MeshEntries(unsigned index);
     void QueueCloneMeshPoll();
     std::atomic<int> meshTotal_{-1}, meshVisible_{-1};

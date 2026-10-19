@@ -773,6 +773,7 @@ void CoopMain() {
                         if (!nm.empty() && !bytes.empty()) if (FILE* f = _wfopen((dir + L"tlou2-coop\\" + Wide(nm) + L".bin").c_str(), L"wb")) { fwrite(bytes.data(), 1, bytes.size(), f); fclose(f); }
                         Log("meshdump: player %u, %zu bytes -> %s.bin", mi, bytes.size(), nm.c_str());
                     }
+                    else if (line.rfind("props", 0) == 0) bridge.QueuePlayerProps(line.size() > 6 ? static_cast<unsigned>(std::atoi(line.c_str() + 6)) : 1u);
                     else if (line.rfind("clonebody", 0) == 0) bridge.QueueCloneBody(line.size() > 10 ? static_cast<unsigned>(std::atoi(line.c_str() + 10)) : 1u);
                     else if (line.rfind("playershow ", 0) == 0) bridge.QueuePlayerShow(static_cast<unsigned>(std::atoi(line.c_str() + 11)));
                     else if (line.rfind("playertp ", 0) == 0) bridge.QueuePlayerBeside(static_cast<unsigned>(std::atoi(line.c_str() + 9)), 2.f);
