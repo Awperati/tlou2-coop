@@ -7,6 +7,7 @@
 #include "core/relay.h"
 #include "core/clonedrive.h"
 #include "core/faceforce.h"
+#include "core/gesturesync.h"
 #include "core/pickups.h"
 #include "core/roster.h"
 #include "core/session.h"
@@ -374,6 +375,42 @@ static void TestTraversalCopy() {
     CHECK(r.Update(v += 300, fnv("Zipline")) == nullptr && r.Held(v) == 0);
 }
 
+static void TestGestureSync() {
+    // End to end through the wire: the sender's gesture goes out in PlayerState every 50 ms, the
+    // receiver's GestureSync (polled every 100 ms) says what to start on the clone.
+    const uint64_t wipe = 0xD8AD71F5DB29687Full, other = 0xD38B965AB3B93C98ull, door = 0x1111ull;
+    struct Step { int fromMs, toMs; uint64_t g; bool moving; };
+    // wipe 3 s; idle; wipe again; a second idle gesture; a gesture while walking that goes on after they stop.
+    const Step script[] = {{0, 1000, 0, false}, {1000, 4300, wipe, false}, {4300, 9000, 0, false}, {9000, 12000, wipe, false},
+                           {12000, 13000, 0, false}, {13000, 15500, other, false}, {15500, 16000, 0, false},
+                           {16000, 17000, door, true}, {17000, 18000, door, false}, {18000, 19000, 0, false}};
+    GestureSync sync;
+    uint64_t cloneNow = 0, cloneUntil = 0;
+    std::vector<std::pair<int, uint64_t>> started;
+    PlayerState last;
+    for (int t = 0; t < 19000; t += 50) {
+        PlayerState s;
+        for (const auto& st : script) if (t >= st.fromMs && t < st.toMs) { s.gesture = st.g; s.flags = st.moving ? kMoving : 0; }
+        Writer w; Write(w, s);
+        Reader r(w.data().data(), w.data().size());
+        CHECK(Read(r, last) && last.gesture == s.gesture);
+        if (cloneUntil && static_cast<uint64_t>(t) >= cloneUntil) { cloneNow = 0; cloneUntil = 0; }
+        if (t % 100 == 0) if (uint64_t g = sync.Update(last.gesture, (last.flags & kMoving) != 0, cloneNow)) {
+            started.push_back({t, g}); cloneNow = g; cloneUntil = t + 3000;
+        }
+    }
+    CHECK(started.size() == 4);
+    if (started.size() == 4) {
+        CHECK(started[0].second == wipe && started[0].first == 1000);      // at once
+        CHECK(started[1].second == wipe && started[1].first == 9000);      // the same id again, after an end
+        CHECK(started[2].second == other && started[2].first == 13000);
+        CHECK(started[3].second == door && started[3].first == 17000);     // not while they walk; once they stand
+    }
+    // Off: nothing starts; a gesture she already plays is not restarted.
+    GestureSync off; CHECK(off.Update(wipe, false, 0, false) == 0);
+    GestureSync same; CHECK(same.Update(wipe, false, wipe) == 0 && same.Update(wipe, false, 0) == 0);
+}
+
 static void TestYawLead() {
     YawLead y; unsigned long long t = 0; float yaw = 3.0f;
     // A camera turning at 2 rad/s, sampled every 100 ms: the prediction leads the last sample.
@@ -676,6 +713,7 @@ int main() {
     TestFaceForceParse();
     TestJumpFromState();
     TestYawLead();
+    TestGestureSync();
     TestTraversalCopy();
     TestJumpDetector();
     TestThetaSettledGuard();

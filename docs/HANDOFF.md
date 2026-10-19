@@ -85,8 +85,12 @@ Not bugs (owner confirmed):
 - **Engine facts (static RE):** only sub_140C31340 reads the flag/dir (rva 0xC31A36 / 0xC31A44). Controller vtable
   0x142CC3CC0, size 0x950, desired-facing getter slot +0x150 (sub_140C2EB10), update sub_140C37110, enter sub_140C35ED0;
   stored facing [ctl+0x890] + [ctl+0x8E0] via sub_140C34C80. player+0x2E98 = the player's own controller.
-- **Open:** the turn is smooth but late while PC B mouse-looks (owner 05:2x). `facetrace on` logs target vs clone
-  yaw every 100 ms to time it; not run yet.
+- **Open:** the turn is smooth but late while PC B mouse-looks (owner 05:2x). Lead added in 676f843 (FaceLead 0.15 s,
+  camera sampled every 33 ms). Delay budget from the code: sample <= 33 ms + send every 50 ms + receiver tick ~16 ms,
+  so under 0.1 ms of transport; the rest is the game's own turn (04:4x: about 1-1.5 s for ~1 rad). Standing gates
+  (partner still 0.5 s, no clone stick 0.8 s) do not apply to mouse-look.
+  - Measure: `facetrace on` on the clone's PC, turn PC B's camera, then
+    `python -I tools/facetrace.py <log> [from] [to]`: per turn the target's start/settle, when she reached it, and the lag.
 - Research tools: `facewatch [ms] [ctl|glob]` (debug-register watchpoints, offline 20/20 clean, ran live 10-20), `faceptrs`.
 - Switches: `faceforce on|stored|off` (off removes the hook), `standturnto camera|body`, `standturnstep <rad>`, `standturnms <ms>`.
 
@@ -106,6 +110,15 @@ Not bugs (owner confirmed):
   use `player-force-jump-at` (native 0xC9A170) under `SetPlayerOverride(player 1)`.
 - Research tools: `animlog on` (base-layer anim state id + vertical speed), `jumptrace <s>` (every state tick).
   The base layer (0x9A7CE19BAA54C278) did not change on jumps. A real jump/vault state is still to find, per the watchdog.
+
+### 4.2b Idle gestures (nose wipe etc.)
+- Built 10-20, end to end not yet seen live. Each PC sends its player 0's layer-1 gesture (PlayerState.gesture);
+  `GestureSync` (core/gesturesync.h, TestGestureSync over the wire) starts each partner gesture once on the clone,
+  only while the partner stands, via sub_141DDA660 on player+0x54F8. `[clone] GestureSync`, `gesturesync on|off`.
+- Live facts: player 0 plays one of at least five idle gestures about every 20 s (2.5-3.6 s each); the clone none.
+  `gesturedirect 0x<id>` played one on the clone (3.3 s). simple-gesture / debug-menu events did not.
+- Check: `gesturelog on` on both PCs, wait ~1 min standing: each `gesture: player 0 layer 1 <id>` on PC B should
+  be followed on PC A by `clonegesture: ... <id> ... started` and `gesture: player 1 layer 1 <id>`.
 
 ### 4.3 Pickups to "mixed"
 - Live check that runtime pickup names match level-data names and classes (log line `pickup: '<name>' is a <class>`).

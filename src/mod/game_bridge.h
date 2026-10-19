@@ -3,6 +3,7 @@
 // so new reverse-engineering results drop in without a rebuild.
 // Each feature reports whether it is mapped; unmapped features are no-ops.
 #pragma once
+#include "core/gesturesync.h"
 #include "core/config.h"
 #include "core/protocol.h"
 #include "core/clonedrive.h"
@@ -311,7 +312,7 @@ public:
     bool cloneGestureSync_ = true;              // [clone] GestureSync: the partner's idle gestures play on the clone
     std::atomic<uint64_t> ownGesture_{0};       // this PC's player 0, gesture layer 1 (sent in PlayerState)
     std::atomic<uint64_t> partnerGesture_{0};   // the partner's, from their state
-    uint64_t clonePlayedGesture_ = 0;           // last partner gesture started on the clone
+    GestureSync gestureSync_;                   // which partner gesture to start on the clone
     void SetCloneGesture(uint64_t g) { partnerGesture_ = g; }
     uint64_t lastGesture_[2][3] = {};
     std::atomic<bool> gesturePollQueued_{false};

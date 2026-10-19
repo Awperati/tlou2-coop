@@ -2078,14 +2078,11 @@ void GameBridge::PollGestures() {
         uint64_t st = PlayerStateOf(p0);
         if (st == kStateJump && ownState_.load() != kStateJump) ownJumpSeen_ = true;
         ownState_ = st;
-        uint64_t want = partnerGesture_.load();
-        if (!want) clonePlayedGesture_ = 0;
-        else if (cloneGestureSync_ && p1 && want != clonePlayedGesture_) {
-            clonePlayedGesture_ = want;
-            if (GestureOf(p1, 1) != want) {
-                int r = PlayGestureDirect(BuildRva(0x1DDA660), p1, want);
-                Log("clonegesture: the other player started %016llx; the clone plays it: %s", static_cast<unsigned long long>(want), r == 1 ? "started" : "FAILED");
-            }
+        bool partnerMoving; { std::lock_guard lk(cloneMu_); partnerMoving = cloneTargetMoving_; }
+        // GestureSync (core/gesturesync.h): each partner gesture once, only while they stand.
+        if (uint64_t g = gestureSync_.Update(partnerGesture_.load(), partnerMoving, p1 ? GestureOf(p1, 1) : 0, cloneGestureSync_ && p1)) {
+            int r = PlayGestureDirect(BuildRva(0x1DDA660), p1, g);
+            Log("clonegesture: the other player started %016llx; the clone plays it: %s", static_cast<unsigned long long>(g), r == 1 ? "started" : "FAILED");
         }
         if (!gestureLog_) return;
         uintptr_t ps[2] = {p0, p1};
