@@ -240,6 +240,7 @@ public:
     float cloneStandTurnStep_ = 0.f;      // [clone] StandTurnStep: rad per 80 ms step (0 = one snap, the owner-checked baseline)
     bool cloneStandTurnToBody_ = false;   // [clone] StandTurnTo = camera (default) | body
     bool standTurning_ = false;
+    bool cloneFaceForce_ = true;          // [clone] FaceForce: desired facing through her movement controller
     unsigned cloneStandTurnMs_ = 80;     // [clone] StandTurnMs: ms between steps (0 = every tick)
     unsigned long long lastCmdMoveAt_ = 0;
     bool cloneCatchUp_ = true;            // [clone] CatchUp: steer toward the other player's spot

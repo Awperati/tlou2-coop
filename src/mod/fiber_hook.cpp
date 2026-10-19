@@ -1259,6 +1259,54 @@ bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle) {
     return true;
 }
 
+// Facing through the game's own turn (2026-10-19). player-force-facing/f (native 0xC8CF20 ->
+// sub_140DB63B0) sets a global flag (0x40FC87E, through the setting system) and a direction
+// (0x40FC880). The movement controller update sub_140C31230(ctl, request) -> sub_140C31340 reads
+// them and uses that direction as its desired facing ([ctl+0x1B0]); ctl+280 is the player. So for
+// player 1 only, set both around her controller's update: the game turns her with its own animations
+// (a raw rotation write put her in an A-pose, owner 12:10).
+namespace {
+uint8_t* g_faceTramp = nullptr;
+uint8_t g_faceSaved[12];
+uintptr_t g_faceTarget = 0, g_faceFlag = 0, g_faceDir = 0;
+std::atomic<uintptr_t> g_facePlayer{0};
+std::atomic<bool> g_faceForceOn{false};
+std::atomic<float> g_faceX{0}, g_faceZ{1};
+std::atomic<uint32_t> g_faceCalls1{0}, g_faceCallsOther{0};
+using Fwd2 = uint64_t (*)(uint64_t, uint64_t);
+uint64_t HookedFaceCtl(uint64_t ctl, uint64_t req) {
+    uintptr_t pl = 0;
+    __try { pl = ctl ? *reinterpret_cast<uintptr_t*>(ctl + 280) : 0; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    uintptr_t want = g_facePlayer.load();
+    if (!want || pl != want) { ++g_faceCallsOther; return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req); }
+    ++g_faceCalls1;
+    if (!g_faceForceOn.load()) return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+    auto* flag = reinterpret_cast<uint8_t*>(g_faceFlag);
+    auto* dir = reinterpret_cast<float*>(g_faceDir);
+    uint8_t oldFlag = *flag; float oldDir[4]; std::memcpy(oldDir, dir, sizeof(oldDir));
+    float d[4] = {g_faceX.load(), 0.f, g_faceZ.load(), 0.f};
+    std::memcpy(dir, d, sizeof(d)); *flag = 1;
+    uint64_t r = reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+    *flag = oldFlag; std::memcpy(dir, oldDir, sizeof(oldDir));
+    return r;
+}
+} // namespace
+
+bool FaceCtlHookInstall(uintptr_t target, uintptr_t flag, uintptr_t dir) {
+    if (g_faceTarget) return true;
+    // mov [rsp+18h],rbx; push rbp; push rsi; push rdi; sub rsp,60h
+    static const uint8_t expect[12] = {0x48, 0x89, 0x5C, 0x24, 0x18, 0x55, 0x56, 0x57, 0x48, 0x83, 0xEC, 0x60};
+    g_faceFlag = flag; g_faceDir = dir;
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedFaceCtl), g_faceSaved, g_faceTramp)) {
+        Log("face hook: prologue changed, not hooking"); return false;
+    }
+    g_faceTarget = target;
+    Log("face hook: movement controller update hooked (player 1 desired facing)");
+    return true;
+}
+void SetCloneFaceDir(uintptr_t player, bool on, float x, float z) { g_facePlayer = player; g_faceX = x; g_faceZ = z; g_faceForceOn = on; }
+void TakeFaceCtlCounts(uint32_t& clone, uint32_t& other) { clone = g_faceCalls1.exchange(0); other = g_faceCallsOther.exchange(0); }
+
 void FiberHookRemove() {
     if (g_bumpInstalled) { RemoveTrampoline(g_bumpTarget, g_bumpSaved, sizeof(g_bumpSaved)); g_bumpInstalled = false; Log("bump hook: removed"); }
     if (g_dlgInstalled) { RemoveTrampoline(g_dlgTarget, g_dlgSaved, sizeof(g_dlgSaved)); g_dlgInstalled = false; Log("dialog hook: removed"); }
@@ -1268,6 +1316,7 @@ void FiberHookRemove() {
     DemeanorHooksRemove();
     if (g_uidTarget) { RemoveTrampoline(g_uidTarget, g_uidSaved, sizeof(g_uidSaved)); g_uidTarget = 0; }
     if (g_actTarget) { RemoveTrampoline(g_actTarget, g_actSaved, sizeof(g_actSaved)); g_actTarget = 0; }
+    if (g_faceTarget) { RemoveTrampoline(g_faceTarget, g_faceSaved, sizeof(g_faceSaved)); g_faceTarget = 0; }
     if (g_camTarget) { RemoveTrampoline(g_camTarget, g_camSaved, sizeof(g_camSaved)); g_camTarget = 0; }
     if (g_pickTarget) { RemoveTrampoline(g_pickTarget, g_pickSaved, sizeof(g_pickSaved)); g_pickTarget = 0; }
     if (g_pushTarget) { RemoveTrampoline(g_pushTarget, g_pushSaved, sizeof(g_pushSaved)); g_pushTarget = 0; }

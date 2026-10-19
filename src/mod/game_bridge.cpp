@@ -2421,8 +2421,13 @@ void GameBridge::TickCloneDrive() {
                 // Standing means: they stood 0.5 s and she got no stick (their move or her arrive walk) for 0.8 s.
                 // 12:00 log: turns fired mid-walk on their stop/start flicker, and each one cut her walk short.
                 bool still = cloneStillSince_ && tn - cloneStillSince_ > 500 && tn - lastCmdMoveAt_ > 800;
+                // Game-driven facing ([clone] FaceForce): her movement controller's desired facing = target.
+                FaceCtlHookInstall(BuildRva(0xC31230), BuildRva(0x40FC87E), BuildRva(0x40FC880));
+                SetCloneFaceDir(p, cloneFaceForce_, std::sin(look), std::cos(look));
                 if (tn - lastFaceYawLog_ > 1000) {
                     lastFaceYawLog_ = tn;
+                    uint32_t c1 = 0, co = 0; TakeFaceCtlCounts(c1, co);
+                    Log("cloneface: controller updates: clone %u, others %u, force %s", c1, co, cloneFaceForce_ ? "on" : "off");
                     Log("cloneface: clone yaw %.2f, other body %.2f, other camera %.2f (error %.2f), %s, aim queries answered %u", mine, tyaw, cloneAimYaw_.load(), err, still ? "standing" : "moving", CloneAimHits());
                 }
                 // Smooth ([clone] StandTurnStep rad, 0 = one snap): start past 0.35 rad, then step at most
@@ -2430,7 +2435,7 @@ void GameBridge::TickCloneDrive() {
                 float step = cloneStandTurnStep_;
                 if (!still || std::fabs(err) < 0.05f) standTurning_ = false;
                 else if (std::fabs(err) > (step > 0 ? 0.12f : 0.35f)) standTurning_ = true;   // stepping: follow closely
-                if (cloneStandTurn_ && standTurning_ && tn - cloneFixAt_ > 1000 && tn - lastStandTurn_ >= (step > 0 ? cloneStandTurnMs_ : 1500u)) {
+                if (cloneStandTurn_ && !cloneFaceForce_ && standTurning_ && tn - cloneFixAt_ > 1000 && tn - lastStandTurn_ >= (step > 0 ? cloneStandTurnMs_ : 1500u)) {
                     lastStandTurn_ = tn;
                     float to = step > 0 && std::fabs(err) > step ? mine + (err > 0 ? step : -step) : look;
                     bool ok = engineTeleport(p, *cp, to);
