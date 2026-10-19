@@ -1329,7 +1329,8 @@ uint64_t HookedFaceCtl(uint64_t ctl, uint64_t req) {
             return r;
         }
         g_otherCtl = ctl; g_otherPl = pl;
-        if (!g_faceForceOn.load()) return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+        // Stored mode sets no global, so other controllers need not wait for hers.
+        if (!g_faceForceOn.load() || g_faceStoredMode.load()) return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
         bool locked = FaceLockAcquire();
         uint64_t r = reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
         if (locked) g_faceLock.store(false, std::memory_order_release);

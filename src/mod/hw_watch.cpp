@@ -23,6 +23,11 @@ struct Hit {
 Hit g_hits[kMaxHits];
 std::atomic<uint32_t> g_dropped{0};
 std::atomic<bool> g_armed{false};
+// The registers every thread should have now. The handler writes them into the context it
+// continues with: a thread trapped while they were being cleared would otherwise get the old
+// ones back from its exception context (seen offline: late traps after disarm, 7 of 10 runs).
+DWORD64 g_dr[4] = {};
+std::atomic<DWORD64> g_dr7{0};
 PVOID g_veh = nullptr;
 uintptr_t g_base = 0, g_end = 0;
 HwWatchSlot g_slots[4];
@@ -99,6 +104,9 @@ LONG CALLBACK Veh(EXCEPTION_POINTERS* ep) {
         t_inVeh = false;
     }
     c->Dr6 = 0;
+    c->Dr0 = g_dr[0]; c->Dr1 = g_dr[1]; c->Dr2 = g_dr[2]; c->Dr3 = g_dr[3];
+    c->Dr7 = g_dr7.load();
+    c->ContextFlags |= CONTEXT_DEBUG_REGISTERS;
     return EXCEPTION_CONTINUE_EXECUTION;   // data breakpoints trap after the access
 }
 
@@ -130,6 +138,7 @@ int SetAllThreads(const DWORD64 dr[4], DWORD64 dr7) {
 void Disarm() {
     const DWORD64 zero[4] = {};
     g_armed = false;
+    g_dr7 = 0;
     SetAllThreads(zero, 0);
 }
 } // namespace
@@ -163,9 +172,11 @@ bool HwWatchArm(const std::vector<HwWatchSlot>& slots, std::string& err) {
     g_dropped = 0;
     if (!g_veh) g_veh = AddVectoredExceptionHandler(1, &Veh);
     if (!g_veh) { err = "no exception handler"; return false; }
+    for (int i = 0; i < 4; ++i) g_dr[i] = dr[i];
+    g_dr7 = dr7;
     g_armed = true;
     int n = SetAllThreads(dr, dr7);
-    if (!n) { g_armed = false; err = "no thread took the registers"; return false; }
+    if (!n) { Disarm(); err = "no thread took the registers"; return false; }
     err = std::to_string(n) + " threads";
     return true;
 }

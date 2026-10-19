@@ -92,7 +92,11 @@ Not bugs (owner confirmed):
      her own anim is the leak path. `faceptrs` prints both players' pointers to name the `rdi` values.
   3. `faceforce stored`: turns her through her stored facing (sub_140C34C80), no globals at all.
      If player 0 stays put and she still turns smoothly, that is the fix.
-  - `facewatch` uses debug registers on all game threads (offline test: 3/3 clean). Untried in the game.
+  - `facewatch` uses debug registers on all game threads. Offline harness: 20/20 clean runs, 3 arm/report cycles each.
+    Untried in the game. The handler rewrites each trapped thread's debug registers to the current set, because
+    a trap in flight during disarm brought the old ones back (7 of 10 offline runs crashed before that fix).
+  - `faceforce stored` only works if her controller has no move request while standing (C31340 takes a request's
+    facing first). If she does not turn in that mode, that is why.
 - Switches: `faceforce on|stored|off` (off removes the hook), `standturnto camera|body`, `standturnstep <rad>`, `standturnms <ms>`.
 
 ### 4.2 Jump
