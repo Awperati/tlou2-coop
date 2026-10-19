@@ -404,9 +404,10 @@ static void TestTraversalThreads() {
     const uint64_t move = fnv("Move");
     TraversalCopy c;
     std::atomic<long> step{-1};
-    std::atomic<bool> stop{false};
+    std::atomic<bool> stop{false}, started{false};
     long bad = 0, reads = 0;
     std::thread reader([&] {
+        started = true;
         while (!stop) {
             long k1 = step.load();
             if (k1 < 0) continue;
@@ -419,13 +420,16 @@ static void TestTraversalThreads() {
             if (!ok) ++bad;
         }
     });
+    while (!started) std::this_thread::yield();   // a busy machine could finish the writes before the reader runs
     for (long k = 0; k < 200000; ++k) {
+        if (k % 1000 == 0) std::this_thread::yield();
         c.Update(static_cast<unsigned long long>(k) * 1000, move);           // leave the state, then enter the next
         c.Update(static_cast<unsigned long long>(k) * 1000, states[k % 3]);
         step.store(k);
     }
     stop = true; reader.join();
-    CHECK(bad == 0 && reads > 0);
+    CHECK(bad == 0);
+    CHECK(reads > 0);
 }
 
 static void TestClockSync() {

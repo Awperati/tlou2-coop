@@ -2635,8 +2635,16 @@ void GameBridge::TickCloneDrive() {
             if (have && cp && offRot_) if (auto q = Read<Quat>(p + offRot_)) {
                 // Camera target: led by its turn rate (YawLead, clonedrive.h) so her game-driven turn does not trail a
                 // mouse-looking partner (owner 05:2x: "late"); [clone] FaceLead s, 0 = no lead.
-                float look = cloneStandTurnToBody_ ? tyaw : cloneAimYaw_.load();
-                if (!cloneStandTurnToBody_ && cloneFaceLead_ > 0.f) { std::lock_guard lk(cloneMu_); yawLead_.leadS = cloneFaceLead_; look = yawLead_.Predict(tn); }
+                // Her own walk (owner 07:2x, "rotation delayed 2-3 s"): her engine world stick is the walk the game is
+                // actually doing. While it is idle she faces by force, whatever the partner does: 40-54 % of their
+                // stick samples never reached her engine (10-19 and 10-20 logs), and in those moments she swung to a
+                // fixed heading for seconds while they walked. Partner moving -> their body yaw, standing -> camera.
+                bool herWalk = wx && wz && (*wx * *wx + *wz * *wz) > 0.0025f;
+                if (herWalk) herWalkAt_ = tn;
+                bool herIdle = tn - herWalkAt_ > 150;
+                bool faceBody = cloneStandTurnToBody_ || tmov;
+                float look = faceBody ? tyaw : cloneAimYaw_.load();
+                if (!faceBody && cloneFaceLead_ > 0.f) { std::lock_guard lk(cloneMu_); yawLead_.leadS = cloneFaceLead_; look = yawLead_.Predict(tn); }
                 float mine = YawFromQuat(*q), err = std::remainder(look - mine, 6.2831853f);
                 // Standing means: they stood 0.5 s and she got no stick (their move or her arrive walk) for 0.8 s.
                 // 12:00 log: turns fired mid-walk on their stop/start flicker, and each one cut her walk short.
@@ -2652,7 +2660,11 @@ void GameBridge::TickCloneDrive() {
                 bool localMoving = false;
                 if (uintptr_t p0 = PlayerProcess(0)) if (auto lx = Read<float>(p0 + 19632 + 0xD0), lz = Read<float>(p0 + 19632 + 0xD8); lx && lz) localMoving = *lx * *lx + *lz * *lz > 0.0025f;
                 if (localMoving) localMoveAt_ = tn;
-                SetCloneFaceDir(p, cloneFaceForce_ && still && tn - localMoveAt_ > 500, std::sin(look), std::cos(look));
+                // Force while she is not walking herself (herIdle; was: they stood 0.5 s and she had no stick for
+                // 0.8 s, which held every turn back by 0.5-0.8 s and never covered a walk that did not take).
+                // The globals mode keeps the old pause while this PC's player walks; stored mode sets no global.
+                bool faceNow = cloneFaceForce_ && herIdle && (cloneFaceStored_ || tn - localMoveAt_ > 500);
+                SetCloneFaceDir(p, faceNow, std::sin(look), std::cos(look));
                 // Game-driven facing ([clone] FaceForce): her movement controller's desired facing = target.
                 // Target = their body yaw (12:19: with the camera yaw she strafed while their body turned to walk).
 
@@ -2661,7 +2673,7 @@ void GameBridge::TickCloneDrive() {
                 if (faceTrace_ && tn - lastFaceTrace_ >= 100 && (std::fabs(err) > 0.05f || tn - lastFaceTrace_ < 300)) {
                     if (std::fabs(look - lastTraceLook_) > 0.03f) { lastLookMoveAt_ = tn; lastTraceLook_ = look; }
                     lastFaceTrace_ = tn;
-                    Log("facetrace: target %.2f clone %.2f error %.2f, target last moved %llu ms ago, %s", look, mine, err, tn - lastLookMoveAt_, still ? "standing" : "moving");
+                    Log("facetrace: target %.2f clone %.2f error %.2f, target last moved %llu ms ago, %s, she %s, force %d", look, mine, err, tn - lastLookMoveAt_, still ? "standing" : "moving", herIdle ? "idle" : "walks", faceNow ? 1 : 0);
                 }
                 if (tn - lastFaceYawLog_ > 1000) {
                     lastFaceYawLog_ = tn;
