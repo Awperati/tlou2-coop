@@ -13,9 +13,9 @@ status: in-progress
 agents:
 - Claude (claude-opus-5-5)
 humans: [Awperati]
-date: '2026-10-18'
+date: '2026-10-19'
 links: []
-tags: [co-op, lan, second-player, joypad, hot-reload, dll-injection]
+tags: [co-op, lan, second-player, joypad, hot-reload, dll-injection, udp-relay]
 ---
 # The Last of Us Part II Remastered (PC): LAN co-op with a second Player
 
@@ -65,6 +65,21 @@ route and were dropped: companion animation set, lag, and the companion AI and l
 - Dialogue speaker resolution goes through process user ids, so a speaker remap (`dina` → `player-2`) moves the
   companion's lines onto the clone.
 
+- The second player's movement follows her own camera manager (index 1), which has no live camera. The engine's
+  NdPlayerJoypad world-stick field can match the wanted direction while she walks another way: calibrate the stick
+  turn from her real displacement (wait ~0.6 s after any stick change, she turns gradually), not from that field.
+- Her facing: write her rotation right after her own Player::Active::Update each frame. Writing it between frames
+  jittered; writing it before her update stopped her stick input.
+- Aim queries for a player go through that player's camera manager. For player 1, answer the reticle direction
+  (sub_140C6E800) and aim ray (sub_140C6F020) yourself instead of creating a second camera controller.
+- Every player's state update pushes/pops refcounted command groups on one global ActionCommandManager; skip
+  player 1's (else GroupStack::Pop asserts).
+- Spawning player 1 runs a singleton process's Init again, which double-links a static level listener: the next
+  level load spins forever in LevelMgr::OnLoadLevel (and later "device removed"). Guard the list link/unlink.
+- The draw-control show function takes a 4th argument, a mesh bit mask; calling it with 3 leaves random meshes hidden.
+  A look request is deferred and ignored when equal to the current look; new parts arrive hidden over seconds.
+- Hot reload: re-spawning player 1 on every reload exhausts a state-script pool (crash in SsManager). Reuse her.
+
 ## Build steps
 1. `build.cmd` (VS 2022 BuildTools, CMake/Ninja; also runs the unit tests), `deploy.cmd` into the game folder.
 2. Host `coop.ini` `Mode = host`, partner `Mode = client` + `HostAddress`. Start the game, then
@@ -74,7 +89,9 @@ route and were dropped: companion animation set, lag, and the companion AI and l
 ## Verification
 - Mod log per PC (`tlou2-coop.log`, partner log mirrored to the host), position reads of player 1 before and
   after the partner's stick push, recordings of the game window with ffmpeg gdigrab and contact sheets.
-- Not yet verified: the clone in the partner's look end to end, cinematic swap, dialogue by ear.
+- 2026-10-19: unit tests replay the clone calibration (simulated mouse-and-keyboard walks), relay security, alert
+  latching. Live: relay join with both games, reload leak audit flat, body verified by mesh ids across PCs.
+- Not yet verified: shots from the clone, dialogue by ear, a real cinematic swap.
 
 ## Gotchas
 1. **Second player asserts on spawn ("Invalid user id").** Cause: Player::Init gives index > 0 a user id of 0.
@@ -93,6 +110,13 @@ route and were dropped: companion animation set, lag, and the companion AI and l
    move-in-direction. Fix: `npc-stop` (only relevant to the dropped NPC route).
 9. **Level scripts re-crouch the companion every frame.** Fix: hook the Npc demeanor setters (NPC route only).
 
+10. **Clone walks the wrong way though the stick field looks right.** Calibrate from her real motion.
+11. **Clone stops moving with the host's game in the background.** Input is focus-gated for every player; expected.
+12. **Missing torso/arms after a re-dress.** The 3-argument show call (missing mesh mask). Verify by comparing the
+    clone's mesh ids with a correctly dressed player of the same look.
+13. **Game freezes, then "device removed".** A hang, not the GPU: take a live minidump and read every thread's stack.
+14. **cmd.exe over SSH drops a trailing single digit.** `echo x 0>> file` is a stream redirect; use `(echo x 0)>> file`.
+
 ## Assets
 None generated; the clone wears the game's own looks (e.g. the No Return `dina-player` look), loaded from the
 user's install at run time.
@@ -103,4 +127,4 @@ About a week of sessions (2026-10-09 to 2026-10-18).
 ## Open questions
 - The clone in the partner's look end to end on both PCs; package loading while the game is in the background.
 - Camera for player 1 (right stick), weapons and items for the second player, scripted companion moments.
-- Dedicated server (later).
+- Dedicated server: a UDP relay (`coop_relay.exe`) is built and passed with both games; no NAT hole punching.

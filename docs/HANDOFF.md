@@ -1,99 +1,84 @@
-# TLOU2 LAN co-op mod: handoff (2026-10-17)
+# TLOU2 LAN co-op mod: handoff (2026-10-19)
 
-Repo: `C:\Users\User\TLOU2 Co-op` (GitHub Awperati/tlou2-coop, private). Last commit when written: `d9626e8`.
+Repo: `C:\Users\User\TLOU2 Co-op` (GitHub Awperati/tlou2-coop, private). Written at commit `88ca57f`.
 Game: `E:\Games\The Last of Us - Part II Remastered` (Steam, v1.0.10402.1014, Watchtower save "Capitol Hill").
-Full running log of findings: [ROADMAP.md](ROADMAP.md). This file is the short version.
+PC A = host (192.168.0.237), PC B = partner (192.168.0.238, SSH `ssh -i ~/.ssh/tlou2_pcb sharn@192.168.0.238`).
+Full log of findings: [ROADMAP.md](ROADMAP.md). Player guide: [PLAYING.md](PLAYING.md). This file is the short version.
 
 ## 1. What works today
 
 | Area | Status |
 |---|---|
-| LAN session, discovery, teleport-to-partner, overlay | Done, verified (M0–M2) |
-| Partner's look on their own player (any character) | Done: `look <id>` and auto on join (`[character] AutoLook`). Lev/Dina/Ellie swapped live |
-| Story companion hidden + passive on the partner's PC | Done: hidden, AI/perception off, invisible to AI, holstered |
-| Host's body on the partner's PC | Done: auto-spawned NPC in the host's look (`[body] Auto=client`), steered by move-in-direction, snap turn, reused after reloads |
-| Dialogue | Companion lines play from the partner's player; host lines from the host body (speaker remap at sub_1403172A0). Proven at the actor level, not by ear |
-| Shots | Partner's shots replayed by their stand-in on the other PC (aim + fire, at the target when known). Verified with the sim and Ellie's rifle; real-enemy target untested |
-| Barks/callouts remap | Built (`vox_hook`), **off**: never observed (needs combat) |
-| Enemies (M6) | Health, death, alerts, and spawning enemies missing on one side all synced by spawner name. Verified with the sim |
-| Checkpoints/pause (M7) | Restart sync both ways and remote pause (opens/closes the real pause menu) verified live. Checkpoint-write forwarding is log-only and untested |
-| Client auto-rejoin after the host restarts | Done |
-| M8 dedicated server | Not started |
+| LAN session, discovery, teleport-to-partner, overlay, auto-rejoin | Done, verified |
+| **Clone mode** (default) | The partner is a real second Player (player 1) on each PC, in their look (PC A shows 'dina-player', PC B shows the host as Ellie). Story companion hidden; shown only for plot moments |
+| Clone movement | Partner's world stick -> her joypad slot 3 at the raw-pad copy. Stick turn theta learned from her real motion (`ThetaCalibrator`, core/clonedrive.h, kept across reloads). Catch-up pull + sprint, drift snap at 4 m (1.5 m standing). User: "moves in the right directions" |
+| Clone facing | `FaceSync`: rotation written right after her own Player::Active::Update each frame. User: "faces the right way" |
+| Clone stance | Stance sync presses crouch for her until she matches (not the toggle button) |
+| Clone buttons | A B LB Y X (mask 1F0). Player 1's ActionCommandManager group push/pop skipped (was the Y crash). Triggers and aim/fire flags (mouse and keyboard partners) reach her when 0x2200 is in the mask |
+| Clone aim | No camera 1: her aim direction (sub_140C6E800) and aim ray (sub_140C6F020) are answered from the partner's aim while aiming. `giveweapon` gives her player 0's pistol. Shots untested live |
+| Clone body | Show-mask bug fixed (show takes a mesh mask). Reloads keep her as she is; `redress` + poll until stable. Verified by mesh id: same 8 meshes/visible set as PC B's own Dina look |
+| Plot moments | Cinematic / companion scripted anim -> story Dina shown, clone hidden; after, clone and partner moved to Dina's spot (`plotsim <s>` test) |
+| Dialogue | Companion lines play from the clone ('player-2'); story characters in cinematics. Not checked by ear |
+| Enemies (M6) | Health, death, spawn sync; alerts once per real alert (`AlertLatch`); clone is the hunt target |
+| Pickups (M6) | Log-only: taken pickups are named and reported; the other PC logs whether it has it |
+| Checkpoints/pause (M7) | Restart sync both ways (GameRestartCheckpoint + GameRestartEncounter), remote pause |
+| Relay (M8) | `coop_relay.exe <secret>` (UDP 47830, secret, rate limit, frame cap). Real games joined through it (349 packets, 0 dropped). `[session] RelayAddress/RelayPort/RelaySecret` or the `relay` command |
+| Hot reload | Leak-free over 5 reloads (`leaks`): trampolines in a per-process pool, clone reused, listener guard |
 
 ## 2. Dev loop
 
-- **Launcher (2026-10-17):** the mod no longer loads with the game. `tlou2-coop\coop_launcher.exe` attaches it
-  (`coop_inject.dll`, same hot-reload loader). After a game relaunch, start the launcher too. `version.dll` was
-  renamed to `version.disabled.dll`. Spoken prompts and sound cues are now off by default.
-- Build: `cmd /c ".\build.cmd"` (also runs 71 unit tests). Deploy: `cmd /c ".\deploy.cmd"`. coop.dll hot-reloads in
-  the running game; touch `tlou2-coop\coop.dll`'s LastWriteTime to force a reload.
-- deploy copies offsets.ini and looks.ini every time. It copies coop.ini and roster.ini **only if missing**, so copy
-  them by hand after changing them.
-- Commands: write lines to `<game>\tlou2-coop\cmd.txt`; log: `<game>\tlou2-coop.log` (reset on every reload).
-  Useful: `npcstate <npc>`, `native [!]<rva> args` (`sid:name`, hex floats as raw bits; `!` = script context),
-  `spawnlook <spawner> <look>`, `body`, `puppet`, `look`, `companion on|off`, `speakermap a b|clear`,
-  `remotedir/remotesnap/remotecatch on|off`, `bodyauto`, `pickbody`, `press <btn>`, `stick l x y ms`.
-- Sim: `build\coop_lan_sim.exe walk|line|hostwalk|hostline ... [addr] [--hit n amt at] [--enemy n hp deadAt]
-  [--combat from to] [--alert n at] [--spawned n at] [--restart at 0|1] [--pause from to]`.
-- Game launch: `tlou-ii.exe -nolauncher`, **not as admin**, otherwise the mod's shell can't close it. Then the pad:
-  `press a` (title), Story → Continue (`press a`, `press a`). The pad only works while the game window is in front.
-- Recording: `ffmpeg -f gdigrab -offset_x X -offset_y Y -video_size WxH -i desktop` on the game window rect. Check
-  motion with `tblend=all_mode=difference,signalstats` (YAVG ~0.5 idle, 0.00 frozen).
-- IDA: `"/c/Program Files/IDA Professional 9.0/idat.exe" -A -L"re/probe.log" -S"re/<script>.py" "re/tlou-ii.i64"`.
-  Scripts: xr.py (XR, DF, LIM, XR_OUT; needs XR=0x0 if no xrefs), callers.py, fname.py, decomp.py, disasm_head.py,
-  callsites.py. `python -I tools/native.py <exe> <names...>` resolves script natives.
-- Crash dumps: `%LOCALAPPDATA%\CrashDumps`; `python -I tools/minidump.py <dmp>`.
+- Build `cmd /c ".\build.cmd"` (127 unit tests), deploy `cmd /c ".\deploy.cmd"`. coop.dll hot-reloads in the running
+  game (also while in the background); PC B pulls it from `tools/share.py` (port 8765, keep it running).
+- Launch: `tlou-ii.exe -nolauncher` (not admin), then `tlou2-coop\coop_launcher.exe`. PC B: tasks TLOU2-Game and
+  TLOU2-Launcher over SSH.
+- Commands: lines in `<game>\tlou2-coop\cmd.txt` (PC B over SSH: `(echo cmd 0)>> file` when it ends in one digit).
+  Clone: `clonebody [i]`, `redress`, `giveweapon [i] [name|-] [ammo]`, `weaponinfo`, `clonebuttons <hex>`,
+  `catchup on|off`, `facesync on|off`, `clonetheta <rad>`, `plotsim <s>`, `relay <ip> <port> <secret>|off`, `leaks`,
+  `dropbody <spawner>`, `players`, `proc <addr>`, `peek <addr> [n]`.
+- Live tests: `tools/live/livebatch.sh` (single instance, waits read-only for PC A's game in front; aim and fire,
+  reload audit, catch-up A/B, relay walk, body check). Other scripts in tools/live. Recordings stay out of git.
+- Sims: `build\coop_lan_sim.exe follow [addr]` (a partner that stands behind the host), `... --relay <ip> <port> <secret>`.
+- IDA: `"/c/Program Files/IDA Professional 9.0/idat.exe" -A -L"re/probe.log" -S"re/<script>.py" "re/tlou-ii.i64"`
+  (copy scripts from tools/ida into re/). `python -I tools/native.py <exe> <names>` / `native_rev.py`.
+- Crashes: `python -I tools/minidump.py <dmp>`; hangs: `tools/livedump.ps1` + `tools/dumpthreads.py`.
 
 ## 3. Rules from the user (also in memory)
 
-- Don't stop at "reply X"; carry on yourself. Test gameplay yourself and verify visually yourself (recordings).
-- Never ask the user to relaunch, dismiss dialogs, play to checkpoints or open menus. If something truly needs
-  them, say it once, briefly.
-- Every request to the user also goes to the watchdog session **"Godot game fundamentals scope"** (ListAgents
-  first; it is often closed).
-- **Banned:** focus tricks (Alt-tap), bringing the game to the front by any method, patching the game's
-  unfocused-input gate, getting around permission denials. Live steps only when the user is idle (GetLastInputInfo
-  over 60 s).
-- If the game crashes, relaunch it yourself and return to the checkpoint. Never touch crack files or publish game
-  files.
+- Don't stop at "reply X"; carry on. Test and verify yourself (logs, memory reads, recordings).
+- Watchdogs: "Roblox Game 2 - Opus Fast" (asked by the user on 10-19) and "Godot game fundamentals scope". Report
+  each step to them; the app pauses cross-session sends after 10 without a user message.
+- **Banned:** focus tricks, bringing the game to the front by any method (also minimising other windows), hidden
+  launches to dodge focus, patching the unfocused-input gate. No coop.ini edits on PC B without the user's OK.
+- The user allowed launching and relaunching the games (PC A and PC B over SSH) after crashes.
+- No game files or recordings in git.
 
-## 4. Open items / next steps
+## 4. Waiting on the game in front (PC A)
 
-1. **M8 dedicated server**: not started.
-2. Checkpoint-write test: skipped. Writing in place (sub_1410475B0(0, 5)) was refused as overwriting the user's
-   save. The partner writing its own checkpoint isn't built, for the same reason.
-3. Does a death go through GameRestartCheckpoint? Unknown; the hook logs it when it happens.
-4. `vox_hook` (barks) untested; needs combat with the game in front.
-5. GPU "device removed" crashes (07:57, 19:03, 19:58 on 10-15; AMD RX 9070 XT, driver 26.7.1). No mod frame
-   on the stack.
-   Update 2026-10-19: at least one was a game hang turned into "device removed": a second player linked a level
-   listener twice and LevelMgr::OnLoadLevel spun forever (live dump, fixed by the listener guard, ROADMAP). A freeze
-   before a device-removed crash points at a hang; take a live dump (tools/livedump.ps1, tools/dumpthreads.py).
-7. Clone weapon/aim live test: `tools/live/aimtest.sh` waits read-only for PC A's game in front, then PC B aims,
-   looks up, fires; pass = `cloneaim:` clone aim following the wanted yaw/pitch, no crash.
-6. Rough edges: ~~the partner-side new enemy repeatedly reports "spotted us" (5 s throttle)~~ fixed 2026-10-19 (AlertLatch, ROADMAP); a steady ~1.8 m walking
-   lag on the host body; the remote pause needs the game window in front.
+The clone's input, like the host's, is focus-gated: with PC A's game in the background her stick does nothing
+(drive log `game in front 0`). `livebatch.sh` covers these once it is in front:
+1. Shots: PC B aims and fires; her aim follows (`cloneaim:`), no crash.
+2. Catch-up A/B and the relay walk: needs PC B's game in front too.
+3. Body by eye (the id check already passed).
 
-## 5. Key engine facts (rva = addr − 0x140000000)
+## 5. Open items
 
-- Natives (script ABI fn(ret, argc, argv, ctx), symbols = FNV-1a 64):
-  - Health and death: get/set-object-health 0x40F7A0/0x4230A0, npc-kill 0x63D260, npc-alive? 0x62D110,
-    kill-entity 0xD4BB40 (despawn).
-  - Alerts: npc-make-aware-of 0x63DDD0 (npc, target, level 3), npc-in-combat? 0x63AC80.
-  - Spawning: c-spawn-npc 0x626240, c-spawn-npc-with-look 0x626710.
-  - Restart and pause: task-restart-from-continue 0x427500, pause-game-clock 0x41A060 (doesn't freeze
-    characters).
-  - Dialogue: request-dialog 0x319F90.
-- Hooks (fiber_hook.cpp): dialog facts sub_1403172A0; vox sub_140331A80 (off); RememberCheckpoint sub_141200770 and
-  GameRestartCheckpoint sub_14105F4E0. Both checkpoint hooks forward 12 args (a 4-arg version caused crash 11).
-- Spawner: +0x30 name, +0x78 archetype, +0x80 flags, +0x88 Level, +96/+104 spawned handle; local locator at +0
-  (MoveSpawnerTo moves the spawn spot). Spawned NPC process name = spawner name.
-- Pause read: clock component 1 +0xF8 == 0, or byte [0x143603768]+99.
-- Looks: config/looks.ini, from tools/looks.py over bin.psarc dc1/look2/characters.bin.
+1. Pickups: turn the log-only report into removal once real pickup logs exist.
+2. Dialogue by ear; barks (`vox_hook`) untested.
+3. Checkpoint-write forwarding still log-only (no writes to the user's save).
+4. A death most likely restarts through task-restart-from-continue (hooked); not proven.
 
-## 2026-10-18 12:22 (PC A restarting)
-- Deployed but not verified live: the camera-pick guard (prone clone crash) and clone stance sync (commit 79dbb3a).
-- PC A's game hung on the hot reload at 12:11:16: no game-thread work ran, and the game was in front for 30 s.
-- After the restart: start the game, then `tlou2-coop\coop_launcher.exe`, and load the checkpoint. Then run
-  `bash tools/live/clonetest2.sh` (waits read-only for focus; walk, crouch, 1.3 s prone hold, stand; contact sheet).
-  Pass: `clonestance` lines on both PCs, the same stance on both, and no crash.
+## 6. Key engine facts (rva = addr - 0x140000000)
+
+- Players: table 0x411A510 {node, id}; SpawnPlayer 0xDC1440; Process::SetUserId 0x133EC60 (hooked: 'player-2');
+  Player+21800 index, +21796 joypad, +19632 NdPlayerJoypad (+0xD0/+0xD8 world stick), Player::Active::Update 0xAD61E0.
+- Raw pad 0x824C860 (0x540 each): sticks +0x00/+0x08, masks +0x518/+0x520/+0x528 (A 20, B 80, LB 100, Y 10, X 40,
+  LT 200, RT 2000), triggers +0x4F0/+0x4F4. Raw->slot copy sub_14158F710 (hooked, slot 3 = clone).
+- Camera managers: 2 (GetGlobal sub_141B1B2B0); manager 1 has no live camera. Aim override table 0x143DF9750
+  (sub_1407FAAD0(index, pitch, yaw) degrees, row vectors). Camera pick sub_140C5A3B0 guarded.
+- Guards: level listener add/remove (0x1A4D870/0x1A4E210), ActionCommandManager push/pop (0x15B6C90/0x15B6D70).
+- Looks: sub_140DBB470 queues a pending look, ignores the current one; draw control sub_141AFD810, show
+  sub_141484610(dc, -1, 0, meshMask), hide sub_14147ECD0; meshes count dc+20, entries *(dc+8) x 912 bytes.
+- Restarts: GameRestartCheckpoint 0x105F4E0, GameRestartEncounter 0x105F8F0, task-restart-from-continue 0x427500.
+- Pickups: ProcessPickup::PickedUp::Enter 0x88FBF0; entity-exists? 0xD3BA00.
+- Natives: get/set-object-health 0x40F7A0/0x4230A0, npc-kill 0x63D260, npc-make-aware-of 0x63DDD0,
+  c-spawn-npc 0x626240, give-player-weapon 0xC8F870, camera-get-dir-through-reticle 0x407A70.
