@@ -236,7 +236,11 @@ public:
     bool cloneCatchUpSprint_ = false;
     bool cloneStandTurn_ = true;          // [clone] StandTurn: standing, turn her to where the other player looks
     bool cloneLookAnswer_ = false;        // [clone] LookAnswer: answer her aim queries with their camera look always
-    unsigned long long lastFaceYawLog_ = 0, lastStandTurn_ = 0;
+    unsigned long long lastFaceYawLog_ = 0, lastStandTurn_ = 0, lastStandTurnLog_ = 0;
+    float cloneStandTurnStep_ = 0.f;      // [clone] StandTurnStep: rad per 80 ms step (0 = one snap, the owner-checked baseline)
+    bool cloneStandTurnToBody_ = false;   // [clone] StandTurnTo = camera (default) | body
+    bool standTurning_ = false;
+    unsigned long long lastCmdMoveAt_ = 0;
     bool cloneCatchUp_ = true;            // [clone] CatchUp: steer toward the other player's spot
     float cloneAimSign_ = 1.f;            // [clone] AimSign: right stick direction that turns her toward the target yaw
     unsigned long long lastAimLog_ = 0, lastErrLog_ = 0;

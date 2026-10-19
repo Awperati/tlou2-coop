@@ -2299,6 +2299,7 @@ void GameBridge::TickCloneDrive() {
         if (cloneWorldStick_) { ActiveUpdateHookInstall(BuildRva(0xAD61E0)); SetCloneWorldStick(true, mx, mz); }
         float sx = 0, sy = 0;
         lastCmdX_ = mx; lastCmdZ_ = mz;
+        if (mx * mx + mz * mz > 1e-4f) lastCmdMoveAt_ = GetTickCount64();
         if (mx * mx + mz * mz > 0.0025f) StickForWorld(mx, mz, cloneTheta_, sx, sy);
         // Slot 3 is filled from a raw pad every frame (sub_141397A40 -> sub_14158F710); the hook
         // swaps the other player's stick in at that copy (writes from outside were overwritten).
@@ -2411,20 +2412,30 @@ void GameBridge::TickCloneDrive() {
             }
             // Facing (owner 10-19: "doesnt represent what direction she is looking"). Log her body yaw against
             // the other player's body yaw and camera yaw each second. Standing ([clone] StandTurn): turn her to
-            // their camera yaw (where they look; the owner's screenshot: she kept facing a wall while they looked
-            // elsewhere) through the game's teleport (same spot), not a raw rotation write.
+            // their camera yaw (owner after 11:58: "She does now face the right direction", a teleport, no turn
+            // animation) through the game's teleport (same spot), not a raw rotation write. [clone] StandTurnTo =
+            // body turns her to their body yaw instead (in the real game only moving turns the body).
             if (have && cp && offRot_) if (auto q = Read<Quat>(p + offRot_)) {
-                float look = cloneAimYaw_.load();
+                float look = cloneStandTurnToBody_ ? tyaw : cloneAimYaw_.load();
                 float mine = YawFromQuat(*q), err = std::remainder(look - mine, 6.2831853f);
-                bool still = cloneStillSince_ && tn - cloneStillSince_ > 500;
+                // Standing means: they stood 0.5 s and she got no stick (their move or her arrive walk) for 0.8 s.
+                // 12:00 log: turns fired mid-walk on their stop/start flicker, and each one cut her walk short.
+                bool still = cloneStillSince_ && tn - cloneStillSince_ > 500 && tn - lastCmdMoveAt_ > 800;
                 if (tn - lastFaceYawLog_ > 1000) {
                     lastFaceYawLog_ = tn;
-                    Log("cloneface: clone yaw %.2f, other camera %.2f (error %.2f), other body %.2f, %s", mine, look, err, tyaw, still ? "standing" : "moving");
+                    Log("cloneface: clone yaw %.2f, other body %.2f (error %.2f), other camera %.2f, %s", mine, tyaw, err, cloneAimYaw_.load(), still ? "standing" : "moving");
                 }
-                if (cloneStandTurn_ && still && std::fabs(err) > 0.35f && tn - lastStandTurn_ > 1500 && tn - cloneFixAt_ > 1000) {
+                // Smooth ([clone] StandTurnStep rad, 0 = one snap): start past 0.35 rad, then step at most
+                // StandTurnStep every 80 ms until within 0.05 rad (a snap every 1.5 s read as jerky).
+                if (!still || std::fabs(err) < 0.05f) standTurning_ = false;
+                else if (std::fabs(err) > 0.35f) standTurning_ = true;
+                float step = cloneStandTurnStep_;
+                if (cloneStandTurn_ && standTurning_ && tn - cloneFixAt_ > 1000 && tn - lastStandTurn_ > (step > 0 ? 80u : 1500u)) {
                     lastStandTurn_ = tn;
-                    bool ok = engineTeleport(p, *cp, look);
-                    Log("cloneface: standing turn %.2f -> %.2f: %s", mine, look, ok ? "sent" : "FAILED");
+                    float to = step > 0 && std::fabs(err) > step ? mine + (err > 0 ? step : -step) : look;
+                    bool ok = engineTeleport(p, *cp, to);
+                    if (!ok || step <= 0 || tn - lastStandTurnLog_ > 1000) { lastStandTurnLog_ = tn; Log("cloneface: standing turn %.2f -> %.2f (target %.2f): %s", mine, to, look, ok ? "sent" : "FAILED"); }
+                    if (step <= 0) standTurning_ = false;
                 }
             }
             if (have && cp && tn > cloneFixAt_ && tn - cloneFixAt_ > 2000) {
