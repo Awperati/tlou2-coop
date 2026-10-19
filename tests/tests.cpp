@@ -6,6 +6,7 @@
 #include "core/protocol.h"
 #include "core/relay.h"
 #include "core/clonedrive.h"
+#include "core/faceforce.h"
 #include "core/pickups.h"
 #include "core/roster.h"
 #include "core/session.h"
@@ -333,6 +334,14 @@ static void TestJumpDetector() {
     CHECK(during && !any);
 }
 
+static void TestFaceForceParse() {
+    // Default and the owner-tested fix (10-20): stored, no globals.
+    CHECK(ParseFaceForce("").force && ParseFaceForce("").stored);
+    CHECK(ParseFaceForce(" Stored ").stored);
+    for (const char* on : {"globals", "on", "true", "1", "GLOBALS"}) { auto m = ParseFaceForce(on); CHECK(m.force && !m.stored); }
+    for (const char* off : {"off", "false", "0", "no", "OFF"}) { auto m = ParseFaceForce(off); CHECK(!m.force && !m.stored); }
+}
+
 static void TestPickupClass() {
     PickupPolicy p;
     CHECK(std::string(p.Class("item-pickup-ammo-pistol-1230")) == "loot (shared in mixed)");
@@ -590,6 +599,7 @@ int main() {
     TestThetaCalibratorReplay();
     TestPickupPolicy();
     TestPickupClass();
+    TestFaceForceParse();
     TestJumpDetector();
     TestThetaSettledGuard();
     TestArriveStick();
