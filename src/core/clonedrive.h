@@ -89,6 +89,16 @@ inline uint64_t FreshHeld(uint64_t held, unsigned long long ageMs, unsigned long
     return ageMs > maxAgeMs ? 0 : held;
 }
 
+// Camera locator for player 1's empty camera manager (10-20): the walk-start facing reads her camera through
+// sub_141B1A020(out, managerIndex); manager 1 has no camera, so it returned an identity locator (yaw 0) and her yaw
+// swung toward 0 after turns and snaps. Answer with a camera behind her looking along the partner's camera yaw.
+// Layout as the game's (pos x y z w, then quaternion x y z w); same yaw convention as engineTeleport (atan2(x, z)).
+inline void CameraLocatorFor(const Vec3& herPos, float yaw, float out[8], float back = 2.5f, float up = 1.6f) {
+    float sx = std::sin(yaw), cz = std::cos(yaw);
+    out[0] = herPos.x - sx * back; out[1] = herPos.y + up; out[2] = herPos.z - cz * back; out[3] = 1.f;
+    out[4] = 0.f; out[5] = std::sin(yaw * 0.5f); out[6] = 0.f; out[7] = std::cos(yaw * 0.5f);
+}
+
 // Broken clone positions (10-20 07:20): a spot within 1 m of the world origin is an unset transform, and a clone
 // more than 50 m from her partner is falling or stuck, not walking behind.
 inline bool NearOrigin(const Vec3& p) { return std::fabs(p.x) < 1.f && std::fabs(p.y) < 1.f && std::fabs(p.z) < 1.f; }

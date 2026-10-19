@@ -2470,6 +2470,13 @@ void GameBridge::TickCloneDrive() {
         uintptr_t p = PlayerProcess(1), slot = JoypadSlot(3);
         // Only with traversal copying on (her jumps need landing probes); off by default until seen live.
         if (p && cloneTraversal_ && cloneKickJumpProbes_) { if (!KickCloneJumpProbes(p) && !kickProbeFailLogged_) { kickProbeFailLogged_ = true; Log("clonejump: kicking her jump probes faulted; leaving them"); cloneKickJumpProbes_ = false; } }
+        // Player 1's camera (CameraAnswer, off by default): a camera behind her along the partner's camera yaw.
+        if (p && cloneCameraAnswer_) {
+            if (auto cpos = Read<Vec3>(p + offPos_); cpos && CamLocatorHookInstall(BuildRva(0x1B1A020))) {
+                float loc[8]; CameraLocatorFor(*cpos, cloneAimYaw_.load(), loc); SetCloneCameraLocator(true, loc);
+                if (GetTickCount64() - lastCamAnswerLog_ > 5000) { lastCamAnswerLog_ = GetTickCount64(); Log("camanswer: player 1 camera yaw %.2f, answers so far %u", cloneAimYaw_.load(), CloneCameraAnswers()); }
+            }
+        } else { float z[8] = {}; SetCloneCameraLocator(false, z); }
         if (uint32_t cf = CamAssistFaults(); cf != lastCamFaults_) { lastCamFaults_ = cf; Log("camera assist: caught fault #%u (camera on a removed clone; frame skipped)", cf); }
         // Jump research (2026-10-19): log each anim state change of both players, to find the jump/vault ids.
         if (cloneAnimLog_) for (int i = 0; i < 2; ++i) {

@@ -497,6 +497,18 @@ static void TestGestureSync() {
     GestureSync same; CHECK(same.Update(wipe, false, wipe) == 0 && same.Update(wipe, false, 0) == 0);
 }
 
+static void TestCameraLocatorFor() {
+    float l[8]; Vec3 her{-67.6f, -6.8f, -205.0f};
+    for (float yaw : {0.f, 1.2f, -2.9f, 3.1f}) {
+        CameraLocatorFor(her, yaw, l);
+        float qy = l[5], qw = l[7];
+        float back = std::atan2(2.f * (qw * qy), 1.f - 2.f * (qy * qy));   // YawFromQuat for a pure yaw
+        CHECK(std::fabs(std::remainder(back - yaw, 6.2831853f)) < 1e-4f);
+        float dx = her.x - l[0], dz = her.z - l[2];                      // the camera sits behind her, looking at her
+        CHECK(std::fabs(std::remainder(std::atan2(dx, dz) - yaw, 6.2831853f)) < 1e-3f && l[1] > her.y && l[3] == 1.f);
+    }
+}
+
 static void TestCloneSpotBroken() {
     Vec3 partner{-67.6f, -6.8f, -205.0f};
     CHECK(!CloneSpotBroken({-69.0f, -6.8f, -203.5f}, partner));       // 2 m behind: fine
@@ -860,6 +872,7 @@ int main() {
     TestJumpFromState();
     TestYawLead();
     TestCloneSpotBroken();
+    TestCameraLocatorFor();
     TestGestureSync();
     TestClockSync();
     TestLossySession();

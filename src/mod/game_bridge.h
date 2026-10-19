@@ -248,6 +248,8 @@ public:
     TraversalCopy traversal_;
     bool cloneTraversal_ = false;
     uint32_t lastCamFaults_ = 0;
+    bool cloneCameraAnswer_ = false;       // [clone] CameraAnswer: answer player 1's camera locator (off until seen live)
+    unsigned long long lastCamAnswerLog_ = 0;
     bool cloneKickJumpProbes_ = true;      // [clone] KickJumpProbes: run her jump probes each tick (only with Traversal on)
     bool kickProbeFailLogged_ = false;          // [clone] Traversal: copy jumps/climbs as button presses (off: 10-20 07:20 crash)
     YawLead yawLead_;                      // partner camera yaw, led by its turn rate (guarded by cloneMu_)

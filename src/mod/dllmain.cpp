@@ -113,6 +113,24 @@ void SetSelfPuppetMarker(const std::wstring& dir, bool on) {
     else DeleteFileW(path.c_str());
 }
 
+// Simple "<name> on|off" switches (one table instead of one else-if each: the command chain hit the compiler's
+// nesting limit, C1061, 10-20).
+static bool HandleToggle(const std::string& line, GameBridge& b) {
+    struct T { const char* name; bool GameBridge::* flag; };
+    static const T kToggles[] = {
+        {"camanswer", &GameBridge::cloneCameraAnswer_}, {"traversal", &GameBridge::cloneTraversal_},
+        {"standturn", &GameBridge::cloneStandTurn_}, {"animlog", &GameBridge::cloneAnimLog_},
+        {"facetrace", &GameBridge::faceTrace_}, {"gesturesync", &GameBridge::cloneGestureSync_},
+        {"gesturelog", &GameBridge::gestureLog_}, {"lookanswer", &GameBridge::cloneLookAnswer_},
+        {"catchup", &GameBridge::cloneCatchUp_},
+    };
+    for (const auto& t : kToggles) {
+        std::string n = t.name;
+        if (line == n + " on" || line == n + " off") { b.*(t.flag) = line == n + " on"; Log("%s: %s", t.name, b.*(t.flag) ? "on" : "off"); return true; }
+    }
+    return false;
+}
+
 void CoopMain() {
     const std::wstring dir = ModDir();
     Ini cfg, rosterIni, offsets;
@@ -214,6 +232,7 @@ void CoopMain() {
     bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
     bridge.cloneStandTurn_ = cfg.getBool("clone", "StandTurn", true);
     bridge.cloneTraversal_ = cfg.getBool("clone", "Traversal", false);
+    bridge.cloneCameraAnswer_ = cfg.getBool("clone", "CameraAnswer", false);
     bridge.cloneKickJumpProbes_ = cfg.getBool("clone", "KickJumpProbes", true);
     bridge.cloneFaceLead_ = cfg.getFloat("clone", "FaceLead", 0.15f);
     bridge.cloneGestureSync_ = cfg.getBool("clone", "GestureSync", true);
@@ -606,7 +625,8 @@ void CoopMain() {
                 for (auto& raw : SplitList(text, '\n')) {
                     std::string line = Lower(Trim(raw));
                     Log("command: %s", line.c_str());
-                    if (line == "teleport") cmdTeleport = true;
+                    if (HandleToggle(line, bridge)) {}   // "<switch> on|off" for the simple clone switches
+                    else if (line == "teleport") cmdTeleport = true;
                     else if (line == "modules") LogInputModules();
                     else if (line == "inputstats") InputLogStats();
                     else if (line == "fiberstats") FiberLogStats();
@@ -906,19 +926,13 @@ void CoopMain() {
                     else if (line.rfind("clonetheta ", 0) == 0) { bridge.cloneTheta_ = std::stof(line.substr(11)); Log("clonetheta: set to %.2f", bridge.cloneTheta_); }
                     else if (line == "worldstick on" || line == "worldstick off") { bridge.cloneWorldStick_ = line == "worldstick on"; if (!bridge.cloneWorldStick_) SetCloneWorldStick(false, 0, 0); Log("worldstick: %s", bridge.cloneWorldStick_ ? "on" : "off"); }
                     else if (line == "facesync on" || line == "facesync off") { bridge.cloneFaceSync_ = line == "facesync on"; Log("facesync: %s", bridge.cloneFaceSync_ ? "on" : "off"); }
-                    else if (line == "standturn on" || line == "standturn off") { bridge.cloneStandTurn_ = line == "standturn on"; Log("standturn: %s", bridge.cloneStandTurn_ ? "on" : "off"); }
                     else if (line == "standturnto body" || line == "standturnto camera") { bridge.cloneStandTurnToBody_ = line == "standturnto body"; Log("standturnto: %s", bridge.cloneStandTurnToBody_ ? "body" : "camera"); }
                     else if (line.rfind("standturnms ", 0) == 0) { bridge.cloneStandTurnMs_ = static_cast<unsigned>(atoi(line.c_str() + 12)); Log("standturnms: %u", bridge.cloneStandTurnMs_); }
                     else if (line.rfind("standturnstep ", 0) == 0) { bridge.cloneStandTurnStep_ = static_cast<float>(atof(line.c_str() + 14)); Log("standturnstep: %.2f rad", bridge.cloneStandTurnStep_); }
-                    else if (line == "animlog on" || line == "animlog off") { bridge.cloneAnimLog_ = line == "animlog on"; Log("animlog: %s", bridge.cloneAnimLog_ ? "on" : "off"); }
                     else if (line.rfind("jumptrace ", 0) == 0) { bridge.jumpTraceUntil_ = GetTickCount64() + 1000ull * static_cast<unsigned>(atoi(line.c_str() + 10)); Log("jumptrace: on"); }
                     else if (line == "facediff") { RequestFaceDiff(3); Log("facediff: next 3 forced updates"); }
                     else if (line == "faceptrs") Log("faceptrs:%s", FacePtrs().c_str());
-                    else if (line == "traversal on" || line == "traversal off") { bridge.cloneTraversal_ = line == "traversal on"; Log("traversal: %s", bridge.cloneTraversal_ ? "on" : "off"); }
                     else if (line.rfind("facelead ", 0) == 0) { bridge.cloneFaceLead_ = static_cast<float>(atof(line.c_str() + 9)); Log("facelead: %.2f s", bridge.cloneFaceLead_); }
-                    else if (line == "facetrace on" || line == "facetrace off") { bridge.faceTrace_ = line == "facetrace on"; Log("facetrace: %s", bridge.faceTrace_ ? "on" : "off"); }
-                    else if (line == "gesturesync on" || line == "gesturesync off") { bridge.cloneGestureSync_ = line == "gesturesync on"; Log("gesturesync: %s", bridge.cloneGestureSync_ ? "on" : "off"); }
-                    else if (line == "gesturelog on" || line == "gesturelog off") { bridge.gestureLog_ = line == "gesturelog on"; Log("gesturelog: %s", bridge.gestureLog_ ? "on" : "off"); }
                     else if (line.rfind("gesturedirect ", 0) == 0) bridge.QueueGestureDirect(1, std::stoull(line.substr(14), nullptr, 16));   // gesturedirect <0xid>: on player 1
                     else if (line.rfind("gestureev ", 0) == 0) {   // gestureev <0xid> [layer] [simple]: event straight to player 1
                         std::istringstream gs(line.substr(10)); std::string g, mode; int layer = 1; gs >> g >> layer >> mode;
@@ -942,8 +956,6 @@ void CoopMain() {
                         bridge.cloneFaceForce_ = line != "faceforce off"; bridge.cloneFaceStored_ = line == "faceforce stored";
                         Log("faceforce: %s", bridge.cloneFaceStored_ ? "stored (her controller's stored facing, no globals)" : bridge.cloneFaceForce_ ? "on (force globals)" : "off");
                     }
-                    else if (line == "lookanswer on" || line == "lookanswer off") { bridge.cloneLookAnswer_ = line == "lookanswer on"; Log("lookanswer: %s", bridge.cloneLookAnswer_ ? "on" : "off"); }
-                    else if (line == "catchup on" || line == "catchup off") { bridge.cloneCatchUp_ = line == "catchup on"; Log("catchup: %s", bridge.cloneCatchUp_ ? "on" : "off"); }
                     else if (line.rfind("relay ", 0) == 0) {
                         std::istringstream rs(line.substr(6)); std::string a; rs >> a;
                         Hello h2; h2.playerName = cfg.get("session", "PlayerName", "Player"); h2.wanted = wanted;

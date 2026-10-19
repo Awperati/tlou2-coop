@@ -1413,6 +1413,45 @@ std::string FacePtrs() {
     return out;
 }
 
+// Player 1's camera locator (see CameraLocatorFor in clonedrive.h): sub_141B1A020(out, managerIndex) copies
+// 0x50 bytes of the manager's current camera locator, or an identity locator when the manager has none (manager 1
+// always). For index 1, overwrite the first 32 bytes (position + rotation) with a camera behind the clone looking
+// along the partner's camera yaw. [clone] CameraAnswer (default off), `camanswer on|off`.
+namespace {
+uint8_t* g_cam1Tramp = nullptr;
+uint8_t g_cam1Saved[13];
+uintptr_t g_cam1Target = 0;
+std::atomic<bool> g_cam1On{false};
+std::atomic<float> g_cam1Loc[8];
+std::atomic<uint32_t> g_cam1Answers{0};
+using CamLocFn = uint64_t (*)(uint64_t, uint64_t);
+uint64_t HookedCamLocator(uint64_t out, uint64_t index) {
+    uint64_t r = reinterpret_cast<CamLocFn>(g_cam1Tramp)(out, index);
+    if (static_cast<uint32_t>(index) == 1 && g_cam1On.load() && out) {
+        __try {
+            float* o = reinterpret_cast<float*>(out);
+            for (int i = 0; i < 8; ++i) o[i] = g_cam1Loc[i].load();
+            ++g_cam1Answers;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    return r;
+}
+} // namespace
+
+bool CamLocatorHookInstall(uintptr_t target) {
+    if (g_cam1Target) return true;
+    // mov [rsp+8],rbx; push rdi; sub rsp,30h; mov rbx,rcx
+    static const uint8_t expect[13] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8B, 0xD9};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedCamLocator), g_cam1Saved, g_cam1Tramp)) {
+        Log("camlocator hook: prologue changed, not hooking"); return false;
+    }
+    g_cam1Target = target;
+    Log("camlocator hook: camera locator getter hooked (player 1's camera answered when on)");
+    return true;
+}
+void SetCloneCameraLocator(bool on, const float loc[8]) { for (int i = 0; i < 8; ++i) g_cam1Loc[i] = loc[i]; g_cam1On = on; }
+uint32_t CloneCameraAnswers() { return g_cam1Answers.load(); }
+
 void FiberHookRemove() {
     if (g_bumpInstalled) { RemoveTrampoline(g_bumpTarget, g_bumpSaved, sizeof(g_bumpSaved)); g_bumpInstalled = false; Log("bump hook: removed"); }
     if (g_dlgInstalled) { RemoveTrampoline(g_dlgTarget, g_dlgSaved, sizeof(g_dlgSaved)); g_dlgInstalled = false; Log("dialog hook: removed"); }
@@ -1424,6 +1463,8 @@ void FiberHookRemove() {
     if (g_actTarget) { RemoveTrampoline(g_actTarget, g_actSaved, sizeof(g_actSaved)); g_actTarget = 0; }
     if (g_faceTarget) { RemoveTrampoline(g_faceTarget, g_faceSaved, sizeof(g_faceSaved)); g_faceTarget = 0; }
     if (g_camTarget) { RemoveTrampoline(g_camTarget, g_camSaved, sizeof(g_camSaved)); g_camTarget = 0; }
+    g_cam1On = false;
+    if (g_cam1Target) { RemoveTrampoline(g_cam1Target, g_cam1Saved, sizeof(g_cam1Saved)); g_cam1Target = 0; }
     if (g_pickTarget) { RemoveTrampoline(g_pickTarget, g_pickSaved, sizeof(g_pickSaved)); g_pickTarget = 0; }
     if (g_pushTarget) { RemoveTrampoline(g_pushTarget, g_pushSaved, sizeof(g_pushSaved)); g_pushTarget = 0; }
     if (g_popTarget) { RemoveTrampoline(g_popTarget, g_popSaved, sizeof(g_popSaved)); g_popTarget = 0; }
