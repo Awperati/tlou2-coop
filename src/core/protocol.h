@@ -132,6 +132,25 @@ inline float StickTheta(float sx, float sy, float wx, float wz) {
 constexpr uint8_t kMoving = 0x10;
 constexpr uint8_t kJumped = 0x20;   // the sender's player started a jump in the last 300 ms (JumpDetector)
 
+// The player's state machine state (sub_14133D6B0(player, out) -> pointer to its name id; FNV-1a of the
+// name, found 2026-10-20 from the ids get-player-jump-or-fall-top-pos-y 0xE64350 compares). A real jump is
+// the "Jump" state; vaults and climbs show up as Edge, LedgeDrop, Ladder, WallShimmy (114 ids near the getter).
+constexpr uint64_t kStateMove = 0x379C18AEC5654894ull, kStateJump = 0x15A477E9F9A165ADull,
+                   kStateFall = 0x1999418517F28100ull, kStateEdge = 0x6503256C2DE2745Cull,
+                   kStateLadder = 0x16948826BF750B89ull, kStateSlide = 0xEAF5B9CD31C0B966ull;
+
+// Jump from the state: true for holdMs after the player enters "Jump" (the sender's kJumped flag).
+struct JumpFromState {
+    unsigned holdMs = 300;
+    bool Update(unsigned long long now, uint64_t state) {
+        if (state == kStateJump && prev_ != kStateJump) until_ = now + holdMs;
+        prev_ = state;
+        return now < until_;
+    }
+private:
+    uint64_t prev_ = 0; unsigned long long until_ = 0;
+};
+
 // Jump start from the player's motion (2026-10-19; no jump state found yet, so this is the fallback).
 // Real standing jumps on PC B (14:04:55-57, KB/M): rise 1.2-1.5 m/s over ~60 ms windows while moving
 // forward 1.7-3.0 m/s (a TLOU2 jump hops forward), so a "steeper than the ground speed" rule missed all

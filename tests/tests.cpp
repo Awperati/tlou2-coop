@@ -334,6 +334,22 @@ static void TestJumpDetector() {
     CHECK(during && !any);
 }
 
+static void TestJumpFromState() {
+    auto fnv = [](const char* n) { uint64_t h = 0xCBF29CE484222325ull; for (; *n; ++n) { h ^= static_cast<uint8_t>(*n); h *= 0x100000001B3ull; } return h; };
+    CHECK(fnv("Jump") == kStateJump && fnv("Fall") == kStateFall && fnv("Move") == kStateMove && fnv("Edge") == kStateEdge);
+    JumpFromState j; int edges = 0; bool prev = false;
+    // Move, Jump (0.5 s), Fall, Move, a ladder climb, Move, Jump again.
+    for (unsigned long long t = 0; t < 4000; t += 16) {
+        uint64_t s = t < 500 ? kStateMove : t < 1000 ? kStateJump : t < 1300 ? kStateFall : t < 2000 ? kStateMove
+                   : t < 2800 ? kStateLadder : t < 3500 ? kStateMove : kStateJump;
+        bool f = j.Update(t, s);
+        if (f && !prev) ++edges;
+        CHECK(!f || (t >= 500 && t < 820) || t >= 3500);
+        prev = f;
+    }
+    CHECK(edges == 2);
+}
+
 static void TestFaceForceParse() {
     // Default and the owner-tested fix (10-20): stored, no globals.
     CHECK(ParseFaceForce("").force && ParseFaceForce("").stored);
@@ -600,6 +616,7 @@ int main() {
     TestPickupPolicy();
     TestPickupClass();
     TestFaceForceParse();
+    TestJumpFromState();
     TestJumpDetector();
     TestThetaSettledGuard();
     TestArriveStick();
