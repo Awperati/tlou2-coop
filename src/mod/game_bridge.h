@@ -247,7 +247,9 @@ public:
     JumpFromState jumpState_;              // jump from the own player's "Jump" state (speed is the fallback)
     TraversalCopy traversal_;
     bool cloneTraversal_ = false;
-    uint32_t lastCamFaults_ = 0;          // [clone] Traversal: copy jumps/climbs as button presses (off: 10-20 07:20 crash)
+    uint32_t lastCamFaults_ = 0;
+    bool cloneKickJumpProbes_ = true;      // [clone] KickJumpProbes: run her jump probes each tick (only with Traversal on)
+    bool kickProbeFailLogged_ = false;          // [clone] Traversal: copy jumps/climbs as button presses (off: 10-20 07:20 crash)
     YawLead yawLead_;                      // partner camera yaw, led by its turn rate (guarded by cloneMu_)
     float cloneFaceLead_ = 0.15f;          // [clone] FaceLead: seconds of lead on the standing-turn target              // receiver: partner state -> button presses on the clone
     std::atomic<uint64_t> ownState_{0};    // own player state, sampled on the game fiber (PollGestures)

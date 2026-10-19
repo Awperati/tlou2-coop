@@ -2436,6 +2436,24 @@ static void AnimLayersOf(uintptr_t proc, char* out, size_t n) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { snprintf(out, n, " (unreadable)"); }
 }
 
+// Jump probes for the clone (10-20 static RE): KickPlayerJumpProbes (sub_140E1F330) runs once per frame and kicks
+// each player's jump controller (Player+12224, vfunc +656) for i < the engine's player count (component 0 vfunc
+// +200), which is 1 in the story: player 1's probes never run, so her jump picks a stale/empty landing target.
+// That fits the 10-20 07:20 crash (a copied jump threw her to the origin). Kick hers the same way, inside the same
+// process scope calls (sub_14133B8C0 / sub_14133C140) the game wraps it in. Game fiber only.
+static bool KickCloneJumpProbes(uintptr_t p) {
+    __try {
+        auto jc = *reinterpret_cast<uintptr_t*>(p + 12224);
+        if (!jc) return false;
+        auto vt = *reinterpret_cast<uintptr_t*>(jc);
+        static const char* kFile = "coop/game_bridge.cpp"; static const char* kFn = "KickCloneJumpProbes";
+        reinterpret_cast<void (*)(uintptr_t, const char*, uint64_t, const char*)>(BuildRva(0x133B8C0))(p, kFile, 1, kFn);
+        reinterpret_cast<void (*)(uintptr_t)>(*reinterpret_cast<uintptr_t*>(vt + 656))(jc);
+        reinterpret_cast<void (*)(const char*, uint64_t, const char*)>(BuildRva(0x133C140))(kFile, 2, kFn);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 // clonedrive: the other player's world stick drives player 1 through joypad slot 3. The slot
 // stick is rotated into the clone camera's frame; that rotation (theta) is measured each tick
 // from what the engine made of the last stick (Player+19632 +0xD0/+0xD8).
@@ -2450,6 +2468,8 @@ void GameBridge::TickCloneDrive() {
     RunOnGameFiber([this] {
         cloneDriveQueued_ = false;
         uintptr_t p = PlayerProcess(1), slot = JoypadSlot(3);
+        // Only with traversal copying on (her jumps need landing probes); off by default until seen live.
+        if (p && cloneTraversal_ && cloneKickJumpProbes_) { if (!KickCloneJumpProbes(p) && !kickProbeFailLogged_) { kickProbeFailLogged_ = true; Log("clonejump: kicking her jump probes faulted; leaving them"); cloneKickJumpProbes_ = false; } }
         if (uint32_t cf = CamAssistFaults(); cf != lastCamFaults_) { lastCamFaults_ = cf; Log("camera assist: caught fault #%u (camera on a removed clone; frame skipped)", cf); }
         // Jump research (2026-10-19): log each anim state change of both players, to find the jump/vault ids.
         if (cloneAnimLog_) for (int i = 0; i < 2; ++i) {

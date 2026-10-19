@@ -214,6 +214,7 @@ void CoopMain() {
     bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
     bridge.cloneStandTurn_ = cfg.getBool("clone", "StandTurn", true);
     bridge.cloneTraversal_ = cfg.getBool("clone", "Traversal", false);
+    bridge.cloneKickJumpProbes_ = cfg.getBool("clone", "KickJumpProbes", true);
     bridge.cloneFaceLead_ = cfg.getFloat("clone", "FaceLead", 0.15f);
     bridge.cloneGestureSync_ = cfg.getBool("clone", "GestureSync", true);
     {   // [clone] FaceForce = stored | globals (on, true) | off (false, no): core/faceforce.h
