@@ -3,6 +3,24 @@
 Target build: `tlou-ii.exe`, PE timestamp `67ED75F7` (2025-04-03), image base `0x140000000`.
 Engine: Naughty Dog in-house, native x64, D3D12. No anti-cheat. No official mod API.
 
+## Offline backlog (2026-10-20 06:20; needs neither the owner nor a live game)
+
+Ranked. Claim an item in a message before starting; the main session works from the top, the other from the bottom.
+
+1. **Death -> restart path** (M7 open item) — DONE offline 06:20. Of the 7958 game scripts (bin.psarc dc1/*.bin), the
+   10 that call `task-restart-from-continue` are puzzle hints/skips (rope puzzles, dumpster, generator, wave manager);
+   none calls `task-restart-encounter`. So a death does not reach a restart through those natives. Whether it passes
+   GameRestartCheckpoint/GameRestartEncounter (both hooked, both log) is only answerable by a real death.
+2. **Protocol fuzz test**: random and bit-flipped bytes through every message Read (PlayerState with gesture/state
+   tails, WorldEvent, Objective, enemy messages): must fail cleanly or round-trip, never read past the end. tests.cpp.
+3. **Relay under loss**: coop_relay with 10-30 % dropped/reordered datagrams on loopback (lan_sim): the session
+   reconnects and state flows; add a ctest that runs it in seconds.
+4. **Clock sync** (claimed by the gesture session, 06:15): NTP-style offset/latency in the session Pong.
+
+Needs the owner (not in this backlog): the six traversal checks and the mouse-look lead (patches/traversal-wiring.md),
+the pickup name check and its checkpoint step, M7 checkpoint-write forwarding (overwrites the partner's save point),
+an M4 engine load hold (risk of a hang), dialogue by ear, PC B texture quality.
+
 ## Dev loop (no game restarts)
 
 `version.dll` is now only a loader. It runs a shadow copy of `tlou2-coop\coop.dll`
