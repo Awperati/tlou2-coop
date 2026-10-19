@@ -2249,7 +2249,7 @@ void GameBridge::TickCloneDrive() {
     if (!thetaSeeded) {
         thetaSeeded = true;
         wchar_t v[32] = {};
-        if (GetEnvironmentVariableW(L"TLOU2COOP_THETA", v, 32)) { cloneTheta_ = static_cast<float>(_wtof(v)); Log("clonetheta: %.2f kept from before the reload", cloneTheta_); }
+        if (GetEnvironmentVariableW(L"TLOU2COOP_THETA", v, 32)) { cloneTheta_ = static_cast<float>(_wtof(v)); thetaCal_.MarkSettled(); Log("clonetheta: %.2f kept from before the reload (settled)", cloneTheta_); }
     }
     if (!cloneDrive_ || cloneDriveQueued_.exchange(true)) return;
     RunOnGameFiber([this] {
@@ -2264,7 +2264,8 @@ void GameBridge::TickCloneDrive() {
         prevStickX_ = lastStickX_; prevStickY_ = lastStickY_;
         // Calibrate from her real motion ([clone] ThetaFromMotion, default): over >= 0.4 s of one
         // steady command, compare where she went with where we asked her to go.
-        if (cloneThetaFromMotion_) {   // core ThetaCalibrator (tuned in TestThetaCalibratorReplay)
+        // Not while a story scene runs nearby (12:21: the measurement that walked theta off came during one).
+        if (cloneThetaFromMotion_ && !plotScripted_ && plotAp_ == 0) {   // core ThetaCalibrator (tuned in TestThetaCalibratorReplay)
             if (auto cpos = Read<Vec3>(p + offPos_)) {
                 thetaCal_.theta = cloneTheta_;
                 unsigned long long tm = GetTickCount64();

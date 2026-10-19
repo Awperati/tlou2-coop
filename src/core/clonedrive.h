@@ -44,6 +44,10 @@ struct ThetaCalibrator {
         return true;
     }
 
+    // Theta kept from before a mod reload was already learned: start settled (small steps, outlier guard).
+    void MarkSettled() { if (accepted_ < 5) accepted_ = 5; }
+    bool Settled() const { return accepted_ >= 5; }
+
 private:
     unsigned long long refAt_ = 0;
     int accepted_ = 0;

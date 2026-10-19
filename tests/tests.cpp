@@ -305,6 +305,16 @@ static void TestThetaCalibratorReplay() {
 }
 
 // Pickups: each loot rule on sample names, and the event payload round trip.
+static void TestThetaSettledGuard() {
+    ThetaCalibrator cal; cal.theta = 3.13f; cal.MarkSettled();
+    CHECK(cal.Settled());
+    // A steady command, but she moves 1.2 rad off (blocked / scripted): rejected once settled.
+    float cx = -0.93f, cz = 0.38f, sx, sy; StickForWorld(cx, cz, cal.theta, sx, sy);
+    float ang = std::atan2(cz, cx) + 1.2f, x = 0, z = 0; bool changed = false;
+    for (unsigned long long t = 0; t < 3000; t += 16) { x += std::cos(ang) * 1.5f * 0.016f; z += std::sin(ang) * 1.5f * 0.016f; changed |= cal.Update(t, sx, sy, cx, cz, x, z, 0); }
+    CHECK(!changed && std::fabs(cal.theta - 3.13f) < 1e-4f);
+}
+
 static void TestPickupClass() {
     PickupPolicy p;
     CHECK(std::string(p.Class("item-pickup-ammo-pistol-1230")) == "loot (shared in mixed)");
@@ -559,6 +569,7 @@ int main() {
     TestThetaCalibratorReplay();
     TestPickupPolicy();
     TestPickupClass();
+    TestThetaSettledGuard();
     TestArriveStick();
     TestCatchUpModes();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
