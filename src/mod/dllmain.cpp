@@ -454,7 +454,7 @@ void CoopMain() {
     bool prevPressed = false, toggled = false;
     PromptState prevPrompt = PromptState::Hidden;
     unsigned long long faceWatchUntil = 0;   // facewatch report time
-    unsigned long long lastGesturePoll = 0;
+    unsigned long long lastGesturePoll = 0, lastClockLog = 0;
 
     while (g_run) {
         ULONGLONG now = GetTickCount64();
@@ -1220,6 +1220,11 @@ void CoopMain() {
             bridge.DiscoverTick();
         }
 
+        // Peer clock (clocksync.h): logged every 30 s so the two PCs' logs can be lined up (10-20: PC B ran 6.45 s behind).
+        if (now - lastClockLog >= 30000) {
+            lastClockLog = now;
+            for (uint8_t sl = 0; sl < 4; ++sl) { int64_t off; uint32_t oneWay; if (session.peerClock(sl, off, oneWay)) Log("net: peer %u clock %+lld ms vs ours (their log time - %lld ms = ours), one-way %u ms", sl, static_cast<long long>(off), static_cast<long long>(off), oneWay); }
+        }
         if (now - lastStatus >= 500) {
             lastStatus = now;
             std::wstring s = L"Co-op ";

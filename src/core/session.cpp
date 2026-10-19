@@ -73,6 +73,13 @@ uint32_t Session::rttMs(uint8_t slot) const {
     return it == peers_.end() ? 0 : it->second.rtt;
 }
 
+bool Session::peerClock(uint8_t slot, int64_t& offsetMs, uint32_t& oneWayMs) const {
+    auto it = peers_.find(slot);
+    if (it == peers_.end() || !it->second.clock.Has()) return false;
+    offsetMs = it->second.clock.OffsetMs(); oneWayMs = it->second.clock.OneWayMs();
+    return true;
+}
+
 bool Session::StartHost(const std::string& name, uint16_t port, uint8_t maxPlayers, bool enableDiscovery) {
     Stop();
     sock_ = MakeUdp(port, false, false);
@@ -327,12 +334,16 @@ void Session::handlePacket(uint32_t ip, uint16_t port, const uint8_t* data, size
     case MsgType::Ping: {
         uint32_t t = r.u32();
         Writer w; w.u32(t);
+        w.u64(static_cast<uint64_t>(WallMs()));   // our wall clock (optional tail: an old build reads only t)
         sendUnreliable(*p, MsgType::Pong, w.data());
         break;
     }
     case MsgType::Pong: {
         uint32_t t = r.u32();
-        if (r.ok()) p->rtt = static_cast<uint32_t>(static_cast<uint32_t>(now) - t);
+        if (r.ok()) {
+            p->rtt = static_cast<uint32_t>(static_cast<uint32_t>(now) - t);
+            if (r.remaining() >= 8) { int64_t peerWall = static_cast<int64_t>(r.u64()); if (r.ok()) p->clock.Add(p->rtt, WallMs(), peerWall); }
+        }
         break;
     }
     case MsgType::Bye:

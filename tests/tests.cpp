@@ -1,11 +1,13 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <utility>
 // Unit tests for the game-independent core. Run: build\coop_tests.exe
 #include "core/config.h"
 #include "core/protocol.h"
 #include "core/relay.h"
 #include "core/clonedrive.h"
+#include "core/clocksync.h"
 #include "core/faceforce.h"
 #include "core/gesturesync.h"
 #include "core/pickups.h"
@@ -375,6 +377,28 @@ static void TestTraversalCopy() {
     CHECK(r.Update(v += 300, fnv("Zipline")) == nullptr && r.Held(v) == 0);
 }
 
+static void TestClockSync() {
+    // Peer clock 6450 ms ahead (as PC A vs PC B on 10-20); one-way delays with queueing jitter, sometimes
+    // lopsided. The min-rtt sample must land within its own half round trip of the truth.
+    const int64_t truth = 6450;
+    ClockSync c; CHECK(!c.Has() && c.OffsetMs() == 0);
+    const int up[] = {3, 40, 5, 2, 60, 9, 4, 30, 2, 25}, down[] = {3, 2, 50, 3, 1, 9, 30, 4, 2, 1};
+    int64_t ours = 1'000'000;
+    for (int i = 0; i < 10; ++i) {
+        int64_t peerAnswer = ours + up[i] + truth;      // the peer stamps its clock when it answers
+        int64_t arrive = ours + up[i] + down[i];        // our clock when the pong arrives
+        c.Add(static_cast<uint32_t>(up[i] + down[i]), arrive, peerAnswer);
+        ours += 1000;
+    }
+    // Best kept sample: rtt 4 (2 + 2) among the last eight -> error at most 2 ms.
+    CHECK(c.Has() && std::llabs(c.OffsetMs() - truth) <= 2 && c.OneWayMs() == 2);
+    CHECK(c.ToOurs(5'000'000 + truth) - 5'000'000 == c.ToOurs(truth) - 0);
+    // Only the last eight count: an old perfect sample drops out.
+    ClockSync d; d.Add(0, 100, 100 + 500);
+    for (int i = 0; i < 8; ++i) d.Add(20, 1000 + i, 1000 + i + 300);
+    CHECK(d.OffsetMs() == 300 + 10);   // rtt 20 -> half 10 credited back
+}
+
 static void TestGestureSync() {
     // End to end through the wire: the sender's gesture goes out in PlayerState every 50 ms, the
     // receiver's GestureSync (polled every 100 ms) says what to start on the clone.
@@ -714,6 +738,7 @@ int main() {
     TestJumpFromState();
     TestYawLead();
     TestGestureSync();
+    TestClockSync();
     TestTraversalCopy();
     TestJumpDetector();
     TestThetaSettledGuard();

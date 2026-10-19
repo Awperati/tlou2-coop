@@ -2,6 +2,7 @@
 // State/input packets are unreliable; story/teleport messages are reliable
 // (resent until acked, deduplicated on receive).
 #pragma once
+#include "core/clocksync.h"
 #include "core/protocol.h"
 #include <functional>
 #include <map>
@@ -86,6 +87,8 @@ public:
     uint8_t localSlot() const { return localSlot_; }
     size_t peerCount() const { return peers_.size(); }
     uint32_t rttMs(uint8_t slot) const;
+    // Peer clock minus ours (ms) and one-way delay, once a pong with a wall clock came (clocksync.h).
+    bool peerClock(uint8_t slot, int64_t& offsetMs, uint32_t& oneWayMs) const;
     void setChapter(const std::string& c) { chapter_ = c; }
     void setCallbacks(Callbacks cb) { cb_ = std::move(cb); }
 
@@ -96,6 +99,7 @@ private:
         uint8_t slot = 0;
         SteadyMs lastHeard = 0, lastPing = 0;
         uint32_t rtt = 0;
+        ClockSync clock;   // peer clock offset from pongs that carry the peer's wall clock
         uint16_t nextSeq = 1;
         std::map<uint16_t, Pending> outbox;
         std::deque<uint16_t> seenSeqs;
