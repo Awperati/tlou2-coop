@@ -241,6 +241,8 @@ public:
     bool cloneStandTurnToBody_ = false;   // [clone] StandTurnTo = camera (default; owner 13:30: "relative to the actual screen on PC-B") | body
     bool standTurning_ = false;
     JumpDetector jumpDet_;
+    bool jumpSentPrev_ = false;
+    float lastStateY_ = 0, maxRise_ = 0; unsigned long long lastStateYAt_ = 0, lastRiseLog_ = 0;
     bool cloneJumpedPrev_ = false;
     unsigned long long cloneJumpUntil_ = 0;
     bool cloneAnimLog_ = false;           // animlog on|off: log anim state changes (jump research)

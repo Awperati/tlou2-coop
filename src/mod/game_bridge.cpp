@@ -249,7 +249,14 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
         if (!moveRefAt_ || now - moveRefAt_ > 400) { moveRefPos_ = s.pos; moveRefAt_ = now; }
         else if (now - moveRefAt_ >= 100) { movingNow_ = IsMoving(moveRefPos_, s.pos, static_cast<unsigned>(now - moveRefAt_)); moveRefPos_ = s.pos; moveRefAt_ = now; }
         if (movingNow_) s.flags |= kMoving;
-        if (jumpDet_.Update(now, s.pos.y, s.pos.x, s.pos.z)) s.flags |= kJumped;
+        bool jumpedNow = jumpDet_.Update(now, s.pos.y, s.pos.x, s.pos.z);
+        if (jumpedNow) s.flags |= kJumped;
+        if (jumpedNow && !jumpSentPrev_) Log("jump: own player jumped at y %.2f, telling the other PC", s.pos.y);
+        jumpSentPrev_ = jumpedNow;
+        // Research: the largest rise per state tick, logged every 5 s while it is above 0.5 m/s.
+        if (lastStateYAt_ && now > lastStateYAt_) { float vy = (s.pos.y - lastStateY_) * 1000.f / static_cast<float>(now - lastStateYAt_); if (vy > maxRise_) maxRise_ = vy; }
+        lastStateY_ = s.pos.y; lastStateYAt_ = now;
+        if (now - lastRiseLog_ > 5000) { if (maxRise_ > 0.5f) Log("jump: largest rise in the last 5 s %.2f m/s", maxRise_); maxRise_ = 0; lastRiseLog_ = now; }
     }
     s.shots = shots_;
     s.shotTarget = shotTarget_;
@@ -3312,10 +3319,14 @@ void GameBridge::QueueShowCompanion(bool visible, float radius, bool quiet) {
         if (!bp) return;
         // Hiding: skip the radius walk while the player is close. It would catch the player's
         // own cloth (that once hid Dina's jacket for good).
+        // Same for the clone (player 1): it caught her cloth, and her torso and arms went missing again
+        // after reloads (owner 13:5x; each reload ran playershow, then this hid her 3 cloth objects).
         if (!visible) {
             uintptr_t pl = follow(player_);
             auto pp = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
             if (!pp || Distance(*pp, *bp) < radius + 1.5f) radius = 0.f;
+            uintptr_t p1 = PlayerProcess(1);
+            if (auto cp = p1 ? Read<Vec3>(p1 + offPos_) : std::nullopt; cp && Distance(*cp, *bp) < radius + 1.5f) radius = 0.f;
         }
         int body = SafeSetObjectVisible(b, visible);
         std::string names;
