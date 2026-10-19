@@ -26,6 +26,7 @@
 #include "core/relay.h"
 #include "core/pickups.h"
 #include "core/teleport.h"
+#include "core/faceforce.h"
 #include "mod/fiber_hook.h"
 #include "mod/game_bridge.h"
 #include "mod/log.h"
@@ -213,10 +214,9 @@ void CoopMain() {
     bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
     bridge.cloneStandTurn_ = cfg.getBool("clone", "StandTurn", true);
     bridge.cloneGestureSync_ = cfg.getBool("clone", "GestureSync", true);
-    {   // [clone] FaceForce = stored | globals (on, true) | off (false)
-        std::string ff = Lower(cfg.get("clone", "FaceForce", "stored"));
-        bridge.cloneFaceForce_ = ff != "off" && ff != "false" && ff != "0";
-        bridge.cloneFaceStored_ = ff == "stored";
+    {   // [clone] FaceForce = stored | globals (on, true) | off (false, no): core/faceforce.h
+        auto ffm = ParseFaceForce(cfg.get("clone", "FaceForce", "stored"));
+        bridge.cloneFaceForce_ = ffm.force; bridge.cloneFaceStored_ = ffm.stored;
     }
     bridge.cloneStandTurnStep_ = cfg.getFloat("clone", "StandTurnStep", 0.f);
     bridge.cloneStandTurnMs_ = static_cast<unsigned>(cfg.getInt("clone", "StandTurnMs", 80));

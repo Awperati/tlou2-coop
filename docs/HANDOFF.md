@@ -82,33 +82,12 @@ Not bugs (owner confirmed):
   ctl+280 is the player.
   - The hook sets both only around player 1's update (`FaceCtlHookInstall`, fiber_hook.cpp).
   - She turns through the game's own turn, smoothly, with no A-pose (owner 13:0x).
-- **Leak:** each PC's own player 0 ends up with exactly her forced yaw (13:39: PC A body -3.09 = its clone's target;
-  PC B body 1.56 = its clone's target).
-  - Ruled out: a cross-thread race (updates serialized, 0 give-ups), nesting (0), GetPlayer inside her update.
-  - Ruled out: a write to player 0 or its controller during her update. A `facediff` memory diff over 0x5800 + 0x800 bytes showed 0 dwords changed.
-- **Static RE (10-20 night, PC B off, so no live run):**
-  - Only sub_140C31340 reads the flag and dir (rva 0xC31A36 / 0xC31A44). The native sub_140DB63B0 is the only other writer.
-  - The forced dir goes only into her own state: [ctl+0x1B0], her stored facing [ctl+0x890] + [ctl+0x8E0]=1
-    (sub_140C34C80), and her player's key/value store (player+0x50B8, key 0xF8EDCB8F4C46F387, player-local dir).
-    sub_141F819E0 / sub_141F80BF0 are pure maths.
-  - Controller: vtable 0x142CC3CC0, size 0x950, desired-facing getter slot +0x150 (sub_140C2EB10).
-    Per-frame update sub_140C37110 (slot +0x158), enter sub_140C35ED0. Each controller sits at player+0x14ADC0.
-  - PC B log 13:31-13:40 (force on, lock on, 0 give-ups, 0 nested): its own yaw followed the clone's yaw each time
-    (-1.21, 0.18, 1.56). With the force off it did not. 13:1x: its own player kept her yaw while walking,
-    as if player 0 itself saw the force.
-- **Next (one live run, both standing):**
-  1. `faceforce on`, then `facewatch 3000 glob`. The report lists every instruction that touched the flag/dir,
-     with the `rdi` (= controller in C31340) and how often the flag was set then.
-     A hit at 0xC31A36 with player 0's controller and "set" > 0 means player 0 reads the force after all.
-  2. `facewatch 3000 ctl`: every reader of her [ctl+0x1B0] / [ctl+0x8E0]. Anything outside sub_140C31340 /
-     her own anim is the leak path. `faceptrs` prints both players' pointers to name the `rdi` values.
-  3. `faceforce stored`: turns her through her stored facing (sub_140C34C80), no globals at all.
-     If player 0 stays put and she still turns smoothly, that is the fix.
-  - `facewatch` uses debug registers on all game threads. Offline harness: 20/20 clean runs, 3 arm/report cycles each.
-    Untried in the game. The handler rewrites each trapped thread's debug registers to the current set, because
-    a trap in flight during disarm brought the old ones back (7 of 10 offline runs crashed before that fix).
-  - `faceforce stored` only works if her controller has no move request while standing (C31340 takes a request's
-    facing first). If she does not turn in that mode, that is why.
+- **Engine facts (static RE):** only sub_140C31340 reads the flag/dir (rva 0xC31A36 / 0xC31A44). Controller vtable
+  0x142CC3CC0, size 0x950, desired-facing getter slot +0x150 (sub_140C2EB10), update sub_140C37110, enter sub_140C35ED0;
+  stored facing [ctl+0x890] + [ctl+0x8E0] via sub_140C34C80. player+0x2E98 = the player's own controller.
+- **Open:** the turn is smooth but late while PC B mouse-looks (owner 05:2x). `facetrace on` logs target vs clone
+  yaw every 100 ms to time it; not run yet.
+- Research tools: `facewatch [ms] [ctl|glob]` (debug-register watchpoints, offline 20/20 clean, ran live 10-20), `faceptrs`.
 - Switches: `faceforce on|stored|off` (off removes the hook), `standturnto camera|body`, `standturnstep <rad>`, `standturnms <ms>`.
 
 ### 4.2 Jump
