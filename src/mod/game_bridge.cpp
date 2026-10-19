@@ -2241,6 +2241,22 @@ static int PlayerStanceOf(uintptr_t p) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
 }
 
+// A process's current base-layer animation state name id, as player-is-landing-from-fall? reads it
+// (native 0xE74BF0): sub_141AFCAD0(proc) -> anim control, sub_141440CD0(ctl, layer 0x9A7CE19BAA54C278)
+// -> layer, sub_1415FDC10(layer, out) -> pointer to the state's name id. 0 if unreadable.
+static uint64_t AnimStateOf(uintptr_t proc) {
+    __try {
+        if (!proc) return 0;
+        auto ctl = reinterpret_cast<uintptr_t (*)(uintptr_t)>(BuildRva(0x1AFCAD0))(proc);
+        if (!ctl) return 0;
+        auto layer = reinterpret_cast<uintptr_t (*)(uintptr_t, uint64_t)>(BuildRva(0x1440CD0))(ctl, 0x9A7CE19BAA54C278ull);
+        if (!layer) return 0;
+        uint8_t buf[16] = {};
+        auto r = reinterpret_cast<uint64_t* (*)(uintptr_t, void*)>(BuildRva(0x15FDC10))(layer, buf);
+        return r ? *r : 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+
 // clonedrive: the other player's world stick drives player 1 through joypad slot 3. The slot
 // stick is rotated into the clone camera's frame; that rotation (theta) is measured each tick
 // from what the engine made of the last stick (Player+19632 +0xD0/+0xD8).
@@ -2255,6 +2271,19 @@ void GameBridge::TickCloneDrive() {
     RunOnGameFiber([this] {
         cloneDriveQueued_ = false;
         uintptr_t p = PlayerProcess(1), slot = JoypadSlot(3);
+        // Jump research (2026-10-19): log each anim state change of both players, to find the jump/vault ids.
+        if (cloneAnimLog_) for (int i = 0; i < 2; ++i) {
+            uint64_t st = AnimStateOf(PlayerProcess(i));
+            if (st != lastAnimState_[i]) { lastAnimState_[i] = st; Log("animstate: player %d %016llx", i, static_cast<unsigned long long>(st)); }
+        }
+        if (cloneAnimLog_) if (auto p0 = PlayerProcess(0)) if (auto pos = Read<Vec3>(p0 + offPos_)) {
+            unsigned long long tm = GetTickCount64();
+            if (lastYAt_ && tm > lastYAt_) {
+                float vy = (pos->y - lastY_) * 1000.f / static_cast<float>(tm - lastYAt_);
+                if (std::fabs(vy) > 1.0f && tm - lastVyLog_ > 150) { lastVyLog_ = tm; Log("animstate: player 0 vertical %.2f m/s at y %.2f", vy, pos->y); }
+            }
+            lastY_ = pos->y; lastYAt_ = tm;
+        }
         if (!p || !slot) return;
         auto wx = Read<float>(p + 19632 + 0xD0), wz = Read<float>(p + 19632 + 0xD8);
         // Measure only once the stick has been steady for a few ticks: the engine's world stick lags

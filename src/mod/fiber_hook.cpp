@@ -1276,6 +1276,22 @@ std::atomic<uint32_t> g_faceCalls1{0}, g_faceCallsOther{0};
 std::pair<std::atomic<uintptr_t>, std::atomic<uintptr_t>> g_faceSeen[4];
 std::atomic<uint32_t> g_faceNested{0};
 thread_local bool t_faceForcing = false;
+// Player updates run on parallel job threads: while her update has the global set, player 0's
+// controller on another thread read it too and turned toward her target (13:36, PC B: its own body
+// went -3.10 -> -0.18 with the force on). So the two updates take turns. Bounded spin (2 ms) so a
+// fiber switch inside an update can never freeze the game; g_faceSpinMiss counts give-ups.
+std::atomic<bool> g_faceLock{false};
+std::atomic<uint32_t> g_faceSpinMiss{0};
+bool FaceLockAcquire() {
+    LARGE_INTEGER f, t0, t; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&t0);
+    for (;;) {
+        bool exp = false;
+        if (g_faceLock.compare_exchange_weak(exp, true, std::memory_order_acquire)) return true;
+        YieldProcessor();
+        QueryPerformanceCounter(&t);
+        if ((t.QuadPart - t0.QuadPart) * 1000 > f.QuadPart * 2) { ++g_faceSpinMiss; return false; }
+    }
+}
 thread_local uint8_t t_faceOldFlag = 0;
 thread_local float t_faceOldDir[4] = {};
 using Fwd2 = uint64_t (*)(uint64_t, uint64_t);
@@ -1299,12 +1315,17 @@ uint64_t HookedFaceCtl(uint64_t ctl, uint64_t req) {
             *flag = mine; std::memcpy(dir, myDir, sizeof(myDir));
             return r;
         }
-        return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+        if (!g_faceForceOn.load()) return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+        bool locked = FaceLockAcquire();
+        uint64_t r = reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+        if (locked) g_faceLock.store(false, std::memory_order_release);
+        return r;
     }
     ++g_faceCalls1;
     if (!g_faceForceOn.load()) return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
     auto* flag = reinterpret_cast<uint8_t*>(g_faceFlag);
     auto* dir = reinterpret_cast<float*>(g_faceDir);
+    bool locked = FaceLockAcquire();
     uint8_t oldFlag = *flag; float oldDir[4]; std::memcpy(oldDir, dir, sizeof(oldDir));
     t_faceOldFlag = oldFlag; std::memcpy(t_faceOldDir, oldDir, sizeof(oldDir));
     float d[4] = {g_faceX.load(), 0.f, g_faceZ.load(), 0.f};
@@ -1313,6 +1334,7 @@ uint64_t HookedFaceCtl(uint64_t ctl, uint64_t req) {
     uint64_t r = reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
     t_faceForcing = false;
     *flag = oldFlag; std::memcpy(dir, oldDir, sizeof(oldDir));
+    if (locked) g_faceLock.store(false, std::memory_order_release);
     return r;
 }
 } // namespace
@@ -1334,7 +1356,7 @@ void SetCloneFaceDir(uintptr_t player, bool on, float x, float z) { g_facePlayer
 void TakeFaceCtlCounts(uint32_t& clone, uint32_t& other) { clone = g_faceCalls1.exchange(0); other = g_faceCallsOther.exchange(0); }
 std::string FaceCtlSeen() {
     std::string out; char b[64];
-    snprintf(b, sizeof(b), " nested %u", g_faceNested.exchange(0)); out += b;
+    snprintf(b, sizeof(b), " nested %u spin give-ups %u", g_faceNested.exchange(0), g_faceSpinMiss.exchange(0)); out += b;
     for (auto& s : g_faceSeen) if (uintptr_t c = s.first.exchange(0)) { snprintf(b, sizeof(b), " ctl %p -> %p", reinterpret_cast<void*>(c), reinterpret_cast<void*>(s.second.load())); out += b; }
     return out;
 }
