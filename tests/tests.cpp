@@ -358,6 +358,14 @@ static void TestTraversalCopy() {
     c.Update(t += 500, move);
     auto* e = c.Update(t += 16, fnv("Evade")); CHECK(e && e->kind == Traversal::Dodge && c.Held(t) == 0x100);
     CHECK(FindTraversal(move) == nullptr);
+    // Gating by her own state: no second jump while she is already in the air, LedgeDrop (B) only while she hangs.
+    TraversalCopy g; unsigned long long u = 10000;
+    g.Update(u, move); g.Update(u += 16, fnv("Jump"));
+    CHECK(g.Held(u, move) == 0x20 && g.Held(u, fnv("Jump")) == 0 && g.Held(u, fnv("Fall")) == 0);
+    g.Update(u += 500, fnv("Edge")); g.Update(u += 500, fnv("LedgeDrop"));
+    CHECK(g.Held(u, move) == 0 && g.Held(u, fnv("Edge")) == 0x80 && g.Held(u, fnv("WallShimmy")) == 0x80);
+    g.Update(u += 500, move); g.Update(u += 16, fnv("Edge"));
+    CHECK(g.Held(u, move) == 0x20 && g.Held(u, fnv("Edge")) == 0);   // already hanging: no climb press
 }
 
 static void TestJumpFromState() {

@@ -2527,7 +2527,6 @@ void GameBridge::TickCloneDrive() {
         uint64_t flagHeld = (cloneAimingFlag_.load() ? 0x200ull : 0) | (cloneFiringFlag_.load() ? 0x2000ull : 0);
         uint64_t held = (cloneHeld_.load() | flagHeld) & cloneButtonMask_;
         if (GetTickCount64() < cloneJumpUntil_) held |= 0x20;
-        if (uint64_t tb = traversal_.Held(GetTickCount64()); tb && !(cloneHeld_.load() & tb)) held |= tb;
         // No catch-up sprint: holding LB stopped her stick input (engine world 0, drift 2.7 m, 11:43 A/B: catch-up
         // on mean 1.32 m vs off 0.25 m). The steering pull alone is kept. [clone] CatchUpSprint to try again.
         if (catchSprint && cloneCatchUpSprint_) held |= 0x100;
@@ -2544,6 +2543,9 @@ void GameBridge::TickCloneDrive() {
             }
             if (now < stanceBUntil_) held |= 0x80;
         }
+        // Gated by her own state (traversal.h): no jump press while she is already in the air, B (let go)
+        // only while she hangs on the ledge too. After the stance sync, which clears B from the other pad.
+        if (uint64_t tb = traversal_.Held(GetTickCount64(), PlayerStateOf(p)); tb && !(cloneHeld_.load() & tb)) held |= tb;
         // Aim turn: while the other player aims (LT), turn the clone's camera with her right stick
         // until her facing matches theirs (a player aiming faces the camera). Sign: [clone] AimSign.
         float rx = 0.f;
