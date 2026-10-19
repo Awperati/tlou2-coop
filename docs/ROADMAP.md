@@ -1388,3 +1388,6 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   not a mod fault; the mod draws nothing and only shows/hides meshes. Not proven.
 - Next: lower PC B's texture quality one step (owner's call, game setting); or have the mod log the process's dedicated
   and shared GPU memory once a minute (`\GPU Process Memory(*)`) so the next corruption can be matched to a number.
+- Sampler running on PC B since 05:16 (until 09:16 or the game exits): `tools/live/vramlog.ps1`, output
+  `C:\Users\sharn\tlou2-vram.log`, one line a minute (VRAM, shared, working set, private). First line: 5.10 GB VRAM,
+  1.67 GB shared. When the glitch comes back, note the time and read the lines just before it.
