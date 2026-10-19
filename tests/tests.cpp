@@ -238,6 +238,46 @@ static std::pair<float, float> RunCalibration(ThetaCalibrator cal, unsigned seed
     return {std::fabs(std::remainder(cal.theta - truth, 6.2831853f)), sumErr / nErr};
 }
 
+// Catch-up pull compared from the same start: theta already right, her speed 15 % low on random
+// stretches (walls, slopes), mouse-and-keyboard walks. mode 0 = no pull, 1 = pull, 2 = pull paused 0.3 s
+// after a turn of more than 60 degrees. Returns {p95 m, snaps}.
+static std::pair<float, int> RunPull(int mode, unsigned seed) {
+    const float truth = 2.35f, dt = 1.f / 60.f, speed = 1.5f, tau = 0.35f;
+    float px = 0, pz = 0, cx = 0, cz = 0, vx = 0, vz = 0, heading = 0, keyAng = 0, slow = 1.f, nextSlow = 0;
+    int snaps = 0; unsigned r = seed; std::vector<float> errs;
+    auto rnd = [&r]() { r = r * 1103515245u + 12345u; return (r >> 8) / 16777216.f; };
+    float nextKey = 0, turnRate = 0, lastCx = 0, lastCz = 1, pauseUntil = -1;
+    for (int i = 0; i < 60 * 60; ++i) {
+        float t = i * dt;
+        if (t >= nextKey) { keyAng = 0.785398f * static_cast<int>(rnd() * 8); turnRate = (rnd() - 0.5f) * 1.2f; nextKey = t + 1.f + 2.f * rnd(); }
+        if (t >= nextSlow) { slow = rnd() < 0.4f ? 0.85f : 1.f; nextSlow = t + 1.f + 2.f * rnd(); }
+        heading += turnRate * dt;
+        float cmdX = std::sin(heading + keyAng), cmdZ = std::cos(heading + keyAng);
+        if (cmdX * lastCx + cmdZ * lastCz < 0.5f) pauseUntil = t + 0.3f;   // turned more than 60 degrees
+        lastCx = cmdX; lastCz = cmdZ;
+        px += cmdX * speed * dt; pz += cmdZ * speed * dt;
+        if (mode == 1 || (mode == 2 && t >= pauseUntil)) CloneCatchUp(cmdX, cmdZ, px - cx, pz - cz, 0.5f, 0.3f, cmdX, cmdZ);
+        float sx, sy; StickForWorld(cmdX, cmdZ, truth, sx, sy);
+        float c = std::cos(truth), s = std::sin(truth);
+        float wantVx = (c * sx - s * sy) * speed * slow, wantVz = (s * sx + c * sy) * speed * slow;
+        vx += (wantVx - vx) * dt / tau; vz += (wantVz - vz) * dt / tau;
+        cx += vx * dt; cz += vz * dt;
+        float d = std::sqrt((px - cx) * (px - cx) + (pz - cz) * (pz - cz));
+        if (d > 4.f) { cx = px; cz = pz; ++snaps; }
+        if (t > 5) errs.push_back(d);
+    }
+    std::sort(errs.begin(), errs.end());
+    return {errs[static_cast<size_t>(errs.size() * 0.95)], snaps};
+}
+
+static void TestCatchUpModes() {
+    const char* names[] = {"no pull", "pull", "pull, paused after turns"};
+    float p95[3] = {}; int snaps[3] = {};
+    for (int m = 0; m < 3; ++m) for (unsigned seed = 1; seed <= 5; ++seed) { auto r = RunPull(m, seed); p95[m] += r.first / 5; snaps[m] += r.second; }
+    for (int m = 0; m < 3; ++m) std::printf("  catch-up %s: p95 %.2f m, snaps %d\n", names[m], p95[m], snaps[m]);
+    CHECK(p95[1] <= p95[0] && snaps[1] <= snaps[0]);   // the pull must not make it worse
+}
+
 static void TestArriveStick() {
     float x, z;
     ArriveStick(0.2f, 0.1f, x, z); CHECK(x == 0 && z == 0);                 // close enough: stand
@@ -512,6 +552,7 @@ int main() {
     TestThetaCalibratorReplay();
     TestPickupPolicy();
     TestArriveStick();
+    TestCatchUpModes();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
