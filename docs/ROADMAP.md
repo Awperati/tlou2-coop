@@ -1301,3 +1301,9 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   stable for 2 s (log `clonebody: settled ...`). The entries address did not change across a redress with the game
   in the background, so the deferred swap may only run with the game in front; the live batch logs clonebody next
   to the recording.
+- Body verified by mesh ids (10:06): PC A's clone and PC B's own player (both the 'dina-player' look) have the same
+  8 meshes with the same ids and the same visible set (6 on; 1d609483da425b86 and 0f7212742275d56b off on both).
+  The clone's body is as complete as a correctly dressed Dina player. Likewise PC B's clone of the host has the
+  host's 11 Ellie meshes (PC B shows 9; the host's own player hides 4 more, which look camera-dependent).
+- Gotcha: over SSH, `echo cmd 0>> file` in cmd.exe treats `0>>` as a stream redirect and drops the 0; use
+  `(echo cmd 0)>> file` when a command ends in a single digit.

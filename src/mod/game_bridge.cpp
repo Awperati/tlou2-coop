@@ -1882,7 +1882,10 @@ int SafeMeshCounts(uintptr_t proc, int* total, int* visible, uintptr_t* arrOut =
         for (uint32_t i = 0; i < n && i < 64; ++i) {
             uint8_t f = *reinterpret_cast<uint8_t*>(arr + 912ull * i + 900), g = *reinterpret_cast<uint8_t*>(arr + 912ull * i + 902);
             if (f) ++vis;
-            if (bits) { char b[24]; snprintf(b, sizeof(b), " %u:%02x/%02x", i, f, g); *bits += b; }
+            if (bits) {
+                uint64_t id = *reinterpret_cast<uint64_t*>(arr + 912ull * i + 0x18);   // the mesh's name id
+                char t[48]; snprintf(t, sizeof(t), " %u:%s:%016llx", i, f ? "on" : "off", static_cast<unsigned long long>(id)); *bits += t;
+            }
         }
         if (arrOut) *arrOut = arr;
         *total = static_cast<int>(n); *visible = vis;
@@ -2061,14 +2064,16 @@ void GameBridge::QueueCloneMeshPoll() {
 }
 
 void GameBridge::QueueCloneBody(unsigned index) {
-    RunInScriptContext([this, index] {
+    // Memory reads only (the draw-control getter is a plain accessor): run now, so it also works
+    // while the game is paused in the background, when script-context tasks wait.
+    [this, index] {
         uintptr_t p = PlayerProcess(index);
         int total = 0, vis = 0;
         uintptr_t arr = 0; std::string bits;
         int r = p ? SafeMeshCounts(p, &total, &vis, &arr, &bits) : 0;
-        Log("clonebody: player %u meshes %d, visible %d, hidden %d%s (entries %p, +900/+902:%s)", index, total, vis, total - vis,
+        Log("clonebody: player %u meshes %d, visible %d, hidden %d%s (entries %p, meshes:%s)", index, total, vis, total - vis,
             r < 0 ? " (fault)" : r == 0 ? " (no draw control)" : "", reinterpret_cast<void*>(arr), bits.c_str());
-    });
+    }();
 }
 
 void GameBridge::ActiveCount() {
