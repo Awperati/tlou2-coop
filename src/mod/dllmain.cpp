@@ -211,6 +211,8 @@ void CoopMain() {
     bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
     bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
     bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
+    bridge.cloneStandTurn_ = cfg.getBool("clone", "StandTurn", true);
+    bridge.cloneLookAnswer_ = cfg.getBool("clone", "LookAnswer", false);
     bridge.cloneThetaFromMotion_ = cfg.getBool("clone", "ThetaFromMotion", true);
     bridge.cloneFaceSync_ = cfg.getBool("clone", "FaceSync", false);
     bridge.cloneAimSign_ = cfg.getFloat("clone", "AimSign", 1.f);
@@ -889,6 +891,8 @@ void CoopMain() {
                     else if (line.rfind("clonetheta ", 0) == 0) { bridge.cloneTheta_ = std::stof(line.substr(11)); Log("clonetheta: set to %.2f", bridge.cloneTheta_); }
                     else if (line == "worldstick on" || line == "worldstick off") { bridge.cloneWorldStick_ = line == "worldstick on"; if (!bridge.cloneWorldStick_) SetCloneWorldStick(false, 0, 0); Log("worldstick: %s", bridge.cloneWorldStick_ ? "on" : "off"); }
                     else if (line == "facesync on" || line == "facesync off") { bridge.cloneFaceSync_ = line == "facesync on"; Log("facesync: %s", bridge.cloneFaceSync_ ? "on" : "off"); }
+                    else if (line == "standturn on" || line == "standturn off") { bridge.cloneStandTurn_ = line == "standturn on"; Log("standturn: %s", bridge.cloneStandTurn_ ? "on" : "off"); }
+                    else if (line == "lookanswer on" || line == "lookanswer off") { bridge.cloneLookAnswer_ = line == "lookanswer on"; Log("lookanswer: %s", bridge.cloneLookAnswer_ ? "on" : "off"); }
                     else if (line == "catchup on" || line == "catchup off") { bridge.cloneCatchUp_ = line == "catchup on"; Log("catchup: %s", bridge.cloneCatchUp_ ? "on" : "off"); }
                     else if (line.rfind("relay ", 0) == 0) {
                         std::istringstream rs(line.substr(6)); std::string a; rs >> a;

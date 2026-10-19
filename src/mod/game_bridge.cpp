@@ -2348,7 +2348,7 @@ void GameBridge::TickCloneDrive() {
             // stay the game's own otherwise.
             float ay = cloneAimYaw_.load(), ap = cloneAimPitch_.load();
             float dx = std::cos(ap) * std::sin(ay), dy = std::sin(ap), dz = std::cos(ap) * std::cos(ay);
-            if (auto cp = Read<Vec3>(p + offPos_); aimNow && cp) SetCloneAim(true, dx, dy, dz, cp->x, cp->y + 1.55f, cp->z);
+            if (auto cp = Read<Vec3>(p + offPos_); (aimNow || cloneLookAnswer_) && cp) SetCloneAim(true, dx, dy, dz, cp->x, cp->y + 1.55f, cp->z);
             else SetCloneAim(false, 0, 0, 1, 0, 0, 0);
         }
         if (cloneAimOverride_ && aimNow) {
@@ -2408,6 +2408,24 @@ void GameBridge::TickCloneDrive() {
             if (have && cp && tmov && tn - lastErrLog_ > 500) {
                 lastErrLog_ = tn;
                 Log("clonedrift: %.2f m behind the reported spot (moving)", Distance(*cp, tgt));
+            }
+            // Facing (owner 10-19: "doesnt represent what direction she is looking"). Log her body yaw against
+            // the other player's body yaw and camera yaw each second. Standing ([clone] StandTurn): turn her to
+            // their camera yaw (where they look; the owner's screenshot: she kept facing a wall while they looked
+            // elsewhere) through the game's teleport (same spot), not a raw rotation write.
+            if (have && cp && offRot_) if (auto q = Read<Quat>(p + offRot_)) {
+                float look = cloneAimYaw_.load();
+                float mine = YawFromQuat(*q), err = std::remainder(look - mine, 6.2831853f);
+                bool still = cloneStillSince_ && tn - cloneStillSince_ > 500;
+                if (tn - lastFaceYawLog_ > 1000) {
+                    lastFaceYawLog_ = tn;
+                    Log("cloneface: clone yaw %.2f, other camera %.2f (error %.2f), other body %.2f, %s", mine, look, err, tyaw, still ? "standing" : "moving");
+                }
+                if (cloneStandTurn_ && still && std::fabs(err) > 0.35f && tn - lastStandTurn_ > 1500 && tn - cloneFixAt_ > 1000) {
+                    lastStandTurn_ = tn;
+                    bool ok = engineTeleport(p, *cp, look);
+                    Log("cloneface: standing turn %.2f -> %.2f: %s", mine, look, ok ? "sent" : "FAILED");
+                }
             }
             if (have && cp && tn > cloneFixAt_ && tn - cloneFixAt_ > 2000) {
                 float d = Distance(*cp, tgt);
