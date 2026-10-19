@@ -1,6 +1,6 @@
-# TLOU2 LAN co-op mod: handoff (2026-10-19, 14:15)
+# TLOU2 LAN co-op mod: handoff (refreshed 2026-10-20, 06:15)
 
-Repo: `C:\Users\User\TLOU2 Co-op` (GitHub Awperati/tlou2-coop, private). Written at commit `8605e8a` + this file.
+Repo: `C:\Users\User\TLOU2 Co-op` (GitHub Awperati/tlou2-coop, private). Status below is as of commit `a501392` (both PCs ran `676f843` from 05:56).
 Game: `E:\Games\The Last of Us - Part II Remastered` (Steam, v1.0.10402.1014, Watchtower save "Capitol Hill").
 PC A = host (192.168.0.237, owner plays with a controller). PC B = partner (192.168.0.238, keyboard and mouse,
 SSH `ssh -i ~/.ssh/tlou2_pcb sharn@192.168.0.238`).
@@ -16,15 +16,16 @@ Full findings log: [ROADMAP.md](ROADMAP.md). Player guide: [PLAYING.md](PLAYING.
 | Catch-up | Steering pull on, no sprint. Same-start test: p95 drift 1.24 m with pull vs 2.38 m without, 0 snaps |
 | Position | "Position matches correctly based on either side" (owner) |
 | Facing while walking | Her own locomotion. Matches the partner's body within ~0.1 rad (log) |
-| Facing while standing | Snaps to the partner's CAMERA yaw (teleport to the same spot). Owner: "still snaps to the right orientation". Choppy, no turn animation |
-| Smooth standing turn | On by default (`FaceForce = stored`). Live 10-20 04:4x: 18 clone turns, neither PC's own body moved. Owner eye check of the turn still open. See 4.1 |
+| Facing while standing | Smooth turn through the game's own turn (`FaceForce = stored`, default), toward the partner's camera yaw led by its turn rate (`FaceLead` 0.15 s, 676f843). Owner 13:0x: smooth, no A-pose; 05:2x: "late" while mouse-looking, lead deployed 05:56, not re-checked. Snap turn (`faceforce off`) is the fallback. See 4.1 |
 | Stance | Crouch and prone confirmed by the owner |
 | Body | 8 meshes and 3 cloth props match PC B's own Dina. Owner: torso and arms back (14:0x) |
 | Hood | Owner: "Ellie hood is great" |
 | Aim | Seen on video: she aims where PC B aims. Shots untested live |
-| Jump | Built, not yet seen working. See 4.2 |
-| Pickups | Log-only. Received pickups now log their class. Live name check still open |
-| Enemies, checkpoints, pause, plot moments | As in ROADMAP (M6/M7) |
+| Jump, ledge, ladder, dodge, ledge drop | Deployed 05:56 (dbe37e2/49806e9/4b63c04): the partner's state machine state is sent; entering Jump/Edge/Ladder/Evade/LedgeDrop presses A/A/Y/LB/B on her, gated by her own state. Ropes and ziplines follow out of the jump. Not yet seen live: owner's six checks in [patches/traversal-wiring.md](patches/traversal-wiring.md) section 4 |
+| Idle gestures (nose wipe etc.) | Built and tested (64bf822, 832dfcb): partner's layer-1 gesture played once on her. Live end-to-end not seen |
+| Pickups | Removal built behind `[sync] Pickups` (default `log` = report only); rules checked against Seattle level data. Open: live name check, and a removed pickup returns after a checkpoint restart on that PC (ROADMAP M6) |
+| Hot reload | Code patches use `WriteCodeSafely` (c31569e) after the 05:26 GetPlayer crash; 05:56 reload clean on both PCs |
+| Enemies, checkpoints, pause, plot moments | As in ROADMAP (M6/M7). Checkpoint-write forwarding stays log-only: it would overwrite the partner's save point (refused 10-16); owner asked 10-20 |
 
 Not bugs (owner confirmed):
 - Walking backwards on a sudden S/back press is the game's own keyboard behaviour. Ellie on PC A does it too with a keyboard.
@@ -94,22 +95,17 @@ Not bugs (owner confirmed):
 - Research tools: `facewatch [ms] [ctl|glob]` (debug-register watchpoints, offline 20/20 clean, ran live 10-20), `faceptrs`.
 - Switches: `faceforce on|stored|off` (off removes the hook), `standturnto camera|body`, `standturnstep <rad>`, `standturnms <ms>`.
 
-### 4.2 Jump
-- **Sender:** `JumpDetector` (protocol.h). Fires on a rise above 1.1 m/s with a sudden onset (more than 0.8 m/s
-  over the lower of the last two windows), held 300 ms. It sets state flag `kJumped` (0x20).
-- **Receiver:** taps A (0x20) for 150 ms on the rising edge, unless the partner's pad already holds A.
-- **History:**
-  - 2 m/s missed the real jumps (peak ~1.45 m/s).
-  - The "steeper than ground speed" rule missed the 14:04 jumps, because a TLOU2 standing jump hops forward 1.7-3 m/s.
-  - The current rule fires on all 3 real 14:04 windows when applied by hand. Not yet tested live after deploy.
-- **To verify:**
-  1. PC B logs `jump: own player jumped`.
-  2. PC A logs `clonejump: ... tapping A`.
-  3. The owner sees her jump.
-- If the tap doesn't jump her: scripted `press a` lifted neither player at this story spot, so try elsewhere, or
-  use `player-force-jump-at` (native 0xC9A170) under `SetPlayerOverride(player 1)`.
-- Research tools: `animlog on` (base-layer anim state id + vertical speed), `jumptrace <s>` (every state tick).
-  The base layer (0x9A7CE19BAA54C278) did not change on jumps. A real jump/vault state is still to find, per the watchdog.
+### 4.2 Jump and traversal (deployed 10-20 05:56, not yet seen live)
+- **Sender:** each PlayerState carries the player's state machine state (`state`, FNV-1a of the state name, read with
+  sub_14133D6B0 on the fiber every 100 ms; any Jump entry is latched). kJumped comes from entering "Jump"; the rise-speed
+  `JumpDetector` is only the fallback when the state is unreadable.
+- **Receiver:** `TraversalCopy` (core/traversal.h) presses A/A/Y/LB/B for Jump/Edge/Ladder/Evade/LedgeDrop for 150 ms,
+  gated by her own state (no jump while airborne, no climb while hanging, B only while she hangs). Shimmy, slide,
+  squeeze, rope, zipline and swim follow by her stick drive and the drift snap. Log: `clonetraversal: <state>`.
+- **Live checks** (owner, PC A's game in front): [patches/traversal-wiring.md](patches/traversal-wiring.md) section 4.
+  The ladder button (Y) is the one unconfirmed binding.
+- State ids and the full list of 78 named player states: ROADMAP "Player state machine ids".
+- Research tools: `animlog on` (own state changes, vertical speed), `jumptrace <s>`, `tools/logstats.py`.
 
 ### 4.2b Idle gestures (nose wipe etc.)
 - Built 10-20, end to end not yet seen live. Each PC sends its player 0's layer-1 gesture (PlayerState.gesture);
@@ -127,12 +123,14 @@ Not bugs (owner confirmed):
 ### 4.4 Smaller items
 - Shots: PC B fires; check her shots and damage (livebatch has the steps).
 - Dialogue by ear; barks (`vox_hook`).
-- Checkpoint-write forwarding is still log-only.
+- Checkpoint-write forwarding is still log-only: it would overwrite the partner's save point (refused 10-16). The owner
+  was asked 10-20 whether that's allowed; M4's engine load hold is waiting on the owner too (risk of freezing the game).
+- Pickups after a checkpoint restart: see ROADMAP M6 (one live step with the owner idle).
 - GPU "device removed" crashes after long background pauses (10-19 11:12). Track them.
 - Hot reload crash (PC A 10-20 05:26, access violation at GetPlayer+0): code patches were plain memcpys under running
   job threads. Now every patch goes through `WriteCodeSafely` (src/mod/code_patch.h: suspend other threads, wait until
   none sits inside the bytes, write). ctest `patch_race`: the old memcpy crashed 6/6 runs within 100 swaps; safe 0
-  wrong results over 3 x 400 swaps. Not yet tried in the game.
+  wrong results over 3 x 400 swaps. In the game: the 05:56 reload on both PCs was clean ("GetPlayer redirected").
 - PC B screen full of black lines (owner, 10-20 04:38). The game kept responding and the mod log showed nothing. Not fixed, not ours to fix: watch it.
 - Theta: kept across reloads, starts settled, and drops >0.6 rad outliers. If her walk stalls, check `clonetheta:` lines; `clonetheta 3.13` resets it.
 
