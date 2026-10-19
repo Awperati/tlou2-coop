@@ -89,10 +89,13 @@ public:
     uint32_t rttMs(uint8_t slot) const;
     // Peer clock minus ours (ms) and one-way delay, once a pong with a wall clock came (clocksync.h).
     bool peerClock(uint8_t slot, int64_t& offsetMs, uint32_t& oneWayMs) const;
+    uint64_t staleStatesDropped() const { return staleStates_; }   // reordered PlayerStates not delivered
     void setChapter(const std::string& c) { chapter_ = c; }
     void setCallbacks(Callbacks cb) { cb_ = std::move(cb); }
 
 private:
+    std::map<uint8_t, uint32_t> stateTick_;   // last PlayerState tick taken per sender slot
+    uint64_t staleStates_ = 0;
     struct Pending { std::vector<uint8_t> bytes; SteadyMs lastSend = 0; int tries = 0; };
     struct Peer {
         uint32_t ip = 0; uint16_t port = 0;   // network byte order

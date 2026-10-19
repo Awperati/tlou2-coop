@@ -174,6 +174,7 @@ Session::Peer* Session::peerBySlot(uint8_t slot) {
 
 void Session::dropPeer(uint8_t slot) {
     if (!peers_.erase(slot)) return;
+    stateTick_.erase(slot);
     if (cb_.onPeerLeft) cb_.onPeerLeft(slot);
     if (role_ == Role::Client && slot == 0 && hostIp_) {
         // The host left or restarted: keep knocking (Hello) until a host there welcomes us
@@ -353,6 +354,12 @@ void Session::handlePacket(uint32_t ip, uint16_t port, const uint8_t* data, size
         uint8_t slot = r.u8();
         PlayerState s;
         if (!Read(r, s)) return;
+        {   // drop a state overtaken by a newer one from the same sender (StateTickStale)
+            uint8_t src = role_ == Role::Host ? fromSlot : slot;
+            auto it = stateTick_.find(src);
+            if (it != stateTick_.end() && StateTickStale(it->second, s.tick)) { ++staleStates_; return; }
+            stateTick_[src] = s.tick;
+        }
         if (role_ == Role::Host) {
             slot = fromSlot;
             Writer w; w.u8(slot); Write(w, s);

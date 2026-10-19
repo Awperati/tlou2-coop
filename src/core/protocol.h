@@ -362,5 +362,10 @@ bool Read(Reader& r, WorldEvent& s);
 
 // Sequence comparison that survives 16-bit wraparound.
 inline bool SeqNewer(uint16_t a, uint16_t b) { return static_cast<int16_t>(a - b) > 0; }
+// PlayerState rides unreliable UDP, so a late datagram can arrive after a newer one (10-20 loss test).
+// The sender's tick counts up once per mod loop (~16 ms): a state is stale when its tick is behind the
+// last one taken from that sender, by less than 1000 ticks (~16 s). A bigger jump back is a restarted
+// sender (a reload starts at 0) and is taken.
+inline bool StateTickStale(uint32_t last, uint32_t now) { int32_t d = static_cast<int32_t>(now - last); return d < 0 && d > -1000; }
 
 } // namespace coop

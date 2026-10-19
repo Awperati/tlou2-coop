@@ -13,6 +13,7 @@ add_library(coop_core STATIC
     src/core/roster.cpp
     src/core/config.cpp
     src/core/relay.cpp
+    src/core/lossy_proxy.cpp
 )
 target_include_directories(coop_core PUBLIC src)
 target_link_libraries(coop_core PUBLIC ws2_32)

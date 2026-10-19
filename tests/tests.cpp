@@ -9,6 +9,7 @@
 #include "core/clonedrive.h"
 #include "core/clocksync.h"
 #include "core/faceforce.h"
+#include "core/lossy_proxy.h"
 #include "core/gesturesync.h"
 #include "core/pickups.h"
 #include "core/roster.h"
@@ -629,6 +630,58 @@ static void TestRelaySession() {
     slow.Stop();
 }
 
+static void TestLossySession() {
+    // Backlog #3 (10-20): host <- lossy proxy (25 % drop, 15 % held 40 ms so later packets overtake)
+    // <- client, on loopback. The handshake must get through, reliable events must arrive exactly
+    // once, player states must keep flowing and never go backwards, and a 2 s blackout (under the
+    // 10 s peer timeout) must not drop the partner.
+    LossyProxy proxy;
+    CHECK(proxy.Start(47981, "127.0.0.1", 47980, 25, 15, 40, 7));
+    Session host, client;
+    bool welcomed = false;
+    int statesGot = 0, backwards = 0; uint32_t lastTick = 0; bool any = false;
+    std::map<uint32_t, int> events;
+    Session::Callbacks hcb;
+    hcb.onPlayerState = [&](uint8_t, const PlayerState& s) { if (any && s.tick < lastTick) ++backwards; lastTick = s.tick; any = true; ++statesGot; };
+    hcb.onWorldEvent = [&](uint8_t, const WorldEvent& e) { ++events[e.eventId]; };
+    host.setCallbacks(hcb);
+    Session::Callbacks ccb;
+    ccb.onWelcome = [&](const Welcome&) { welcomed = true; };
+    client.setCallbacks(ccb);
+    CHECK(host.StartHost("lossy", 47980, 2, false));
+    Hello h; h.playerName = "p2";
+    CHECK(client.StartClient("127.0.0.1", 47981, h));
+    uint32_t tick = 1; int sentStates = 0, sentEvents = 0;
+    auto run = [&](int ms, bool send) {
+        for (uint64_t end = NowMs() + ms; NowMs() < end;) {
+            proxy.Poll(); host.Poll(); proxy.Poll(); client.Poll();
+            if (send && client.connected()) {
+                PlayerState s; s.tick = tick++; client.SendPlayerState(s); ++sentStates;
+                if (sentEvents < 40 && tick % 7 == 0) { WorldEvent e; e.eventId = 1000 + sentEvents++; client.SendWorldEvent(e); }
+            }
+            Sleep(5);
+        }
+    };
+    run(4000, true);
+    CHECK(welcomed);
+    CHECK(host.peerCount() == 1);
+    int beforeBlackout = statesGot;
+    CHECK(statesGot > sentStates / 3);          // ~75 % of states arrive; at least a third
+    proxy.SetBlackout(true); run(2000, true); proxy.SetBlackout(false);
+    run(3000, true);
+    run(1500, false);                            // let resends finish
+    CHECK(host.peerCount() == 1 && client.connected());
+    CHECK(statesGot > beforeBlackout + 50);      // states flow again after the blackout
+    CHECK(backwards == 0);                       // reordered stale states were not delivered
+    CHECK(host.staleStatesDropped() > 0);        // and some were reordered (the filter was exercised)
+    int once = 0; for (auto& [id, n] : events) once += n == 1;
+    CHECK(sentEvents == 40 && static_cast<int>(events.size()) == 40 && once == 40);
+    std::printf("  lossy link: %d/%d states (%llu stale dropped), %zu/40 events once, proxy dropped %llu delayed %llu\n",
+                statesGot, sentStates, static_cast<unsigned long long>(host.staleStatesDropped()), events.size(),
+                static_cast<unsigned long long>(proxy.stats().dropped), static_cast<unsigned long long>(proxy.stats().delayed));
+    host.Stop(); client.Stop(); proxy.Stop();
+}
+
 static void TestLoopbackSession() {
     Session host, client;
     bool welcomed = false, gotState = false, gotTeleport = false, gotRequest = false;
@@ -739,6 +792,7 @@ int main() {
     TestYawLead();
     TestGestureSync();
     TestClockSync();
+    TestLossySession();
     TestTraversalCopy();
     TestJumpDetector();
     TestThetaSettledGuard();
