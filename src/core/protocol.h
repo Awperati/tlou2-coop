@@ -87,6 +87,9 @@ struct PlayerState {
     // The sender's aim direction through the reticle (camera-get-dir-through-reticle), as yaw
     // (atan2(x, z)) and pitch (asin(y)) in radians; the other PC points the clone's camera there.
     float aimYaw = 0, aimPitch = 0;
+    // The idle gesture the sender's own player plays on gesture layer 1 (nose wipe etc.; string id,
+    // 0 = none). The other PC plays the same one on the clone when it starts (2026-10-20).
+    uint64_t gesture = 0;
 };
 
 // Stick for the clone's joypad slot from a wanted world direction. The engine turns a slot

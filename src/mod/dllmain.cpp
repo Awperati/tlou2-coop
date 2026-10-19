@@ -212,6 +212,7 @@ void CoopMain() {
     bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
     bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
     bridge.cloneStandTurn_ = cfg.getBool("clone", "StandTurn", true);
+    bridge.cloneGestureSync_ = cfg.getBool("clone", "GestureSync", true);
     {   // [clone] FaceForce = stored | globals (on, true) | off (false)
         std::string ff = Lower(cfg.get("clone", "FaceForce", "stored"));
         bridge.cloneFaceForce_ = ff != "off" && ff != "false" && ff != "0";
@@ -303,6 +304,7 @@ void CoopMain() {
             bridge.QueueAutoBody(bodyLook);
         }
         bridge.SetCloneMove(s.moveX, s.moveZ, s.padHeld, &s.pos, s.yaw, (s.flags & kMoving) != 0, s.stance, s.aimYaw, s.aimPitch, s.flags);
+        bridge.SetCloneGesture(s.gesture);
         if (!cloneOnAtStart && !bridge.cloneDrive_) bridge.DrivePuppet(slot, s);   // clone mode never puppets the story companion
     };
     cb.onObjective = [&](const Objective& o) { objective = o; };
@@ -451,6 +453,7 @@ void CoopMain() {
     bool prevPressed = false, toggled = false;
     PromptState prevPrompt = PromptState::Hidden;
     unsigned long long faceWatchUntil = 0;   // facewatch report time
+    unsigned long long lastGesturePoll = 0;
 
     while (g_run) {
         ULONGLONG now = GetTickCount64();
@@ -908,6 +911,20 @@ void CoopMain() {
                     else if (line.rfind("jumptrace ", 0) == 0) { bridge.jumpTraceUntil_ = GetTickCount64() + 1000ull * static_cast<unsigned>(atoi(line.c_str() + 10)); Log("jumptrace: on"); }
                     else if (line == "facediff") { RequestFaceDiff(3); Log("facediff: next 3 forced updates"); }
                     else if (line == "faceptrs") Log("faceptrs:%s", FacePtrs().c_str());
+                    else if (line == "facetrace on" || line == "facetrace off") { bridge.faceTrace_ = line == "facetrace on"; Log("facetrace: %s", bridge.faceTrace_ ? "on" : "off"); }
+                    else if (line == "gesturesync on" || line == "gesturesync off") { bridge.cloneGestureSync_ = line == "gesturesync on"; Log("gesturesync: %s", bridge.cloneGestureSync_ ? "on" : "off"); }
+                    else if (line == "gesturelog on" || line == "gesturelog off") { bridge.gestureLog_ = line == "gesturelog on"; Log("gesturelog: %s", bridge.gestureLog_ ? "on" : "off"); }
+                    else if (line.rfind("gesturedirect ", 0) == 0) bridge.QueueGestureDirect(1, std::stoull(line.substr(14), nullptr, 16));   // gesturedirect <0xid>: on player 1
+                    else if (line.rfind("gestureev ", 0) == 0) {   // gestureev <0xid> [layer] [simple]: event straight to player 1
+                        std::istringstream gs(line.substr(10)); std::string g, mode; int layer = 1; gs >> g >> layer >> mode;
+                        bridge.QueueGestureEvent(1, std::stoull(g, nullptr, 16), layer, mode == "simple");
+                    }
+                    else if (line.rfind("gesture ", 0) == 0) {   // gesture <name|0xid> [player|player-2]: play an idle gesture (research)
+                        std::istringstream gs(line.substr(8)); std::string g, who = "player-2"; gs >> g >> who;
+                        uint64_t id = 0xcbf29ce484222325ull;
+                        if (g.rfind("0x", 0) == 0) id = std::stoull(g, nullptr, 16); else for (unsigned char ch : g) { id ^= ch; id *= 0x100000001b3ull; }
+                        bridge.QueuePlayGesture(who, id);
+                    }
                     else if (line.rfind("facewatch", 0) == 0) {   // facewatch [ms] [ctl|glob]: who reads the clone's forced facing
                         std::istringstream fw(line.substr(9)); unsigned ms = 3000; std::string what; fw >> ms >> what;
                         auto slots = FaceWatchSlots(what != "glob", what != "ctl");
@@ -1182,6 +1199,7 @@ void CoopMain() {
         }
 
         if (now - lastLevelPoll >= 500) { lastLevelPoll = now; bridge.PollLevels(); bridge.PollTasks(); bridge.PollCinematic(); }
+        if (now - lastGesturePoll >= 100) { lastGesturePoll = now; bridge.PollGestures(); }   // own gesture for the state, clone sync, gesturelog
 
         if (faceWatchUntil && now >= faceWatchUntil) {
             faceWatchUntil = 0;

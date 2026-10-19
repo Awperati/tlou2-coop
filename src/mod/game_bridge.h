@@ -237,6 +237,7 @@ public:
     bool cloneStandTurn_ = true;          // [clone] StandTurn: standing, turn her to where the other player looks
     bool cloneLookAnswer_ = false;        // [clone] LookAnswer: answer her aim queries with their camera look always
     unsigned long long lastFaceYawLog_ = 0, lastStandTurn_ = 0, lastStandTurnLog_ = 0;
+    bool faceTrace_ = false; unsigned long long lastFaceTrace_ = 0, lastLookMoveAt_ = 0; float lastTraceLook_ = 0;   // facetrace on|off
     float cloneStandTurnStep_ = 0.f;      // [clone] StandTurnStep: rad per 80 ms step (0 = one snap, the owner-checked baseline)
     bool cloneStandTurnToBody_ = false;   // [clone] StandTurnTo = camera (default; owner 13:30: "relative to the actual screen on PC-B") | body
     bool standTurning_ = false;
@@ -249,6 +250,7 @@ public:
     unsigned long long cloneJumpUntil_ = 0;
     bool cloneAnimLog_ = false;           // animlog on|off: log anim state changes (jump research)
     uint64_t lastAnimState_[2] = {};
+    std::string lastAnimLayers_[2];      // animlog: active anim layers per player (idle fidget research)
     float lastY_ = 0; unsigned long long lastYAt_ = 0, lastVyLog_ = 0;
     bool cloneFaceForce_ = false;         // [clone] FaceForce: desired facing through her movement controller (leak into player 0 was the unlocked race; 10-20 live: none)
     bool cloneFaceStored_ = false;        // FaceForce = stored: through her stored facing (sub_140C34C80), no force globals, no lock
@@ -291,6 +293,20 @@ public:
     // Give player <index> a weapon with the game's give-player-weapon, run with GetPlayer() pointed at
     // that player. Empty name: the pistol in player 0's pistol slot (get-player-slotted-pistol).
     void QueueGiveWeapon(unsigned index, const std::string& name, int ammo);
+    // Idle gestures (nose wipe etc.): get-currently-playing-gesture (rva 0x7BB0E0) on 'player' and
+    // 'player-2', layers 0-2, logged on change; simple-gesture (rva 0x187B110) plays one.
+    void PollGestures();
+    void QueuePlayGesture(const std::string& who, uint64_t gestureId);
+    void QueueGestureEvent(unsigned index, uint64_t gestureId, int layer, bool simple);   // event to the process itself
+    void QueueGestureDirect(unsigned index, uint64_t gestureId);   // sub_141DDA660 on player+0x54F8
+    bool gestureLog_ = false;
+    bool cloneGestureSync_ = true;              // [clone] GestureSync: the partner's idle gestures play on the clone
+    std::atomic<uint64_t> ownGesture_{0};       // this PC's player 0, gesture layer 1 (sent in PlayerState)
+    std::atomic<uint64_t> partnerGesture_{0};   // the partner's, from their state
+    uint64_t clonePlayedGesture_ = 0;           // last partner gesture started on the clone
+    void SetCloneGesture(uint64_t g) { partnerGesture_ = g; }
+    uint64_t lastGesture_[2][3] = {};
+    std::atomic<bool> gesturePollQueued_{false};
     void QueueWeaponInfo(unsigned index);
     void QueueCloneBody(unsigned index);
     void QueuePlayerProps(unsigned index);

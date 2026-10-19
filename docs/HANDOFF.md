@@ -137,6 +137,7 @@ Not bugs (owner confirmed):
 - Dialogue by ear; barks (`vox_hook`).
 - Checkpoint-write forwarding is still log-only.
 - GPU "device removed" crashes after long background pauses (10-19 11:12). Track them.
+- PC B screen full of black lines (owner, 10-20 04:38). The game kept responding and the mod log showed nothing. Not fixed, not ours to fix: watch it.
 - Theta: kept across reloads, starts settled, and drops >0.6 rad outliers. If her walk stalls, check `clonetheta:` lines; `clonetheta 3.13` resets it.
 
 ## 5. Dev loop and tools

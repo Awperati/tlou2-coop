@@ -240,6 +240,7 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
     if (auto mx = Read<float>(p + 19632 + 0xD0)) s.moveX = *mx;   // NdPlayerJoypad world stick (x, y, z)
     if (auto mz = Read<float>(p + 19632 + 0xD8)) s.moveZ = *mz;
     s.aimYaw = aimYaw_; s.aimPitch = aimPitch_;
+    s.gesture = ownGesture_.load();
     if (auto held = Read<uint64_t>(BuildRva(0x824C860) + 0x528)) {
         s.padHeld = *held;
         if (logPadBits_ && *held != lastPadHeld_) { Log("padbits: held %016llx", static_cast<unsigned long long>(*held)); lastPadHeld_ = *held; }
@@ -2026,6 +2027,111 @@ void GameBridge::QueuePlayerShow(unsigned index, bool visible) {
 // Weapon natives (tools/native.py): give-player-weapon 0xC8F870 (weapon id, ammo int, bool; sends
 // the player process a give-weapon event), get-player-slotted-pistol 0xC8ED20 (no args, the pistol
 // id), player-has-weapon? 0xC9C980 (weapon id). All use GetPlayer() for "the player".
+// Play straight on the gesture controller, as Player::Active::Update does (0x140AD9565):
+// sub_141DDA660(controller = player+0x54F8, out, gesture id, vec4 (zeros here), params = null).
+namespace {
+int PlayGestureDirect(uintptr_t fn, uintptr_t proc, uint64_t gid) {
+    __try {
+        uintptr_t gc = *reinterpret_cast<uintptr_t*>(proc + 0x54F8);
+        if (!gc) return -1;
+        alignas(16) uint8_t out[64] = {};
+        alignas(16) float vec[4] = {};
+        reinterpret_cast<void (*)(uintptr_t, void*, uint64_t, void*, void*)>(fn)(gc, out, gid, vec, nullptr);
+        return 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+}
+
+// A process's playing gesture on a layer, as get-currently-playing-gesture (rva 0x7BB0E0) reads it:
+// gesture controller = proc vfunc +1168, current id = controller vfunc +136 (out, layer). 0 = none.
+static uint64_t GestureOf(uintptr_t proc, int layer) {
+    __try {
+        if (!proc) return 0;
+        auto vt = *reinterpret_cast<uintptr_t**>(proc);
+        uintptr_t gc = reinterpret_cast<uintptr_t (*)(uintptr_t)>(vt[1168 / 8])(proc);
+        if (!gc) return 0;
+        auto gvt = *reinterpret_cast<uintptr_t**>(gc);
+        uint64_t out[2] = {};
+        auto r = reinterpret_cast<uint64_t* (*)(uintptr_t, void*, uint32_t)>(gvt[136 / 8])(gc, out, static_cast<uint32_t>(layer));
+        return r ? *r : 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+
+// Every 100 ms on a game fiber: this PC's own idle gesture (layer 1) for the state packet, the
+// partner's started on the clone (GestureSync), and with gesturelog every layer change.
+// Idle gestures (owner 10-20: "wiping nose"): player 0 plays one about every 20 s on layer 1,
+// each 2.5-3.6 s; the clone never starts her own.
+void GameBridge::PollGestures() {
+    if (gesturePollQueued_.exchange(true)) return;
+    RunOnGameFiber([this] {
+        gesturePollQueued_ = false;
+        uintptr_t p0 = PlayerProcess(0), p1 = PlayerProcess(1);
+        ownGesture_ = GestureOf(p0, 1);
+        uint64_t want = partnerGesture_.load();
+        if (!want) clonePlayedGesture_ = 0;
+        else if (cloneGestureSync_ && p1 && want != clonePlayedGesture_) {
+            clonePlayedGesture_ = want;
+            if (GestureOf(p1, 1) != want) {
+                int r = PlayGestureDirect(BuildRva(0x1DDA660), p1, want);
+                Log("clonegesture: the other player started %016llx; the clone plays it: %s", static_cast<unsigned long long>(want), r == 1 ? "started" : "FAILED");
+            }
+        }
+        if (!gestureLog_) return;
+        uintptr_t ps[2] = {p0, p1};
+        for (int i = 0; i < 2; ++i) for (int layer = 0; layer < 3; ++layer) {
+            uint64_t g = GestureOf(ps[i], layer);
+            if (g != lastGesture_[i][layer]) {
+                Log("gesture: player %d layer %d %016llx (was %016llx)", i, layer, static_cast<unsigned long long>(g), static_cast<unsigned long long>(lastGesture_[i][layer]));
+                lastGesture_[i][layer] = g;
+            }
+        }
+    });
+}
+
+void GameBridge::QueuePlayGesture(const std::string& who, uint64_t gestureId) {
+    RunInScriptContext([who, gestureId] {
+        uint64_t argv[8] = {Fnv1a(who), gestureId};
+        uint64_t ret[4] = {};
+        bool ok = SafeNative(BuildRva(0x187B110), 2, argv, ret);
+        Log("gesture: play %016llx on '%s': %s", static_cast<unsigned long long>(gestureId), who.c_str(), ok ? "sent" : "FAULT");
+    });
+}
+
+// Play a gesture as the debug menu's "Play Gesture" does (sub_1407B8D20): SendEvent sub_14156F870
+// (out, from handle, message id (64-bit string id), to handle, 4 args {value, type}) with message
+// 0x76422DBE97EDB607 and args (gesture id: type 7 string id, layer: type 2 int). simple-gesture
+// sends 0x0663375E248663BE with the gesture id only. Handles are {process+128, process+148}.
+namespace {
+struct EvArg { int64_t v; int32_t t; int32_t pad; };
+int SendGestureEvent(uintptr_t fn, uintptr_t proc, uint64_t msg, uint64_t gid, int layer) {
+    __try {
+        alignas(16) uint8_t out[32] = {};
+        alignas(16) uint64_t from[2] = {0, 0}, to[2] = {*reinterpret_cast<uint64_t*>(proc + 128), *reinterpret_cast<uint32_t*>(proc + 148)};
+        EvArg a1{static_cast<int64_t>(gid), 7, 0}, a2{layer, 2, 0}, a3{0, 0, 0}, a4{0, 0, 0};
+        if (msg == 0x0663375E248663BEull) { a2 = {0, 0, 0}; }
+        reinterpret_cast<void (*)(void*, void*, uint64_t, void*, void*, void*, void*, void*)>(fn)(out, from, msg, to, &a1, &a2, &a3, &a4);
+        return 1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+}
+
+void GameBridge::QueueGestureDirect(unsigned index, uint64_t gestureId) {
+    RunOnGameFiber([this, index, gestureId] {
+        uintptr_t p = PlayerProcess(index);
+        int r = p ? PlayGestureDirect(BuildRva(0x1DDA660), p, gestureId) : -2;
+        Log("gesture: direct %016llx on player %u: %s", static_cast<unsigned long long>(gestureId), index, r == 1 ? "called" : r == 0 ? "FAULT" : "no controller");
+    });
+}
+
+void GameBridge::QueueGestureEvent(unsigned index, uint64_t gestureId, int layer, bool simple) {
+    RunOnGameFiber([this, index, gestureId, layer, simple] {
+        uintptr_t p = PlayerProcess(index);
+        uint64_t msg = simple ? 0x0663375E248663BEull : 0x76422DBE97EDB607ull;
+        bool ok = p && SendGestureEvent(BuildRva(0x156F870), p, msg, gestureId, layer);
+        Log("gesture: event %016llx %016llx layer %d to player %u: %s", static_cast<unsigned long long>(msg), static_cast<unsigned long long>(gestureId), layer, index, ok ? "sent" : "FAILED");
+    });
+}
+
 void GameBridge::QueueGiveWeapon(unsigned index, const std::string& name, int ammo) {
     RunInScriptContext([this, index, name, ammo] {
         uintptr_t p = PlayerProcess(index);
@@ -2272,6 +2378,33 @@ static uint64_t AnimStateOf(uintptr_t proc) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
 
+// Idle fidget research (2026-10-20): every active layer of a process's anim control, as
+// "id type[:state]" with the layer id's low 32 bits. Anim control +32 count, +40 entries of 32
+// bytes {u64 id, layer*, .., u8 active at +20} (sub_141440CD0); layer +8 type (2 = state layer,
+// state id through sub_1415FDC10 as above).
+static void AnimLayersOf(uintptr_t proc, char* out, size_t n) {
+    out[0] = 0;
+    __try {
+        if (!proc) return;
+        auto ctl = reinterpret_cast<uintptr_t (*)(uintptr_t)>(BuildRva(0x1AFCAD0))(proc);
+        if (!ctl) return;
+        uint32_t cnt = *reinterpret_cast<uint32_t*>(ctl + 32);
+        uintptr_t ents = *reinterpret_cast<uintptr_t*>(ctl + 40);
+        size_t p = 0;
+        for (uint32_t i = 0; i < cnt && i < 32 && p + 48 < n; ++i) {
+            uintptr_t e = ents + 32ull * i;
+            uint64_t id = *reinterpret_cast<uint64_t*>(e);
+            uintptr_t layer = *reinterpret_cast<uintptr_t*>(e + 8);
+            bool active = *reinterpret_cast<uint8_t*>(e + 20) != 0;
+            if (!active || !layer) continue;
+            uint32_t type = *reinterpret_cast<uint32_t*>(layer + 8);
+            uint64_t st = 0;
+            if (type == 2) { uint8_t buf[16] = {}; auto r = reinterpret_cast<uint64_t* (*)(uintptr_t, void*)>(BuildRva(0x15FDC10))(layer, buf); st = r ? *r : 0; }
+            p += snprintf(out + p, n - p, type == 2 ? " %08x t%u:%016llx" : " %08x t%u", static_cast<uint32_t>(id), type, static_cast<unsigned long long>(st));
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { snprintf(out, n, " (unreadable)"); }
+}
+
 // clonedrive: the other player's world stick drives player 1 through joypad slot 3. The slot
 // stick is rotated into the clone camera's frame; that rotation (theta) is measured each tick
 // from what the engine made of the last stick (Player+19632 +0xD0/+0xD8).
@@ -2290,6 +2423,9 @@ void GameBridge::TickCloneDrive() {
         if (cloneAnimLog_) for (int i = 0; i < 2; ++i) {
             uint64_t st = AnimStateOf(PlayerProcess(i));
             if (st != lastAnimState_[i]) { lastAnimState_[i] = st; Log("animstate: player %d %016llx", i, static_cast<unsigned long long>(st)); }
+            char lay[1024];
+            AnimLayersOf(PlayerProcess(i), lay, sizeof(lay));
+            if (lastAnimLayers_[i] != lay) { lastAnimLayers_[i] = lay; Log("animlayers: player %d%s", i, lay); }
         }
         if (cloneAnimLog_) if (auto p0 = PlayerProcess(0)) if (auto pos = Read<Vec3>(p0 + offPos_)) {
             unsigned long long tm = GetTickCount64();
@@ -2482,6 +2618,13 @@ void GameBridge::TickCloneDrive() {
                 // Game-driven facing ([clone] FaceForce): her movement controller's desired facing = target.
                 // Target = their body yaw (12:19: with the camera yaw she strafed while their body turned to walk).
 
+                // facetrace on: every 100 ms while she is off the target, to time the delay (owner 10-20:
+                // "she turns around smoothly ... but it is delayed").
+                if (faceTrace_ && tn - lastFaceTrace_ >= 100 && (std::fabs(err) > 0.05f || tn - lastFaceTrace_ < 300)) {
+                    if (std::fabs(look - lastTraceLook_) > 0.03f) { lastLookMoveAt_ = tn; lastTraceLook_ = look; }
+                    lastFaceTrace_ = tn;
+                    Log("facetrace: target %.2f clone %.2f error %.2f, target last moved %llu ms ago, %s", look, mine, err, tn - lastLookMoveAt_, still ? "standing" : "moving");
+                }
                 if (tn - lastFaceYawLog_ > 1000) {
                     lastFaceYawLog_ = tn;
                     uint32_t c1 = 0, co = 0; TakeFaceCtlCounts(c1, co);
