@@ -14,9 +14,10 @@ enum class LootRule { Log, Shared, PerPlayer, Mixed };
 
 struct PickupPolicy {
     LootRule rule = LootRule::Log;
-    // Substrings of the pickup process name. Defaults are guesses until real names are logged.
-    std::vector<std::string> alwaysShared = {"key", "story", "quest"};
-    std::vector<std::string> perPlayer = {"collectible", "artifact", "journal", "trading-card", "coin", "workbench", "supplement"};
+    // Substrings of the pickup process name, from the game's level data (config/pickups.ini has the
+    // same lists and is what the mod reads; these defaults match it).
+    std::vector<std::string> alwaysShared = {"obj-the-", "-key-", "-keys", "door-key"};
+    std::vector<std::string> perPlayer = {"coll-", "obj-col-", "card-", "journal", "-note", "coin", "artifact", "safe-"};
 
     static bool Has(const std::string& name, const std::vector<std::string>& pats) {
         for (const auto& p : pats) if (!p.empty() && name.find(p) != std::string::npos) return true;
@@ -25,10 +26,17 @@ struct PickupPolicy {
     // True: remove this pickup here because the other player took it.
     bool Despawn(const std::string& name) const {
         if (rule == LootRule::Log) return false;
-        if (Has(name, alwaysShared)) return true;
         if (rule == LootRule::Shared) return true;
+        bool collectible = Has(name, perPlayer);   // checked first: "obj-col-..." is a collectible, not a story object
+        if (!collectible && Has(name, alwaysShared)) return true;
         if (rule == LootRule::PerPlayer) return false;
-        return !Has(name, perPlayer);   // Mixed
+        return !collectible;   // Mixed
+    }
+    static std::vector<std::string> Split(const std::string& s) {
+        std::vector<std::string> out; std::string cur;
+        for (char c : s) { if (c == ',') { if (!cur.empty()) out.push_back(cur); cur.clear(); } else if (c != ' ' && c != '	') cur += c; }
+        if (!cur.empty()) out.push_back(cur);
+        return out;
     }
     static LootRule Parse(const std::string& s) {
         if (s == "shared") return LootRule::Shared;

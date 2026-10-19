@@ -21,6 +21,7 @@ if "%COOP_AUTOLOAD%"=="1" (
 for %%f in (coop.ini roster.ini) do if not exist "%GAME%\tlou2-coop\%%f" copy /y "config\%%f" "%GAME%\tlou2-coop\" >nul
 copy /y "config\offsets.ini" "%GAME%\tlou2-coop\" >nul
 copy /y "config\looks.ini" "%GAME%\tlou2-coop\" >nul
+copy /y "config\pickups.ini" "%GAME%\tlou2-coop\" >nul
 copy /y "build\coop_inject.dll" "%GAME%\tlou2-coop\" >nul 2>&1
 copy /y "build\coop_launcher.exe" "%GAME%\tlou2-coop\" >nul 2>&1
 copy /y "build\coop.dll" "%GAME%\tlou2-coop\coop.dll" >nul

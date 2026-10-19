@@ -298,6 +298,12 @@ void CoopMain() {
     cb.onEnemyDamage = [&](uint8_t, const EnemyDamage& d) { if (syncEnemies) bridge.ApplyEnemyDamage(d); };
     PickupPolicy pickupPolicy;   // [sync] Pickups = log (default) | shared | perplayer | mixed
     pickupPolicy.rule = PickupPolicy::Parse(Lower(cfg.get("sync", "Pickups", "log")));
+    {   // classes from config/pickups.ini (real names from the level data); defaults match it
+        Ini pk; if (pk.LoadFile(Narrow(dir + L"tlou2-coop\\pickups.ini"))) {
+            if (auto v = PickupPolicy::Split(pk.get("pickups", "AlwaysShared", "")); !v.empty()) pickupPolicy.alwaysShared = v;
+            if (auto v = PickupPolicy::Split(pk.get("pickups", "PerPlayer", "")); !v.empty()) pickupPolicy.perPlayer = v;
+        }
+    }
     cb.onWorldEvent = [&](uint8_t, const WorldEvent& e) {
         uint64_t sid = 0; std::string name;
         if (e.eventId == kWorldPickupTaken && ReadPickupArgs(e.args, sid, name)) bridge.QueuePickupCheck(sid, name, pickupPolicy.Despawn(name));

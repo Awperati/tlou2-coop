@@ -1321,3 +1321,9 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 - Built: core PickupPolicy (rules + pattern lists, unit-tested on sample names, payload round trip), `[sync] Pickups`
   = log (default, report only) | shared | perplayer | mixed. Despawn runs only when the rule says so.
 - Before switching off `log`: collect real pickup names from play (`pickup:` lines) and fix the pattern lists.
+- Real pickup names (2026-10-19, world-watchtower.psarc, pak68/*-ingame.pak via tools/dsar.py): loot is
+  `item-pickup-<kind>-<n>` (ammo-pistol/rifle/revolver/shotgun/mpx5, alcohol, explosive, parts, supplements),
+  collectibles `coll-...`, `obj-col-...`, `card-xx`, journals and notes, story items and keys `obj-the-...`,
+  `the-auditorium-keys`. config/pickups.ini holds the classes (AlwaysShared, PerPlayer); PickupPolicy reads it and
+  TestPickupPolicy runs on these real names (collectibles checked before story objects, so `obj-col-` stays a
+  collectible). Default stays `log` until a live pickup confirms the process name equals the level-data name.

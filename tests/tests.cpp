@@ -258,21 +258,30 @@ static void TestThetaCalibratorReplay() {
 
 // Pickups: each loot rule on sample names, and the event payload round trip.
 static void TestPickupPolicy() {
+    // Real pickup names from world-watchtower.psarc (pak68/*-ingame.pak).
+    const char* loot[] = {"item-pickup-ammo-pistol-1230", "item-pickup-alcohol-small-96", "item-pickup-explosive-large-39",
+                          "item-pickup-parts-medium-196", "item-pickup-supplements-small-371", "item-pickup-ammo-rifle-1248"};
+    const char* collect[] = {"coll-wat-approach-tower-letter", "obj-col-the-soldier-note-1", "card-ai", "int-wat-shambler-journal-1",
+                             "wat-freeway-under-bridge-execution-note"};
+    const char* story[] = {"obj-the-radio-door-key-1", "the-auditorium-keys", "obj-the-seattle-map-2"};
     PickupPolicy p;
-    CHECK(!p.Despawn("pickup-ammo-pistol-12"));                 // Log: never remove
+    for (auto n : loot) CHECK(!p.Despawn(n));                  // log: never remove
     p.rule = LootRule::Shared;
-    CHECK(p.Despawn("pickup-ammo-pistol-12") && p.Despawn("collectible-coin-3"));
+    for (auto n : loot) CHECK(p.Despawn(n));
+    for (auto n : collect) CHECK(p.Despawn(n));
     p.rule = LootRule::PerPlayer;
-    CHECK(!p.Despawn("pickup-ammo-pistol-12") && !p.Despawn("collectible-coin-3"));
-    CHECK(p.Despawn("pickup-key-gate-2"));                       // keys always shared
+    for (auto n : loot) CHECK(!p.Despawn(n));
+    for (auto n : collect) CHECK(!p.Despawn(n));
+    for (auto n : story) CHECK(p.Despawn(n));                  // story items and keys always shared
     p.rule = LootRule::Mixed;
-    CHECK(p.Despawn("pickup-ammo-pistol-12"));                   // ordinary loot shared
-    CHECK(!p.Despawn("collectible-trading-card-7"));             // collectibles each
-    CHECK(p.Despawn("story-letter-key-1"));                      // story/key beats collectible
+    for (auto n : loot) CHECK(p.Despawn(n));
+    for (auto n : collect) CHECK(!p.Despawn(n));
+    for (auto n : story) CHECK(p.Despawn(n));
     CHECK(PickupPolicy::Parse("mixed") == LootRule::Mixed && PickupPolicy::Parse("x") == LootRule::Log);
+    CHECK(PickupPolicy::Split(" a-, b ,c").size() == 3);
     uint64_t sid = 0; std::string name;
-    CHECK(ReadPickupArgs(PickupArgs(0x1122334455667788ull, "pickup-rag-4"), sid, name));
-    CHECK(sid == 0x1122334455667788ull && name == "pickup-rag-4");
+    CHECK(ReadPickupArgs(PickupArgs(0x1122334455667788ull, "item-pickup-rag-4"), sid, name));
+    CHECK(sid == 0x1122334455667788ull && name == "item-pickup-rag-4");
 }
 
 // Alerts: one report per real alert, even when the other side never takes it.
