@@ -1375,3 +1375,16 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 - Hood: owner confirmed "hood looks right on PC B" with the full-mask mirror (before narrowing). Narrowed at 11:42 to
   the variant meshes (hood, bandage, gas can, nocloth): same applied mask 0x18d, so the look should be unchanged.
 - Body regression check: clone 8 meshes 6 visible, 3/3 cloth props visible.
+
+## PC B graphics corruption (2026-10-20 ~04:50, logs only)
+
+- Owner: "major graphical display bug" on PC B; a game restart (04:51) cleared it.
+- No Windows evidence of a GPU fault: no Display/nvlddmkm/dxgkrnl, LiveKernelEvent or TDR (4101/141/117) events in the 6 h before,
+  and no tlou-ii application error. The mod log from before the restart was rotated away (only 3 prev logs are kept).
+- PC B is an NVIDIA RTX 3050 with 8 GB VRAM (driver 32.0.16.1062). PC A is an RX 9070 XT (16 GB).
+- Memory: the old PC B process had a 7.5 GB working set when killed. The new one, 22 min in, uses 5.1 GB dedicated VRAM
+  plus 1.67 GB shared (spilled to system RAM) and 19.5 GB private. PC A's game uses 9.8 GB VRAM at the same spot.
+- Read: most likely VRAM pressure on the 8 GB card after a long session (the "shared" spill is already there at 22 min),
+  not a mod fault; the mod draws nothing and only shows/hides meshes. Not proven.
+- Next: lower PC B's texture quality one step (owner's call, game setting); or have the mod log the process's dedicated
+  and shared GPU memory once a minute (`\GPU Process Memory(*)`) so the next corruption can be matched to a number.
