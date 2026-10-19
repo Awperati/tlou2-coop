@@ -1420,3 +1420,18 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   AutoClimbDownToRope); ClimbDownToRopeViaPrompt and PlayerZiplineController start from a prompt or a jump. The
   partner's Jump already presses A for her, so FreeRope/Zipline stay follow-only (tested: Jump -> FreeRope presses
   only A). Live check: jump onto a rope on PC B; she should grab it within her own reach or snap after.
+
+## M6 pickups: state of removal and the checkpoint gap (2026-10-20, static RE)
+
+- Removal on the other PC is already built behind `[sync] Pickups = log | shared | perplayer | mixed` (default `log`,
+  report only): the receiver checks entity-exists? (0xD3BA00) and despawns with kill-entity (0xD4BB40) per
+  `PickupPolicy` (tested; Seattle name families checked against level data, 11b3f0b). Turning it on is the owner's call
+  after one live name check (HANDOFF 4.3).
+- Gap: a despawned pickup comes back after a checkpoint restart on that PC, because only the PC that took it updates
+  its checkpoint record. `ItemPickup::UpdateCheckpointRecord(const bool)` = sub_140885320(pickup, force): skips
+  background-level pickups, then writes the pickup's state (vfuncs +1104 / +912 / +1112, plus +1120 in one mode) with
+  sub_1411E9650(&unk_144190D40, pickup[24] (name id), pickup[9], level id, 0, slot, &record). Callers: sub_140880A30,
+  sub_140880C60, sub_140884E90 (the pickup's per-frame update calls it with force = 1 after a state change).
+- Next (needs one live run, owner idle): on the receiver, before kill-entity, call sub_140885320(pickup, 1) after the
+  pickup's state says "taken" (find which of vfuncs +1112/+1120 is the remaining count by reading them before and
+  after a real pickup on the taking PC), then restart the checkpoint and check the pickup stays gone.
