@@ -15,3 +15,4 @@ share/
 tools/live/*.mp4
 tools/live/*.png
 shots/
+deploy/relay/relay.env

@@ -1,0 +1,17 @@
+# Relay service. Copy relay.env.example to relay.env and set RELAY_SECRET first.
+#   docker compose -f deploy/relay/compose.yaml up -d --build
+# RELAY_BIND: the host address to listen on (127.0.0.1 for a local test, a Tailscale IP such as 100.x.y.z to keep it
+# on the tailnet, or 0.0.0.0 for every interface); RELAY_PORT: the host's UDP port. Nothing here opens a router port.
+services:
+  relay:
+    build:
+      context: ../..
+      dockerfile: deploy/relay/Dockerfile
+    image: tlou2-coop-relay
+    env_file: relay.env
+    ports:
+      - "${RELAY_BIND:-127.0.0.1}:${RELAY_PORT:-47830}:47830/udp"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

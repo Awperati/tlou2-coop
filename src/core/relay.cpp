@@ -1,5 +1,6 @@
 #include "core/relay.h"
 #include "core/session.h"
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <winsock2.h>
@@ -7,6 +8,26 @@
 #include <mstcpip.h>
 #ifndef SIO_UDP_CONNRESET
 #define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
+using SockLen = int;
+static void NetInit() { WSADATA d; WSAStartup(MAKEWORD(2, 2), &d); }
+static void SetNonBlocking(SOCKET s) {
+    BOOL off = FALSE; DWORD ret = 0;   // ICMP port-unreachable must not kill the socket
+    WSAIoctl(s, SIO_UDP_CONNRESET, &off, sizeof(off), nullptr, 0, &ret, nullptr, nullptr);
+    u_long nb = 1; ioctlsocket(s, FIONBIO, &nb);
+}
+#else   // Linux (deploy/relay/Dockerfile): POSIX sockets
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+using SOCKET = int;
+using SockLen = socklen_t;
+constexpr SOCKET INVALID_SOCKET = -1;
+static void NetInit() {}
+static int closesocket(SOCKET s) { return close(s); }
+static void SetNonBlocking(SOCKET s) { fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK); }
 #endif
 #include <algorithm>
 #include <mutex>
@@ -41,7 +62,7 @@ std::vector<uint8_t> RelaySecretFrame(uint8_t kind, const std::string& secret) {
 
 bool RelayTestSend(uint16_t port, const std::vector<uint8_t>& bytes, int count) {
     static std::once_flag once;
-    std::call_once(once, [] { WSADATA d; WSAStartup(MAKEWORD(2, 2), &d); });
+    std::call_once(once, NetInit);
     SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s == INVALID_SOCKET) return false;
     sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(port);
@@ -56,14 +77,12 @@ bool RelayTestSend(uint16_t port, const std::vector<uint8_t>& bytes, int count) 
 bool Relay::Start(uint16_t port, const std::string& secret, uint32_t ratePerSec) {
     Stop();
     static std::once_flag once;
-    std::call_once(once, [] { WSADATA d; WSAStartup(MAKEWORD(2, 2), &d); });
+    std::call_once(once, NetInit);
     SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s == INVALID_SOCKET) return false;
-    BOOL off = FALSE; DWORD ret = 0;
-    WSAIoctl(s, SIO_UDP_CONNRESET, &off, sizeof(off), nullptr, 0, &ret, nullptr, nullptr);
     sockaddr_in a{}; a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_ANY); a.sin_port = htons(port);
     if (bind(s, reinterpret_cast<sockaddr*>(&a), sizeof(a)) != 0) { closesocket(s); return false; }
-    u_long nb = 1; ioctlsocket(s, FIONBIO, &nb);
+    SetNonBlocking(s);
     sock_ = static_cast<uintptr_t>(s);
     secret_ = secret;
     rate_ = ratePerSec ? ratePerSec : 1;
@@ -99,7 +118,7 @@ void Relay::Poll() {
     uint64_t now = NowMs();
     uint8_t buf[kRelayMaxFrame + 512];
     for (;;) {
-        sockaddr_in from{}; int fl = sizeof(from);
+        sockaddr_in from{}; SockLen fl = sizeof(from);
         int n = recvfrom(static_cast<SOCKET>(sock_), reinterpret_cast<char*>(buf), sizeof(buf), 0, reinterpret_cast<sockaddr*>(&from), &fl);
         if (n <= 0) break;
         Addr src{from.sin_addr.s_addr, from.sin_port};

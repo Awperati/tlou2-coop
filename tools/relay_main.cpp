@@ -6,7 +6,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
-#include <windows.h>
+#include <chrono>
+#include <thread>
 
 int main(int argc, char** argv) {
     if (argc < 2) { std::printf("usage: coop_relay <secret> [port %u] [rate 300]\n", coop::kRelayDefaultPort); return 1; }
@@ -30,6 +31,6 @@ int main(int argc, char** argv) {
                         static_cast<unsigned long long>(s.droppedRate), static_cast<unsigned long long>(s.droppedUnknown));
             std::fflush(stdout);
         }
-        Sleep(1);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
