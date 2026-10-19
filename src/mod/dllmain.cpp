@@ -212,7 +212,11 @@ void CoopMain() {
     bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
     bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
     bridge.cloneStandTurn_ = cfg.getBool("clone", "StandTurn", true);
-    bridge.cloneFaceForce_ = cfg.getBool("clone", "FaceForce", false);
+    {   // [clone] FaceForce = stored | globals (on, true) | off (false)
+        std::string ff = Lower(cfg.get("clone", "FaceForce", "stored"));
+        bridge.cloneFaceForce_ = ff != "off" && ff != "false" && ff != "0";
+        bridge.cloneFaceStored_ = ff == "stored";
+    }
     bridge.cloneStandTurnStep_ = cfg.getFloat("clone", "StandTurnStep", 0.f);
     bridge.cloneStandTurnMs_ = static_cast<unsigned>(cfg.getInt("clone", "StandTurnMs", 80));
     bridge.cloneStandTurnToBody_ = Lower(cfg.get("clone", "StandTurnTo", "camera")) == "body";

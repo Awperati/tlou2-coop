@@ -17,7 +17,7 @@ Full findings log: [ROADMAP.md](ROADMAP.md). Player guide: [PLAYING.md](PLAYING.
 | Position | "Position matches correctly based on either side" (owner) |
 | Facing while walking | Her own locomotion. Matches the partner's body within ~0.1 rad (log) |
 | Facing while standing | Snaps to the partner's CAMERA yaw (teleport to the same spot). Owner: "still snaps to the right orientation". Choppy, no turn animation |
-| Smooth standing turn | Built (FaceForce) but OFF: it turned each PC's own player too. See 4.1 |
+| Smooth standing turn | On by default (`FaceForce = stored`). Live 10-20 04:4x: 11 clone turns, neither PC's own body moved. Owner eye check of the turn still open. See 4.1 |
 | Stance | Crouch and prone confirmed by the owner |
 | Body | 8 meshes and 3 cloth props match PC B's own Dina. Owner: torso and arms back (14:0x) |
 | Hood | Owner: "Ellie hood is great" |
@@ -64,7 +64,19 @@ Not bugs (owner confirmed):
 
 ## 4. Open work, in priority order (proposed jobs)
 
-### 4.1 Smooth standing turn without the leak (FaceForce)
+### 4.1 Smooth standing turn without the leak (FaceForce): solved 10-20
+- **Result (live, 04:38-04:45, both standing, PC B camera turned by the virtual pad):**
+  - `facewatch glob`: player 0's controller reads the force flag at 0xC31A3D as 0 every time (152 of 152 on PC A).
+    The force never reaches player 0 with the lock in place. Lock give-ups: 0.
+  - `facewatch ctl`: nothing but her own C31340 touches her [ctl+0x1B0] / [ctl+0x8E0].
+  - `faceptrs`: no shared pointers. player+0x2E98 is the player's own movement controller.
+  - Turns: with the globals + lock, 7 clone turns. With `stored`, 4 more, plus 2 after the reload with `stored`
+    as the default. Each turn took 1-1.5 s. Own bodies stayed at -0.56 / -1.95 (PC A) and 2.90 / 2.88 (PC B),
+    changing only when that PC walked.
+  - So the 13:3x leak was the unlocked race. The lock went in at 13:36, but FaceForce was switched off before
+    any turn was seen with it. The 13:39 "leak" was a body left over from before the lock.
+  - Default now `[clone] FaceForce = stored`: her own stored facing (sub_140C34C80), no globals, no lock.
+    `globals` (also `on`) keeps the locked force path; `off` = teleport snaps.
 - **Mechanism (works):** native `player-force-facing/f` sets a global flag (0x40FC87E) and a direction (0x40FC880).
   The movement controller update `sub_140C31230(ctl, req)` → `sub_140C31340` uses them as desired facing ([ctl+0x1B0]).
   ctl+280 is the player.
