@@ -108,7 +108,11 @@ Not bugs (owner confirmed):
 - Research tools: `animlog on` (own state changes, vertical speed), `jumptrace <s>`, `tools/logstats.py`.
 
 ### 4.2b Idle gestures (nose wipe etc.)
-- Built 10-20, end to end not yet seen live. Each PC sends its player 0's layer-1 gesture (PlayerState.gesture);
+- **Works live (10-20 06:00-06:02, owner idle, nothing in front forced):** every own idle gesture on each PC started once on
+  the other PC's clone with the same id: 4 of 4 PC B -> PC A (95df22f1, a0a75315, d8ad71f5, d38b965a), 3 of 3 PC A -> PC B
+  (d8ad71f5, a0a75315, d846c30d). Paired times give a ~6.45 s clock offset (PC B behind) and ~85 ms one-way delay.
+  At least seven different idle gestures seen. Owner eye check still open.
+- Built 10-20. Each PC sends its player 0's layer-1 gesture (PlayerState.gesture);
   `GestureSync` (core/gesturesync.h, TestGestureSync over the wire) starts each partner gesture once on the clone,
   only while the partner stands, via sub_141DDA660 on player+0x54F8. `[clone] GestureSync`, `gesturesync on|off`.
 - Live facts: player 0 plays one of at least five idle gestures about every 20 s (2.5-3.6 s each); the clone none.
