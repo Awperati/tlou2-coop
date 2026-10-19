@@ -11,6 +11,7 @@
 #include "core/roster.h"
 #include "core/session.h"
 #include "core/teleport.h"
+#include "core/traversal.h"
 #include <cstdio>
 #include <thread>
 #include <windows.h>
@@ -334,6 +335,23 @@ static void TestJumpDetector() {
     CHECK(during && !any);
 }
 
+static void TestTraversalCopy() {
+    auto fnv = [](const char* n) { uint64_t h = 0xCBF29CE484222325ull; for (; *n; ++n) { h ^= static_cast<uint8_t>(*n); h *= 0x100000001B3ull; } return h; };
+    for (const auto& s : kTraversalStates) CHECK(fnv(s.name) == s.id);   // ids are FNV-1a of the state names
+    const uint64_t move = fnv("Move"), ledge = fnv("Edge"), ladder = fnv("Ladder"), slide = fnv("Slide"), shimmy = fnv("WallShimmy");
+    TraversalCopy c; unsigned long long t = 0;
+    CHECK(!c.Update(t, move) && c.Held(t) == 0);
+    auto* j = c.Update(t += 16, ledge);                       // climb a ledge: A for 150 ms
+    CHECK(j && j->kind == Traversal::Climb && c.Held(t) == 0x20 && c.Held(t + 149) == 0x20 && c.Held(t + 151) == 0);
+    CHECK(!c.Update(t += 16, ledge));                          // still on the ledge: no second press
+    CHECK(!c.Update(t += 16, shimmy) && c.Held(t + 200) == 0); // shimmy: follow only
+    CHECK(c.Update(t += 400, move) == nullptr);
+    auto* l = c.Update(t += 16, ladder); CHECK(l && c.Held(t) == 0x10);
+    c.Update(t += 1000, move);
+    auto* s = c.Update(t += 16, slide); CHECK(s && s->kind == Traversal::Slide && c.Held(t) == 0x80);
+    CHECK(FindTraversal(move) == nullptr);
+}
+
 static void TestJumpFromState() {
     auto fnv = [](const char* n) { uint64_t h = 0xCBF29CE484222325ull; for (; *n; ++n) { h ^= static_cast<uint8_t>(*n); h *= 0x100000001B3ull; } return h; };
     CHECK(fnv("Jump") == kStateJump && fnv("Fall") == kStateFall && fnv("Move") == kStateMove && fnv("Edge") == kStateEdge);
@@ -617,6 +635,7 @@ int main() {
     TestPickupClass();
     TestFaceForceParse();
     TestJumpFromState();
+    TestTraversalCopy();
     TestJumpDetector();
     TestThetaSettledGuard();
     TestArriveStick();
