@@ -130,6 +130,26 @@ inline float StickTheta(float sx, float sy, float wx, float wz) {
 // ~100 ms). Lets the other PC stop the stand-in at once instead of guessing from positions,
 // which kept it walking for most of a second after the key was let go (user, 2026-10-18).
 constexpr uint8_t kMoving = 0x10;
+constexpr uint8_t kJumped = 0x20;   // the sender's player started a jump in the last 300 ms (JumpDetector)
+
+// Jump start from the player's height (2026-10-19; no jump state found yet, so this is the fallback):
+// rising faster than riseSpeed m/s over >= 50 ms, from a spot where it was not already rising.
+// Held for holdMs so a lost packet does not drop it. Ladders and knock-ups can trigger it too.
+struct JumpDetector {
+    float riseSpeed = 2.0f; unsigned holdMs = 300, minDtMs = 50;
+    bool Update(unsigned long long now, float y) {
+        if (!refAt_) { refAt_ = now; refY_ = y; return false; }
+        if (now - refAt_ >= minDtMs) {
+            float vy = (y - refY_) * 1000.f / static_cast<float>(now - refAt_);
+            bool rising = vy > riseSpeed;
+            if (rising && !wasRising_) until_ = now + holdMs;
+            wasRising_ = rising; refAt_ = now; refY_ = y;
+        }
+        return now < until_;
+    }
+private:
+    unsigned long long refAt_ = 0, until_ = 0; float refY_ = 0; bool wasRising_ = false;
+};
 constexpr float kMovingSpeed = 0.5f;
 // Moving test from two positions taken dtMs apart (horizontal only).
 inline bool IsMoving(const Vec3& a, const Vec3& b, unsigned dtMs) {

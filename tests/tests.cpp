@@ -315,6 +315,21 @@ static void TestThetaSettledGuard() {
     CHECK(!changed && std::fabs(cal.theta - 3.13f) < 1e-4f);
 }
 
+static void TestJumpDetector() {
+    JumpDetector j; bool any = false, during = false;
+    float y = 0;   // walk flat, then a jump (4 m/s up for 0.25 s), land, walk on, then a 1.2 m/s ramp
+    for (unsigned long long t = 0; t < 4000; t += 16) {
+        if (t >= 1000 && t < 1250) y += 4.f * 0.016f;
+        if (t >= 1250 && t < 1500) y -= 4.f * 0.016f;
+        if (t >= 2500) y += 1.2f * 0.016f;
+        bool f = j.Update(t, y);
+        if (f && t < 1000) any = true;          // nothing before the jump
+        if (f && t >= 1000 && t < 1400) during = true;
+        if (f && t >= 1700) any = true;          // not on the ramp
+    }
+    CHECK(during && !any);
+}
+
 static void TestPickupClass() {
     PickupPolicy p;
     CHECK(std::string(p.Class("item-pickup-ammo-pistol-1230")) == "loot (shared in mixed)");
@@ -569,6 +584,7 @@ int main() {
     TestThetaCalibratorReplay();
     TestPickupPolicy();
     TestPickupClass();
+    TestJumpDetector();
     TestThetaSettledGuard();
     TestArriveStick();
     TestCatchUpModes();

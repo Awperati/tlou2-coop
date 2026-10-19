@@ -249,6 +249,7 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
         if (!moveRefAt_ || now - moveRefAt_ > 400) { moveRefPos_ = s.pos; moveRefAt_ = now; }
         else if (now - moveRefAt_ >= 100) { movingNow_ = IsMoving(moveRefPos_, s.pos, static_cast<unsigned>(now - moveRefAt_)); moveRefPos_ = s.pos; moveRefAt_ = now; }
         if (movingNow_) s.flags |= kMoving;
+        if (jumpDet_.Update(now, s.pos.y)) s.flags |= kJumped;
     }
     s.shots = shots_;
     s.shotTarget = shotTarget_;
@@ -2220,6 +2221,11 @@ uintptr_t GameBridge::JoypadSlot(int slot) {
 
 void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving, int stance, float aimYaw, float aimPitch, uint8_t flags) {
     cloneAimingFlag_ = (flags & 1) != 0; cloneFiringFlag_ = (flags & 2) != 0;
+    // Jump (kJumped rising edge): tap A for 150 ms, unless their pad already holds A (a pad partner's A
+    // reaches her through the button copy).
+    bool jumped = (flags & kJumped) != 0;
+    if (jumped && !cloneJumpedPrev_ && !(held & 0x20)) { cloneJumpUntil_ = GetTickCount64() + 150; Log("clonejump: the other player jumped at y %.2f; tapping A", pos ? pos->y : 0.f); }
+    cloneJumpedPrev_ = jumped;
     cloneAimYaw_ = aimYaw; cloneAimPitch_ = aimPitch;
     cloneMoveX_ = x; cloneMoveZ_ = z; cloneHeld_ = held; cloneMoveAt_ = GetTickCount64();
     if (stance >= 0) cloneWantStance_ = stance;
@@ -2346,6 +2352,7 @@ void GameBridge::TickCloneDrive() {
         // take aiming and firing from the state flags (player-is-aiming? / player-is-firing?).
         uint64_t flagHeld = (cloneAimingFlag_.load() ? 0x200ull : 0) | (cloneFiringFlag_.load() ? 0x2000ull : 0);
         uint64_t held = (cloneHeld_.load() | flagHeld) & cloneButtonMask_;
+        if (GetTickCount64() < cloneJumpUntil_) held |= 0x20;
         // No catch-up sprint: holding LB stopped her stick input (engine world 0, drift 2.7 m, 11:43 A/B: catch-up
         // on mean 1.32 m vs off 0.25 m). The steering pull alone is kept. [clone] CatchUpSprint to try again.
         if (catchSprint && cloneCatchUpSprint_) held |= 0x100;

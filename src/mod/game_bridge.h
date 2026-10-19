@@ -240,6 +240,9 @@ public:
     float cloneStandTurnStep_ = 0.f;      // [clone] StandTurnStep: rad per 80 ms step (0 = one snap, the owner-checked baseline)
     bool cloneStandTurnToBody_ = false;   // [clone] StandTurnTo = camera (default; owner 13:30: "relative to the actual screen on PC-B") | body
     bool standTurning_ = false;
+    JumpDetector jumpDet_;
+    bool cloneJumpedPrev_ = false;
+    unsigned long long cloneJumpUntil_ = 0;
     bool cloneAnimLog_ = false;           // animlog on|off: log anim state changes (jump research)
     uint64_t lastAnimState_[2] = {};
     float lastY_ = 0; unsigned long long lastYAt_ = 0, lastVyLog_ = 0;

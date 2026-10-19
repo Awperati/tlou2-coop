@@ -1281,6 +1281,17 @@ thread_local bool t_faceForcing = false;
 // went -3.10 -> -0.18 with the force on). So the two updates take turns. Bounded spin (2 ms) so a
 // fiber switch inside an update can never freeze the game; g_faceSpinMiss counts give-ups.
 std::atomic<bool> g_faceLock{false};
+// facediff: one forced update, diffing player 0 and its controller around it (what leaks).
+std::atomic<uintptr_t> g_otherCtl{0}, g_otherPl{0};
+std::atomic<int> g_faceDiffReq{0};
+constexpr size_t kDiffPl = 0x5800, kDiffCtl = 0x800;
+void DiffLog(const char* what, const uint8_t* a, const uint8_t* b, size_t n) {
+    std::string out; int cnt = 0;
+    for (size_t o = 0; o + 4 <= n; o += 4) if (std::memcmp(a + o, b + o, 4) != 0) {
+        if (++cnt <= 48) { float fa, fb; std::memcpy(&fa, a + o, 4); std::memcpy(&fb, b + o, 4); char t[64]; snprintf(t, sizeof(t), " +%zx(%.3g->%.3g)", o, fa, fb); out += t; }
+    }
+    Log("facediff: %s %d dwords changed:%s", what, cnt, out.c_str());
+}
 std::atomic<uint32_t> g_faceSpinMiss{0};
 bool FaceLockAcquire() {
     LARGE_INTEGER f, t0, t; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&t0);
@@ -1315,6 +1326,7 @@ uint64_t HookedFaceCtl(uint64_t ctl, uint64_t req) {
             *flag = mine; std::memcpy(dir, myDir, sizeof(myDir));
             return r;
         }
+        g_otherCtl = ctl; g_otherPl = pl;
         if (!g_faceForceOn.load()) return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
         bool locked = FaceLockAcquire();
         uint64_t r = reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
@@ -1331,7 +1343,15 @@ uint64_t HookedFaceCtl(uint64_t ctl, uint64_t req) {
     float d[4] = {g_faceX.load(), 0.f, g_faceZ.load(), 0.f};
     std::memcpy(dir, d, sizeof(d)); *flag = 1;
     t_faceForcing = true;
+    static uint8_t s_pl[kDiffPl], s_ctl[kDiffCtl], s_pl2[kDiffPl], s_ctl2[kDiffCtl];
+    uintptr_t dPl = g_otherPl.load(), dCtl = g_otherCtl.load();
+    bool diff = g_faceDiffReq.load() > 0 && dPl && dCtl;
+    if (diff) { __try { std::memcpy(s_pl, reinterpret_cast<void*>(dPl), kDiffPl); std::memcpy(s_ctl, reinterpret_cast<void*>(dCtl), kDiffCtl); } __except (EXCEPTION_EXECUTE_HANDLER) { diff = false; } }
     uint64_t r = reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+    if (diff) {
+        __try { std::memcpy(s_pl2, reinterpret_cast<void*>(dPl), kDiffPl); std::memcpy(s_ctl2, reinterpret_cast<void*>(dCtl), kDiffCtl); } __except (EXCEPTION_EXECUTE_HANDLER) { diff = false; }
+        if (diff) { --g_faceDiffReq; DiffLog("player 0", s_pl, s_pl2, kDiffPl); DiffLog("player 0 controller", s_ctl, s_ctl2, kDiffCtl); }
+    }
     t_faceForcing = false;
     *flag = oldFlag; std::memcpy(dir, oldDir, sizeof(oldDir));
     if (locked) g_faceLock.store(false, std::memory_order_release);
@@ -1351,6 +1371,7 @@ bool FaceCtlHookInstall(uintptr_t target, uintptr_t flag, uintptr_t dir) {
     Log("face hook: movement controller update hooked (player 1 desired facing)");
     return true;
 }
+void RequestFaceDiff(int n) { g_faceDiffReq = n; }
 void FaceCtlHookRemove() { if (g_faceTarget) { RemoveTrampoline(g_faceTarget, g_faceSaved, sizeof(g_faceSaved)); g_faceTarget = 0; Log("face hook: removed"); } }
 void SetCloneFaceDir(uintptr_t player, bool on, float x, float z) { g_facePlayer = player; g_faceX = x; g_faceZ = z; g_faceForceOn = on; }
 void TakeFaceCtlCounts(uint32_t& clone, uint32_t& other) { clone = g_faceCalls1.exchange(0); other = g_faceCallsOther.exchange(0); }
