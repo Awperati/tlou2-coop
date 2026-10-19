@@ -53,6 +53,12 @@ enable_testing()
 add_executable(coop_tests tests/tests.cpp)
 target_link_libraries(coop_tests PRIVATE coop_core)
 add_test(NAME coop_tests COMMAND coop_tests)
+# Hot-reload code patching (2026-10-20): code swapped under running threads must never tear.
+add_executable(coop_patch_race tests/patch_race.cpp)
+target_include_directories(coop_patch_race PRIVATE src)
+target_compile_definitions(coop_patch_race PRIVATE NOMINMAX)
+add_test(NAME patch_race COMMAND coop_patch_race safe 100)
+set_tests_properties(patch_race PROPERTIES TIMEOUT 120)
 
 # Two-process LAN smoke test without the game: host + client on loopback.
 add_executable(coop_relay tools/relay_main.cpp)

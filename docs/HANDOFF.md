@@ -116,6 +116,10 @@ Not bugs (owner confirmed):
 - Dialogue by ear; barks (`vox_hook`).
 - Checkpoint-write forwarding is still log-only.
 - GPU "device removed" crashes after long background pauses (10-19 11:12). Track them.
+- Hot reload crash (PC A 10-20 05:26, access violation at GetPlayer+0): code patches were plain memcpys under running
+  job threads. Now every patch goes through `WriteCodeSafely` (src/mod/code_patch.h: suspend other threads, wait until
+  none sits inside the bytes, write). ctest `patch_race`: the old memcpy crashed 6/6 runs within 100 swaps; safe 0
+  wrong results over 3 x 400 swaps. Not yet tried in the game.
 - PC B screen full of black lines (owner, 10-20 04:38). The game kept responding and the mod log showed nothing. Not fixed, not ours to fix: watch it.
 - Theta: kept across reloads, starts settled, and drops >0.6 rad outliers. If her walk stalls, check `clonetheta:` lines; `clonetheta 3.13` resets it.
 

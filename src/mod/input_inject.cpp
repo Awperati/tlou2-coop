@@ -1,6 +1,7 @@
 #include "mod/input_inject.h"
 #include "core/config.h"
 #include "mod/log.h"
+#include "mod/code_patch.h"
 #include "mod/fiber_hook.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -81,21 +82,13 @@ bool MakePatch(Patch& p, uintptr_t target, void* hook) {
     uint8_t jmp[12] = {0x48, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xE0};   // mov rax, hook; jmp rax
     auto h = reinterpret_cast<uintptr_t>(hook);
     std::memcpy(jmp + 2, &h, 8);
-    DWORD old;
-    VirtualProtect(reinterpret_cast<void*>(target), sizeof(jmp), PAGE_EXECUTE_READWRITE, &old);
-    std::memcpy(reinterpret_cast<void*>(target), jmp, sizeof(jmp));
-    VirtualProtect(reinterpret_cast<void*>(target), sizeof(jmp), old, &old);
-    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(target), sizeof(jmp));
+    WriteCodeSafely(reinterpret_cast<void*>(target), jmp, sizeof(jmp));   // threads may be running these bytes (code_patch.h)
     return true;
 }
 
 void Unpatch(Patch& p) {
     if (!p.target) return;
-    DWORD old;
-    VirtualProtect(reinterpret_cast<void*>(p.target), kStolen, PAGE_EXECUTE_READWRITE, &old);
-    std::memcpy(reinterpret_cast<void*>(p.target), p.saved, kStolen);
-    VirtualProtect(reinterpret_cast<void*>(p.target), kStolen, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(p.target), kStolen);
+    WriteCodeSafely(reinterpret_cast<void*>(p.target), p.saved, kStolen);   // threads may be running these bytes (code_patch.h)
     p.target = 0;
 }
 

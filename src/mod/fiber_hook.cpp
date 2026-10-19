@@ -1,6 +1,7 @@
 #include <intrin.h>
 #include "mod/fiber_hook.h"
 #include "mod/log.h"
+#include "mod/code_patch.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <atomic>
@@ -251,20 +252,11 @@ bool InstallTrampoline(uintptr_t target, const uint8_t* expect, size_t stolen, v
     auto h = reinterpret_cast<uintptr_t>(hook);
     std::memcpy(jmp + 2, &h, 8);
     std::memcpy(saved, reinterpret_cast<void*>(target), stolen);
-    DWORD old;
-    VirtualProtect(reinterpret_cast<void*>(target), sizeof(jmp), PAGE_EXECUTE_READWRITE, &old);
-    std::memcpy(reinterpret_cast<void*>(target), jmp, sizeof(jmp));
-    VirtualProtect(reinterpret_cast<void*>(target), sizeof(jmp), old, &old);
-    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(target), sizeof(jmp));
-    return true;
+    return WriteCodeSafely(reinterpret_cast<void*>(target), jmp, sizeof(jmp));   // threads may be running these bytes (code_patch.h)
 }
 
 void RemoveTrampoline(uintptr_t target, const uint8_t* saved, size_t stolen) {
-    DWORD old;
-    VirtualProtect(reinterpret_cast<void*>(target), stolen, PAGE_EXECUTE_READWRITE, &old);
-    std::memcpy(reinterpret_cast<void*>(target), saved, stolen);
-    VirtualProtect(reinterpret_cast<void*>(target), stolen, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(target), stolen);
+    WriteCodeSafely(reinterpret_cast<void*>(target), saved, stolen);   // threads may be running these bytes (code_patch.h)
 }
 } // namespace
 
@@ -693,11 +685,7 @@ size_t InstallRipMovTrampolineEx(uintptr_t target, const uint8_t* prefix, size_t
     std::memcpy(jmp + 2, &h, 8);
     jmp[10] = 0xFF; jmp[11] = 0xE0;
     tramp = tr;
-    DWORD old;
-    VirtualProtect(t, stolen, PAGE_EXECUTE_READWRITE, &old);
-    std::memcpy(t, jmp, stolen);
-    VirtualProtect(t, stolen, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), t, stolen);
+    WriteCodeSafely(t, jmp, stolen);   // threads may be running these bytes (code_patch.h)
     return stolen;
 }
 
@@ -1223,11 +1211,7 @@ bool PhaseHookInstall(uintptr_t taskUpdate) {
     auto h = reinterpret_cast<uintptr_t>(&HookedTaskUpdate);
     std::memcpy(jmp + 2, &h, 8);
     std::memcpy(g_phaseSaved, reinterpret_cast<void*>(taskUpdate), kPhaseStolen);
-    DWORD old;
-    VirtualProtect(reinterpret_cast<void*>(taskUpdate), sizeof(jmp), PAGE_EXECUTE_READWRITE, &old);
-    std::memcpy(reinterpret_cast<void*>(taskUpdate), jmp, sizeof(jmp));
-    VirtualProtect(reinterpret_cast<void*>(taskUpdate), sizeof(jmp), old, &old);
-    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(taskUpdate), sizeof(jmp));
+    WriteCodeSafely(reinterpret_cast<void*>(taskUpdate), jmp, sizeof(jmp));   // threads may be running these bytes (code_patch.h)
     g_phaseTarget = taskUpdate;
     g_phaseInstalled = true;
     Log("phase hook: GameTaskGraphMgr::Update hooked");
@@ -1248,12 +1232,10 @@ bool FiberHookInstall(uintptr_t getPlayer, uintptr_t playerHandle) {
     uint8_t jmp[14] = {0xFF, 0x25, 0, 0, 0, 0};           // jmp [rip+0]; dq target
     auto dst = reinterpret_cast<uintptr_t>(&HookedGetPlayer);
     std::memcpy(jmp + 6, &dst, 8);
-    DWORD old;
-    if (!VirtualProtect(reinterpret_cast<void*>(getPlayer), sizeof(jmp), PAGE_EXECUTE_READWRITE, &old)) return false;
     std::memcpy(g_saved, reinterpret_cast<void*>(getPlayer), sizeof(g_saved));
-    std::memcpy(reinterpret_cast<void*>(getPlayer), jmp, sizeof(jmp));
-    VirtualProtect(reinterpret_cast<void*>(getPlayer), sizeof(jmp), old, &old);
-    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(getPlayer), sizeof(jmp));
+    // Job threads call GetPlayer all the time: a plain memcpy here tore the instruction under one of
+    // them on a hot reload (PC A, 10-20 05:26, crash at GetPlayer+0).
+    if (!WriteCodeSafely(reinterpret_cast<void*>(getPlayer), jmp, sizeof(jmp))) { Log("fiber hook: GetPlayer patch not written (threads stayed inside)"); return false; }
     g_installed = true;
     Log("fiber hook: GetPlayer redirected");
     return true;
@@ -1449,20 +1431,12 @@ void FiberHookRemove() {
     for (auto& p : g_print) if (p.on) { RemoveTrampoline(p.target, p.saved, sizeof(p.saved)); p.on = false; }
     if (g_nativeInstalled) { RemoveTrampoline(g_nativeTarget, g_nativeSaved, sizeof(g_nativeSaved)); g_nativeInstalled = false; Log("script hook: removed"); }
     if (g_phaseInstalled) {
-        DWORD old;
-        VirtualProtect(reinterpret_cast<void*>(g_phaseTarget), kPhaseStolen, PAGE_EXECUTE_READWRITE, &old);
-        std::memcpy(reinterpret_cast<void*>(g_phaseTarget), g_phaseSaved, kPhaseStolen);
-        VirtualProtect(reinterpret_cast<void*>(g_phaseTarget), kPhaseStolen, old, &old);
-        FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(g_phaseTarget), kPhaseStolen);
+        WriteCodeSafely(reinterpret_cast<void*>(g_phaseTarget), g_phaseSaved, kPhaseStolen);   // threads may be running these bytes (code_patch.h)
         g_phaseInstalled = false;   // trampoline is leaked on purpose (a caller may be in it)
         Log("phase hook: removed");
     }
     if (!g_installed) return;
-    DWORD old;
-    VirtualProtect(reinterpret_cast<void*>(g_target), sizeof(g_saved), PAGE_EXECUTE_READWRITE, &old);
-    std::memcpy(reinterpret_cast<void*>(g_target), g_saved, sizeof(g_saved));
-    VirtualProtect(reinterpret_cast<void*>(g_target), sizeof(g_saved), old, &old);
-    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(g_target), sizeof(g_saved));
+    WriteCodeSafely(reinterpret_cast<void*>(g_target), g_saved, sizeof(g_saved));   // threads may be running these bytes (code_patch.h)
     g_installed = false;
     // Let any thread still inside HookedGetPlayer leave before the DLL unloads.
     for (int i = 0; i < 100 && g_inside > 0; ++i) Sleep(10);
