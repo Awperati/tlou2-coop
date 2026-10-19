@@ -68,9 +68,18 @@ kJumped block:
 ```
 Then extend `cloneButtonMask_` with 0x100 (LB, dodge) if it isn't already set. The default 1F0 already has it.
 
-## 4. Live checks (owner, one at a time, PC A's game in front)
+## 4. Live checks for the owner (deployed 2026-10-20 05:56, both PCs, build 676f843)
 
-1. Jump on PC B: PC B logs `jump: own player jumped (state)`, PC A logs `clonetraversal: Jump`, and Dina jumps.
-2. Climb a ledge on PC B: `clonetraversal: Edge`, and she climbs (or snaps up within 2 s).
-3. Take a ladder on PC B: `clonetraversal: Ladder`. Is Y the right button? If she doesn't take it, try A.
-4. Dodge (L1/LB) on PC B: `clonetraversal: Evade`, and she dodges.
+Applied in dbe37e2 (wiring), 49806e9 (gating by her own state), 4b63c04 (ropes), 676f843 (facing lead). Do these one at
+a time, on PC B, with PC A's game in front (her input only works then). After each one, tell the session the time.
+It reads both logs with `tools/logstats.py`.
+
+1. **Jump** (Space) standing, then while walking. PC B logs `jump: own player jumped (state)`, PC A logs
+   `clonetraversal: Jump`, and Dina jumps.
+2. **Ledge**: jump up to a ledge you can hang from. PC A logs `clonetraversal: Edge`, and she grabs it, or teleports
+   up within about 2 s.
+3. **Let go**: while both hang, drop off (Crouch/B). PC A logs `clonetraversal: LedgeDrop`, and she lets go too.
+4. **Ladder**: take a ladder. PC A logs `clonetraversal: Ladder`. If she doesn't take it, the ladder button is not Y.
+5. **Dodge** (L1/LB on a pad, the dodge key on keyboard). PC A logs `clonetraversal: Evade`, and she dodges.
+6. **Look around while standing** (mouse). Dina should now turn with less delay than before, smooth and without an A-pose.
+   If she overshoots when you stop, send `facelead 0.08` (or `0` to turn the lead off) in PC A's cmd.txt.
