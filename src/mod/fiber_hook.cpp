@@ -1273,20 +1273,45 @@ std::atomic<uintptr_t> g_facePlayer{0};
 std::atomic<bool> g_faceForceOn{false};
 std::atomic<float> g_faceX{0}, g_faceZ{1};
 std::atomic<uint32_t> g_faceCalls1{0}, g_faceCallsOther{0};
+std::pair<std::atomic<uintptr_t>, std::atomic<uintptr_t>> g_faceSeen[4];
+std::atomic<uint32_t> g_faceNested{0};
+thread_local bool t_faceForcing = false;
+thread_local uint8_t t_faceOldFlag = 0;
+thread_local float t_faceOldDir[4] = {};
 using Fwd2 = uint64_t (*)(uint64_t, uint64_t);
 uint64_t HookedFaceCtl(uint64_t ctl, uint64_t req) {
     uintptr_t pl = 0;
     __try { pl = ctl ? *reinterpret_cast<uintptr_t*>(ctl + 280) : 0; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    for (auto& s : g_faceSeen) { uintptr_t z = 0; if (s.first.load() == ctl) break; if (s.first.compare_exchange_strong(z, ctl)) { s.second = pl; break; } }
     uintptr_t want = g_facePlayer.load();
-    if (!want || pl != want) { ++g_faceCallsOther; return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req); }
+    if (!want || pl != want) {
+        ++g_faceCallsOther;
+        // Another player's controller running while hers has the force set (nested): give it the
+        // game's own values (12:5x: PC B's own player stopped turning with the force on).
+        if (t_faceForcing) {
+            ++g_faceNested;
+            auto* flag = reinterpret_cast<uint8_t*>(g_faceFlag); auto* dir = reinterpret_cast<float*>(g_faceDir);
+            uint8_t mine = *flag; float myDir[4]; std::memcpy(myDir, dir, sizeof(myDir));
+            *flag = t_faceOldFlag; std::memcpy(dir, t_faceOldDir, sizeof(t_faceOldDir));
+            t_faceForcing = false;
+            uint64_t r = reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+            t_faceForcing = true;
+            *flag = mine; std::memcpy(dir, myDir, sizeof(myDir));
+            return r;
+        }
+        return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+    }
     ++g_faceCalls1;
     if (!g_faceForceOn.load()) return reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
     auto* flag = reinterpret_cast<uint8_t*>(g_faceFlag);
     auto* dir = reinterpret_cast<float*>(g_faceDir);
     uint8_t oldFlag = *flag; float oldDir[4]; std::memcpy(oldDir, dir, sizeof(oldDir));
+    t_faceOldFlag = oldFlag; std::memcpy(t_faceOldDir, oldDir, sizeof(oldDir));
     float d[4] = {g_faceX.load(), 0.f, g_faceZ.load(), 0.f};
     std::memcpy(dir, d, sizeof(d)); *flag = 1;
+    t_faceForcing = true;
     uint64_t r = reinterpret_cast<Fwd2>(g_faceTramp)(ctl, req);
+    t_faceForcing = false;
     *flag = oldFlag; std::memcpy(dir, oldDir, sizeof(oldDir));
     return r;
 }
@@ -1304,8 +1329,15 @@ bool FaceCtlHookInstall(uintptr_t target, uintptr_t flag, uintptr_t dir) {
     Log("face hook: movement controller update hooked (player 1 desired facing)");
     return true;
 }
+void FaceCtlHookRemove() { if (g_faceTarget) { RemoveTrampoline(g_faceTarget, g_faceSaved, sizeof(g_faceSaved)); g_faceTarget = 0; Log("face hook: removed"); } }
 void SetCloneFaceDir(uintptr_t player, bool on, float x, float z) { g_facePlayer = player; g_faceX = x; g_faceZ = z; g_faceForceOn = on; }
 void TakeFaceCtlCounts(uint32_t& clone, uint32_t& other) { clone = g_faceCalls1.exchange(0); other = g_faceCallsOther.exchange(0); }
+std::string FaceCtlSeen() {
+    std::string out; char b[64];
+    snprintf(b, sizeof(b), " nested %u", g_faceNested.exchange(0)); out += b;
+    for (auto& s : g_faceSeen) if (uintptr_t c = s.first.exchange(0)) { snprintf(b, sizeof(b), " ctl %p -> %p", reinterpret_cast<void*>(c), reinterpret_cast<void*>(s.second.load())); out += b; }
+    return out;
+}
 
 void FiberHookRemove() {
     if (g_bumpInstalled) { RemoveTrampoline(g_bumpTarget, g_bumpSaved, sizeof(g_bumpSaved)); g_bumpInstalled = false; Log("bump hook: removed"); }

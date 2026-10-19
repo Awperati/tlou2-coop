@@ -58,6 +58,8 @@ void SetCloneWorldStick(bool on, float x, float z);
 bool FaceCtlHookInstall(uintptr_t target, uintptr_t flag, uintptr_t dir);
 void SetCloneFaceDir(uintptr_t player, bool on, float x, float z);
 void TakeFaceCtlCounts(uint32_t& clone, uint32_t& other);
+std::string FaceCtlSeen();
+void FaceCtlHookRemove();
 // Raw pad -> slot copy (rva 0x158F710): slot 3 gets this stick (slot space) while on.
 bool RawCopyHookInstall(uintptr_t target);
 void SetCloneRawStick(bool on, float x, float y);

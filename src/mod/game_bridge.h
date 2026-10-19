@@ -242,7 +242,7 @@ public:
     bool standTurning_ = false;
     bool cloneFaceForce_ = true;          // [clone] FaceForce: desired facing through her movement controller
     unsigned cloneStandTurnMs_ = 80;     // [clone] StandTurnMs: ms between steps (0 = every tick)
-    unsigned long long lastCmdMoveAt_ = 0;
+    unsigned long long lastCmdMoveAt_ = 0, localMoveAt_ = 0;
     bool cloneCatchUp_ = true;            // [clone] CatchUp: steer toward the other player's spot
     float cloneAimSign_ = 1.f;            // [clone] AimSign: right stick direction that turns her toward the target yaw
     unsigned long long lastAimLog_ = 0, lastErrLog_ = 0;

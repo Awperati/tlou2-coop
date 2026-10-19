@@ -2424,15 +2424,23 @@ void GameBridge::TickCloneDrive() {
                 bool still = cloneStillSince_ && tn - cloneStillSince_ > 500 && tn - lastCmdMoveAt_ > 800;
                 // Only while standing: walking, her own locomotion already faces their body yaw (12:06: within 0.1),
                 // and forcing it then cost drift (12:20: mean 0.66 m vs 0.22 m).
-                FaceCtlHookInstall(BuildRva(0xC31230), BuildRva(0x40FC87E), BuildRva(0x40FC880));
-                SetCloneFaceDir(p, cloneFaceForce_ && still, std::sin(look), std::cos(look));
+                if (cloneFaceForce_) FaceCtlHookInstall(BuildRva(0xC31230), BuildRva(0x40FC87E), BuildRva(0x40FC880));
+                else FaceCtlHookRemove();   // off = not hooked at all (12:5x test: is the hook itself the fault?)
+                // Not while this PC's own player walks: the force leaks into player 0's turning (13:1x, PC B:
+                // its own body stayed at 0.6-0.9 while walking 2.40; with the hook removed it turned). The
+                // leak path is not found yet (not nested, not GetPlayer); both standing is where it matters.
+                bool localMoving = false;
+                if (uintptr_t p0 = PlayerProcess(0)) if (auto lx = Read<float>(p0 + 19632 + 0xD0), lz = Read<float>(p0 + 19632 + 0xD8); lx && lz) localMoving = *lx * *lx + *lz * *lz > 0.0025f;
+                if (localMoving) localMoveAt_ = tn;
+                SetCloneFaceDir(p, cloneFaceForce_ && still && tn - localMoveAt_ > 500, std::sin(look), std::cos(look));
                 // Game-driven facing ([clone] FaceForce): her movement controller's desired facing = target.
                 // Target = their body yaw (12:19: with the camera yaw she strafed while their body turned to walk).
 
                 if (tn - lastFaceYawLog_ > 1000) {
                     lastFaceYawLog_ = tn;
                     uint32_t c1 = 0, co = 0; TakeFaceCtlCounts(c1, co);
-                    Log("cloneface: controller updates: clone %u, others %u, force %s", c1, co, cloneFaceForce_ ? "on" : "off");
+                    Log("cloneface: controller updates: clone %u, others %u, force %s; player 0 %p, player 1 %p;%s", c1, co, cloneFaceForce_ ? "on" : "off",
+                        reinterpret_cast<void*>(PlayerProcess(0)), reinterpret_cast<void*>(p), FaceCtlSeen().c_str());
                     Log("cloneface: clone yaw %.2f, other body %.2f, other camera %.2f (error %.2f), %s, aim queries answered %u", mine, tyaw, cloneAimYaw_.load(), err, still ? "standing" : "moving", CloneAimHits());
                 }
                 // Smooth ([clone] StandTurnStep rad, 0 = one snap): start past 0.35 rad, then step at most
