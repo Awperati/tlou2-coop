@@ -1358,3 +1358,9 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   player 1 (and the look poll) shows her props too; `props <i>` lists them read-only and checks that the GetPlayer()
   override returns player 1 only. Live 11:41: all 3 cloth props 1/1 visible. Arrive confirmed by the user ("walks and
   stops in place"), 0 snaps since 11:32.
+- Hood sync (11:38): Ellie's look holds both hood variants as meshes (ellie-seattle-hair-hood-up, -hoodie-up,
+  -hoodie-nocloth, ...); hood up/down is which of them are visible. Each PC now sends its own player's visible-mesh
+  mask (WorldEvent kWorldMeshMask: count + u32 mask, on change and every 30 s); the other PC mirrors it on the clone
+  (the game's whole-set hide, then a masked show; a per-mesh hide faulted). Live: PC B's Ellie clone took the host's
+  0x18d of 11 meshes (4 changed). The look poll keeps that mask instead of showing every mesh. Risk to watch: if a
+  mesh is hidden on the host by its own camera (close-up), the clone mirrors that too.

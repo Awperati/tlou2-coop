@@ -306,6 +306,12 @@ void CoopMain() {
     }
     cb.onWorldEvent = [&](uint8_t, const WorldEvent& e) {
         uint64_t sid = 0; std::string name;
+        if (e.eventId == kWorldMeshMask && e.args.size() >= 5) {
+            uint32_t mask; std::memcpy(&mask, e.args.data() + 1, 4);
+            bridge.remoteMask_ = mask; bridge.remoteMaskCount_ = e.args[0];
+            bridge.QueueApplyMeshMask(1, mask, e.args[0]);
+            return;
+        }
         if (e.eventId == kWorldPickupTaken && ReadPickupArgs(e.args, sid, name)) bridge.QueuePickupCheck(sid, name, pickupPolicy.Despawn(name));
     };
     cb.onCheckpointWritten = [&](const CheckpointEvent& e) { Log("m7: host wrote checkpoint #%u (task '%s')", e.seq, e.task.c_str()); };
@@ -441,6 +447,17 @@ void CoopMain() {
             for (const auto& d : bridge.TakeDamageOut()) session.SendEnemyDamage(d);
         }
         if (auto picked = TakePickedUp(); !picked.empty()) bridge.QueueNamePickups(std::move(picked));
+        // Our own player's visible-mesh set (hood up/down and the like): tell the other PC when it changes.
+        static ULONGLONG maskAt = 0; static uint32_t lastMask = ~0u; static int lastCount = -2;
+        if (cloneEnabled && session.connected() && now - maskAt > 1000) {
+            maskAt = now;
+            int cnt = -1; uint32_t mk = bridge.ReadMeshMask(0, &cnt);
+            if (cnt > 0 && (mk != lastMask || cnt != lastCount || now % 30000 < 1000)) {
+                lastMask = mk; lastCount = cnt;
+                WorldEvent we; we.eventId = kWorldMeshMask; we.args.resize(5); we.args[0] = static_cast<uint8_t>(cnt); std::memcpy(we.args.data() + 1, &mk, 4);
+                session.SendWorldEvent(we);
+            }
+        }
         for (const auto& [sid, name] : bridge.TakePickupOut()) {
             if (!session.connected()) continue;
             WorldEvent we; we.eventId = kWorldPickupTaken; we.args = PickupArgs(sid, name);

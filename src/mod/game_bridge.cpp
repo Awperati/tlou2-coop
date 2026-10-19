@@ -1871,6 +1871,23 @@ int SafeShowMeshes(uintptr_t proc, bool visible) {
 }
 // Draw control meshes (sub_141484610): count at dc+20, entries of 912 bytes at *(dc+8), visibility
 // bits at entry+900. Returns -1 on a fault; total and visible counts out.
+int SafeApplyMeshMask(uintptr_t proc, uint32_t mask, int total) {
+    // Whole-set hide, then show the masked meshes: the game's own two calls (a per-mesh hide faulted, 11:37).
+    using DcFn = uintptr_t (*)(uintptr_t);
+    using ShowFn = void (*)(uintptr_t, uint32_t, uint64_t, uint32_t);
+    using HideFn = void (*)(uintptr_t, uint32_t, uint64_t);
+    __try {
+        uintptr_t dc = reinterpret_cast<DcFn>(BuildRva(0x1AFD810))(proc);
+        if (!dc) return 0;
+        uintptr_t arr = *reinterpret_cast<uintptr_t*>(dc + 8);
+        int changed = 0;
+        for (int i = 0; i < total && i < 32; ++i) if ((((mask >> i) & 1) != 0) != (*reinterpret_cast<uint8_t*>(arr + 912ull * i + 900) != 0)) ++changed;
+        if (!changed) return 0;
+        reinterpret_cast<HideFn>(BuildRva(0x147ECD0))(dc, 0xFFFFFFFFu, 0);
+        reinterpret_cast<ShowFn>(BuildRva(0x1484610))(dc, 0xFFFFFFFFu, 0, mask);
+        return changed;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+}
 int SafeMeshCounts(uintptr_t proc, int* total, int* visible, uintptr_t* arrOut = nullptr, std::string* bits = nullptr) {
     using DcFn = uintptr_t (*)(uintptr_t);
     __try {
@@ -2070,7 +2087,8 @@ void GameBridge::QueueCloneMeshPoll() {
         uintptr_t p = PlayerProcess(1);
         int total = 0, vis = 0;
         if (!p || SafeMeshCounts(p, &total, &vis) != 1) return;
-        if (vis < total) SafeShowMeshes(p, true);
+        if (remoteMaskCount_.load() == total) SafeApplyMeshMask(p, remoteMask_.load(), total);
+        else if (vis < total) SafeShowMeshes(p, true);
         // Her cloth props count too (hidden cloth was her missing arms).
         auto inv = Read<uintptr_t>(p + 11264);
         for (uint32_t i = 0; inv && *inv && i < 48; ++i) {
@@ -2080,6 +2098,33 @@ void GameBridge::QueueCloneMeshPoll() {
             if (obj && SafeMeshCounts(obj, &t, &v) == 1) { if (v < t) SafeShowMeshes(obj, true); total += t; vis += v; }
         }
         meshTotal_ = total; meshVisible_ = vis;
+    });
+}
+
+// Visible-mesh mask of player <index> (bit i = mesh i shown), read from memory; -1 count on failure.
+uint32_t GameBridge::ReadMeshMask(unsigned index, int* count) {
+    *count = -1;
+    uintptr_t p = PlayerProcess(index);
+    int total = 0, vis = 0; uintptr_t arr = 0;
+    if (!p || SafeMeshCounts(p, &total, &vis, &arr) != 1 || !arr || total <= 0 || total > 32) return 0;
+    uint32_t m = 0;
+    for (int i = 0; i < total; ++i) if (auto f = Read<uint8_t>(arr + 912ull * i + 900); f && *f) m |= 1u << i;
+    *count = total;
+    return m;
+}
+
+// Mirror a mesh mask onto player <index>: show the meshes in it, hide the others (same calls as the
+// game's own show/hide, one mesh at a time: +900 bits, sub_141483220(dc), sub_14147E360(dc, i, on)).
+void GameBridge::QueueApplyMeshMask(unsigned index, uint32_t mask, int count) {
+    RunInScriptContext([this, index, mask, count] {
+        uintptr_t p = PlayerProcess(index);
+        int total = 0, vis = 0; uintptr_t arr = 0;
+        if (!p || SafeMeshCounts(p, &total, &vis, &arr) != 1 || total != count) {
+            Log("meshmask: player %u has %d meshes, the other PC %d: not mirrored", index, total, count);
+            return;
+        }
+        int changed = SafeApplyMeshMask(p, mask, total);
+        if (changed) Log("meshmask: player %u now %08x of %d meshes (%d changed; the other PC's own look state)", index, mask, count, changed);
     });
 }
 

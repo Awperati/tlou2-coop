@@ -196,6 +196,9 @@ struct WorldEvent { uint32_t eventId = 0; std::vector<uint8_t> args; };
 // WorldEvent ids. kWorldPickupTaken: args = the pickup process's name id (u64, FNV-1a 64 of its name);
 // both PCs load the same level, so the name finds the same pickup on the other PC (M6, 2026-10-19).
 constexpr uint32_t kWorldPickupTaken = 1;
+// kWorldMeshMask: args = mesh count (u8) + visible-mesh bit mask (u32 LE) of the sender's own player. The
+// look's variants are meshes (Ellie's hood up/down, 2026-10-19); the other PC mirrors the set on its clone.
+constexpr uint32_t kWorldMeshMask = 3;
 // Enemies are keyed by their spawner name's FNV-1a id: both PCs load the same level, and
 // the engine's script natives take that same id (M6, 2026-10-15).
 struct EnemyState { uint64_t sid = 0; float health = 0; uint8_t flags = 0; };
