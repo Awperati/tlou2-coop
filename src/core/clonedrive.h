@@ -11,7 +11,7 @@ namespace coop {
 struct ThetaCalibrator {
     // Tuned with TestThetaCalibratorReplay (simulated mouse-and-keyboard walks, turning lag 0.35 s).
     unsigned settleMs = 600, windowMs = 800;   // replay: theta error 0.031 rad, path error 0.47 m with catch-up
-    float gain = 0.4f, settledGain = 0.15f, minMove = 0.4f, maxMove = 4.f, stickTol = 0.2f, cmdTol = 0.25f, maxErr = 2.1f;
+    float gain = 0.4f, settledGain = 0.15f, minMove = 0.4f, maxMove = 4.f, stickTol = 0.2f, cmdTol = 0.25f, maxErr = 2.1f, settledMaxErr = 0.6f;
 
     float theta = 3.14159265f;
     // Last accepted measurement, for the log.
@@ -32,7 +32,9 @@ struct ThetaCalibrator {
         refAt_ = now; rX_ = x; rZ_ = z;
         if (d2 < minMove * minMove || d2 > maxMove * maxMove) return false;
         float e = std::remainder(ThetaFromMotion(theta, cX_, cZ_, dx, dz) - theta, 6.2831853f);
-        if (std::fabs(e) > maxErr) return false;
+        // Once settled, drop outliers: a blocked or scripted walk (12:21, a story scene) measured 1+ rad
+        // off, walked theta from 3.13 to -2.1, and her walk stalled until it was reset.
+        if (std::fabs(e) > (accepted_ >= 5 ? settledMaxErr : maxErr)) return false;
         lastBefore = theta; lastAskX = cX_; lastAskZ = cZ_; lastMovedX = dx; lastMovedZ = dz;
         // Once settled, smaller steps: single walks scatter by 10-20 degrees (11:3x log) and a full-gain
         // step made theta wobble around the right value.
