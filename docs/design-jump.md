@@ -16,6 +16,9 @@ The owner: "it doesnt detect jumping yet". Crouch and prone already work (stance
 - Detection on the sender: a jump has no `player-is-jumping?` native. Use her own motion instead.
   - Vertical speed above +2.0 m/s, from a standing or walking state, counts as a jump.
   - Also usable: `get-player-jump-or-fall-top-pos-y` (native 0xE64350) gives the jump apex.
+- Watchdog tweak: vertical speed alone also fires on ladders, steep ramps and knock-ups. Prefer the partner's
+  own action state: the jump/vault/climb state or anim name from the player's state machine, which still
+  has to be found in IDA. Use speed only as the fallback, so the A tap fires only on a real jump or vault.
 - Also send where it lands: the partner's position once vertical speed returns to ~0. This goes as a
   `WorldEvent` (kWorldJump: start x y z, land x y z).
 
