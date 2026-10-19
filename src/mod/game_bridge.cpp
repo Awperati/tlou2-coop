@@ -2070,6 +2070,18 @@ void GameBridge::QueueCloneMeshPoll() {
     });
 }
 
+// Raw draw-control mesh entries (count x 912 bytes) of player <index>, for comparing two players.
+std::vector<uint8_t> GameBridge::MeshEntries(unsigned index) {
+    std::vector<uint8_t> out;
+    uintptr_t p = PlayerProcess(index);
+    int total = 0, vis = 0; uintptr_t arr = 0;
+    if (!p || SafeMeshCounts(p, &total, &vis, &arr) != 1 || !arr || total <= 0 || total > 64) return out;
+    out.resize(static_cast<size_t>(total) * 912);
+    SIZE_T got = 0;
+    if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(arr), out.data(), out.size(), &got)) out.clear();
+    return out;
+}
+
 void GameBridge::QueueCloneBody(unsigned index) {
     // Memory reads only (the draw-control getter is a plain accessor): run now, so it also works
     // while the game is paused in the background, when script-context tasks wait.

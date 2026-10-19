@@ -248,11 +248,11 @@ public:
     bool logPadBits_ = false;          // padbits on|off: log this PC's held-button mask when it changes
     uint64_t lastPadHeld_ = 0;
     uint64_t cloneButtonMask_ = 0;     // [clone] Buttons: which held bits reach the clone (0 = none yet)
-    bool cloneWorldStick_ = false;   // also write the world stick before player 1's update (did not move her; off)
+    bool cloneWorldStick_ = true;    // write the wanted world stick before her update: her body faces where she walks (user 11:25: "faces normally"; the rotation write bugged her animation)
     std::atomic<bool> cloneDriveQueued_{false};
     std::atomic<float> cloneMoveX_{0}, cloneMoveZ_{0};
     std::atomic<unsigned long long> cloneMoveAt_{0};
-    bool cloneFaceSync_ = true;           // [clone] FaceSync: face where the other player faces
+    bool cloneFaceSync_ = false;          // [clone] FaceSync: face where the other player faces
     unsigned long long lastFaceLog_ = 0;
     bool cloneThetaFromMotion_ = true;
     ThetaCalibrator thetaCal_;   // [clone] ThetaFromMotion: calibrate the stick from her real motion
@@ -272,6 +272,7 @@ public:
     void QueueGiveWeapon(unsigned index, const std::string& name, int ammo);
     void QueueWeaponInfo(unsigned index);
     void QueueCloneBody(unsigned index);
+    std::vector<uint8_t> MeshEntries(unsigned index);
     void QueueCloneMeshPoll();
     std::atomic<int> meshTotal_{-1}, meshVisible_{-1};
     bool HasPlayer(unsigned index) { return PlayerProcess(index) != 0; }

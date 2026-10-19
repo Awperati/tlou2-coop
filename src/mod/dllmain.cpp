@@ -195,7 +195,7 @@ void CoopMain() {
     bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
     bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
     bridge.cloneThetaFromMotion_ = cfg.getBool("clone", "ThetaFromMotion", true);
-    bridge.cloneFaceSync_ = cfg.getBool("clone", "FaceSync", true);
+    bridge.cloneFaceSync_ = cfg.getBool("clone", "FaceSync", false);
     bridge.cloneAimSign_ = cfg.getFloat("clone", "AimSign", 1.f);
     bridge.cloneAimOverride_ = cfg.getBool("clone", "AimOverride", true);
     bridge.cloneAimOrder_ = cfg.getInt("clone", "AimOrder", 0);
@@ -767,6 +767,12 @@ void CoopMain() {
                         bridge.QueueGiveWeapon(gi, gn, ga);
                     }
                     else if (line.rfind("weaponinfo", 0) == 0) bridge.QueueWeaponInfo(1);
+                    else if (line.rfind("meshdump ", 0) == 0) {   // meshdump <player index> <name>: draw-control entries to tlou2-coop\<name>.bin
+                        std::istringstream md(line.substr(9)); unsigned mi = 1; std::string nm; md >> mi >> nm;
+                        auto bytes = bridge.MeshEntries(mi);
+                        if (!nm.empty() && !bytes.empty()) if (FILE* f = _wfopen((dir + L"tlou2-coop\\" + Wide(nm) + L".bin").c_str(), L"wb")) { fwrite(bytes.data(), 1, bytes.size(), f); fclose(f); }
+                        Log("meshdump: player %u, %zu bytes -> %s.bin", mi, bytes.size(), nm.c_str());
+                    }
                     else if (line.rfind("clonebody", 0) == 0) bridge.QueueCloneBody(line.size() > 10 ? static_cast<unsigned>(std::atoi(line.c_str() + 10)) : 1u);
                     else if (line.rfind("playershow ", 0) == 0) bridge.QueuePlayerShow(static_cast<unsigned>(std::atoi(line.c_str() + 11)));
                     else if (line.rfind("playertp ", 0) == 0) bridge.QueuePlayerBeside(static_cast<unsigned>(std::atoi(line.c_str() + 9)), 2.f);
@@ -843,6 +849,7 @@ void CoopMain() {
                             threads, handles, static_cast<unsigned long long>(pm.PrivateUsage >> 20), rwx, rwxBytes >> 10, TrampolineSlotsUsed(), coopMods, players, bridge.LoadedLevelCount());
                     }
                     else if (line.rfind("clonetheta ", 0) == 0) { bridge.cloneTheta_ = std::stof(line.substr(11)); Log("clonetheta: set to %.2f", bridge.cloneTheta_); }
+                    else if (line == "worldstick on" || line == "worldstick off") { bridge.cloneWorldStick_ = line == "worldstick on"; if (!bridge.cloneWorldStick_) SetCloneWorldStick(false, 0, 0); Log("worldstick: %s", bridge.cloneWorldStick_ ? "on" : "off"); }
                     else if (line == "facesync on" || line == "facesync off") { bridge.cloneFaceSync_ = line == "facesync on"; Log("facesync: %s", bridge.cloneFaceSync_ ? "on" : "off"); }
                     else if (line == "catchup on" || line == "catchup off") { bridge.cloneCatchUp_ = line == "catchup on"; Log("catchup: %s", bridge.cloneCatchUp_ ? "on" : "off"); }
                     else if (line.rfind("relay ", 0) == 0) {

@@ -1342,3 +1342,13 @@ unit test that joins a client through the relay and passes a PlayerState and a r
 - Catch-up A/B rerun (11:2x, tools/live/catchup_ab.sh, 6 x 4 s walks): catch-up off 34 samples, mean 0.25 m,
   p95 0.41, max 0.48, 0 snaps (theta already calibrated in this session). The "on" half and the wide aim recording
   were stopped when the owner became active / the game left the front.
+
+#### Clone facing and body, user at the PCs (2026-10-19 11:20-11:28)
+- FaceSync (rotation write after her update) bugged her animation (user). Replaced by the world-stick write before
+  her update (cloneWorldStick_, now default on; FaceSync off): "idle is working great", "does face normally".
+- Teleporting during the user's walks: every drive sample had `game in front 0`; her input is focus-gated. In play
+  the host has the game in front, so this only affects testing while another window is in front.
+- PC B's duplicate Ellies were orphans from reloads before the keep-her fix; PC B's game was restarted (user OK).
+- Arms missing on PC A only: her 8 mesh entries are byte-identical (pointers aside) to PC B's own Dina player, whose
+  arms show (`meshdump`). So it is not mesh visibility. Suspect: a camera-near fade from her idle camera manager 1.
+- Hood: the host's look id is 'ellie-seattle' on both PCs; the hood up/down difference is a runtime state, not the look.
