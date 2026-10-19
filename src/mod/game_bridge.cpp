@@ -2733,9 +2733,14 @@ void GameBridge::TickCloneDrive() {
             }
         }
         ULONGLONG t = GetTickCount64();
-        if (t - lastCloneLog_ > 500 && (sx != 0 || sy != 0)) {
+        // "engine world" is her stick as the engine took it, read at the top of this tick, i.e. before this tick's
+        // stick was written. The first tick of a walk therefore always read 0, which looked like a lost stick
+        // (10-20 review: 179 of 179 walk starts; real drops inside a walk 5-18 %). Log once it has been on 100 ms.
+        bool stickOn = sx != 0 || sy != 0;
+        if (!stickOn) stickOnAt_ = 0; else if (!stickOnAt_) stickOnAt_ = t;
+        if (stickOn && t - stickOnAt_ >= 100 && t - lastCloneLog_ > 500) {
             lastCloneLog_ = t;
-            Log("clonedrive: want %.2f %.2f, theta %.2f, stick %.2f %.2f, engine world %.2f %.2f, slot copies %u, game in front %d", mx, mz, cloneTheta_, sx, sy, wx ? *wx : 0.f, wz ? *wz : 0.f, CloneRawHits(), GameWindowFocused() ? 1 : 0);
+            Log("clonedrive: want %.2f %.2f, theta %.2f, stick %.2f %.2f, engine world %.2f %.2f (stick on %llu ms), slot copies %u, game in front %d", mx, mz, cloneTheta_, sx, sy, wx ? *wx : 0.f, wz ? *wz : 0.f, t - stickOnAt_, CloneRawHits(), GameWindowFocused() ? 1 : 0);
         }
     }, true);
 }
