@@ -366,6 +366,12 @@ static void TestTraversalCopy() {
     CHECK(g.Held(u, move) == 0 && g.Held(u, fnv("Edge")) == 0x80 && g.Held(u, fnv("WallShimmy")) == 0x80);
     g.Update(u += 500, move); g.Update(u += 16, fnv("Edge"));
     CHECK(g.Held(u, move) == 0x20 && g.Held(u, fnv("Edge")) == 0);   // already hanging: no climb press
+    // Jumping onto a rope or zipline: only the jump presses (the game grabs the rope out of the jump).
+    TraversalCopy r; unsigned long long v = 20000;
+    r.Update(v, move); CHECK(r.Update(v += 16, fnv("Jump")) != nullptr);
+    CHECK(r.Update(v += 300, fnv("FreeRope")) == nullptr && r.Held(v, fnv("FreeRope")) == 0);
+    r.Update(v += 2000, move); r.Update(v += 16, fnv("Jump"));
+    CHECK(r.Update(v += 300, fnv("Zipline")) == nullptr && r.Held(v) == 0);
 }
 
 static void TestJumpFromState() {

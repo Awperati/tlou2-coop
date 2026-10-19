@@ -1416,3 +1416,7 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   now gated by her own state (no jump while already airborne, no climb while already hanging) and LedgeDrop lets go
   with B only while she hangs too. Still teleport-only: zipline and free rope entries (no single button).
   Live check to add: hang on a ledge on PC B, then drop: PC A logs `clonetraversal: LedgeDrop` and she lets go.
+- Ropes and ziplines (exe strings): a rope is grabbed out of a jump (ClimbToRope::CanJump/DoJump, JumpToRope,
+  AutoClimbDownToRope); ClimbDownToRopeViaPrompt and PlayerZiplineController start from a prompt or a jump. The
+  partner's Jump already presses A for her, so FreeRope/Zipline stay follow-only (tested: Jump -> FreeRope presses
+  only A). Live check: jump onto a rope on PC B; she should grab it within her own reach or snap after.

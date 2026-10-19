@@ -28,6 +28,10 @@ constexpr uint64_t Jump = 0x15A477E9F9A165ADull, Fall = 0x1999418517F28100ull, E
 }
 
 // Follow: states the clone reaches by walking after the partner (her stick drive) or the drift snap.
+// Ropes and ziplines (exe strings, 2026-10-20): a rope is grabbed out of a jump (ClimbToRope::CanJump / DoJump,
+// JumpToRope, AutoClimbDownToRope), so the partner's Jump press already carries her onto it when one is in
+// reach; ClimbDownToRopeViaPrompt and the zipline (PlayerZiplineController) start from a prompt or a jump too.
+// So FreeRope and Zipline stay follow-only: no press of their own, which could only misfire.
 // LedgeDrop: hanging on a ledge, B lets go (only pressed while she hangs too).
 inline constexpr TraversalState kTraversalStates[] = {
     {tstate::Jump,          Traversal::Jump,    0x20,  150, "Jump",           {0, 0}, {tstate::Jump, tstate::Fall, tstate::Edge}},
