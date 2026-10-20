@@ -17,6 +17,7 @@
 #include "core/session.h"
 #include "core/teleport.h"
 #include "core/traversal.h"
+#include "core/viewmodel.h"
 #include <cstdio>
 #include <thread>
 #include <windows.h>
@@ -850,6 +851,49 @@ static void TestLoopbackSession() {
     CHECK(!why.empty());
 }
 
+// Viewmodel transform (2026-10-20): seen from the eye, a point keeps its screen direction scaled by k
+// (a narrower field of view) and comes s times closer; ScaleAbout keeps its centre fixed.
+static void TestViewmodelTransform() {
+    using namespace coop::vm;
+    float c[3] = {1, 2, 3}, out[3];
+    Apply(ScaleAbout(c, 0.3f), c, out);
+    CHECK(std::fabs(out[0] - 1) < 1e-5f && std::fabs(out[1] - 2) < 1e-5f && std::fabs(out[2] - 3) < 1e-5f);
+    // Camera at (5, 1.6, -2) looking along world -x, up +y, right = fwd x up... any orthonormal frame works.
+    float eye[3] = {5, 1.6f, -2}, fwd[3] = {-1, 0, 0}, up[3] = {0, 1, 0}, right[3] = {0, 0, -1};
+    float k = FovRatio(100.f, 70.f), s = 0.25f;
+    CHECK(k > 1.6f && k < 1.8f);
+    Mat34 a = ViewmodelTransform(eye, right, up, fwd, k, s);
+    auto cam = [&](const float p[3], float o[3]) {
+        float d[3] = {p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]};
+        o[0] = d[0] * right[0] + d[1] * right[1] + d[2] * right[2];
+        o[1] = d[0] * up[0] + d[1] * up[1] + d[2] * up[2];
+        o[2] = d[0] * fwd[0] + d[1] * fwd[1] + d[2] * fwd[2];
+    };
+    float p[3] = {4.4f, 1.3f, -1.75f}, q[3], pc[3], qc[3];   // a gun 0.6 m ahead, low right
+    Apply(a, p, q); cam(p, pc); cam(q, qc);
+    CHECK(std::fabs(qc[2] - s * pc[2]) < 1e-4f);                        // s times closer
+    CHECK(std::fabs(qc[0] / qc[2] - k * pc[0] / pc[2]) < 1e-4f);       // screen x scaled by k
+    CHECK(std::fabs(qc[1] / qc[2] - k * pc[1] / pc[2]) < 1e-4f);       // screen y scaled by k
+    Apply(a, eye, out);
+    CHECK(std::fabs(out[0] - eye[0]) < 1e-5f && std::fabs(out[1] - eye[1]) < 1e-5f && std::fabs(out[2] - eye[2]) < 1e-5f);
+    // Composition: a skinning matrix moved by a, applied to a bind-space vertex, lands at a * (m * v).
+    Mat34 m = {{0, -1, 0, 4.5f, 1, 0, 0, 1.2f, 0, 0, 1, -1.9f}};
+    float v[3] = {0.1f, 0.05f, 0.2f}, mv[3], amv[3], mv2[3];
+    Apply(m, v, mv); Apply(a, mv, amv); Apply(Mul(a, m), v, mv2);
+    CHECK(std::fabs(amv[0] - mv2[0]) < 1e-5f && std::fabs(amv[1] - mv2[1]) < 1e-5f && std::fabs(amv[2] - mv2[2]) < 1e-5f);
+    // Only the view direction matters: ViewmodelAlong equals ViewmodelTransform.
+    Mat34 b = ViewmodelAlong(eye, fwd, k, s);
+    for (int i = 0; i < 12; ++i) CHECK(std::fabs(a.m[i] - b.m[i]) < 1e-5f);
+    // Object space: a world transform applied to object-space points through the locator.
+    float lp[3] = {-67.6f, -6.8f, -205.f}, lq[4] = {0, std::sin(0.4f), 0, std::cos(0.4f)};
+    Mat34 l = FromPosQuat(lp, lq), li = InverseRigid(l), back = Mul(li, l);
+    for (int i = 0; i < 12; ++i) CHECK(std::fabs(back.m[i] - Identity34().m[i]) < 1e-5f);
+    float vo[3] = {0.2f, 1.4f, 0.3f}, w1[3], w2[3], t1[3];
+    Apply(InObjectSpace(a, l), vo, t1); Apply(l, t1, w1);   // object-space change, then to world
+    Apply(l, vo, t1); Apply(a, t1, w2);                      // to world, then the world change
+    CHECK(std::fabs(w1[0] - w2[0]) < 1e-4f && std::fabs(w1[1] - w2[1]) < 1e-4f && std::fabs(w1[2] - w2[2]) < 1e-4f);
+}
+
 int main() {
     TestProtocolRoundTrip();
     TestShots();
@@ -883,6 +927,7 @@ int main() {
     TestThetaSettledGuard();
     TestArriveStick();
     TestCatchUpModes();
+    TestViewmodelTransform();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

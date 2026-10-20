@@ -51,6 +51,12 @@ target_compile_definitions(coop_inject PRIVATE UNICODE _UNICODE NOMINMAX)
 # so nothing goes into the game folder. Independent of the co-op mod.
 add_executable(fp_launcher tools/fp_launcher/fp_launcher.cpp)
 target_compile_definitions(fp_launcher PRIVATE UNICODE _UNICODE NOMINMAX)
+# TLOU2Viewmodel.dll (10-20): research toward a real first-person weapon viewmodel. Separate from the co-op
+# mod; loaded with fp_launcher --asi. Moves player 0's drawn mesh through her GPU skinning matrices.
+add_library(tlou2_vm SHARED src/vm/vm_main.cpp src/mod/log.cpp)
+set_target_properties(tlou2_vm PROPERTIES OUTPUT_NAME "TLOU2Viewmodel")
+target_include_directories(tlou2_vm PRIVATE src)
+target_compile_definitions(tlou2_vm PRIVATE UNICODE _UNICODE NOMINMAX)
 add_executable(coop_launcher src/launcher/launcher.cpp)
 target_compile_definitions(coop_launcher PRIVATE UNICODE _UNICODE NOMINMAX)
 
