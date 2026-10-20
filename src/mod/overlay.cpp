@@ -12,7 +12,7 @@ namespace coop {
 namespace {
 struct Shared {
     std::mutex mu;
-    std::wstring prompt, status, notice;
+    std::wstring prompt, status, notice, held;   // held: the latest notice from before the player was in game
     float progress = -1;
     ULONGLONG noticeUntil = 0;
     std::deque<std::wstring> speech;
@@ -20,6 +20,7 @@ struct Shared {
 
 OverlayOptions g_opt;
 std::atomic<bool> g_run{false};
+std::atomic<bool> g_inGame{false};
 // Heap-allocated and never destroyed: a joinable std::thread destroyed during process
 // exit calls std::terminate (the second dump after every game crash).
 std::thread* g_thread = nullptr;
@@ -115,7 +116,7 @@ void ThreadMain() {
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
 
         HWND game = FindGameWindow();
-        bool show = game && !IsIconic(game) && GetForegroundWindow() == game;
+        bool show = g_inGame && game && !IsIconic(game) && GetForegroundWindow() == game;
         if (show) {
             RECT rc; GetClientRect(game, &rc);
             POINT tl{0, 0}; ClientToScreen(game, &tl);
@@ -170,7 +171,7 @@ void OverlaySetPrompt(const std::wstring& text, float progress) {
         fresh = g.prompt != text;
         g.prompt = text; g.progress = progress;
     }
-    if (fresh) Speak(text);
+    if (fresh && g_inGame) Speak(text);
 }
 
 void OverlayClearPrompt() {
@@ -184,6 +185,7 @@ void OverlaySetStatus(const std::wstring& text) {
 }
 
 void OverlayNotify(const std::wstring& text) {
+    if (!g_inGame) { std::lock_guard lk(g.mu); g.held = text; return; }
     {
         std::lock_guard lk(g.mu);
         g.notice = text; g.noticeUntil = GetTickCount64() + 4000;
@@ -191,8 +193,15 @@ void OverlayNotify(const std::wstring& text) {
     Speak(text);
 }
 
+void OverlaySetInGame(bool inGame) {
+    if (g_inGame.exchange(inGame) == inGame || !inGame) return;
+    std::wstring held;
+    { std::lock_guard lk(g.mu); held.swap(g.held); }
+    if (!held.empty()) OverlayNotify(held);
+}
+
 void OverlayCue(int kind) {
-    if (!g_opt.sounds) return;
+    if (!g_opt.sounds || !g_inGame) return;
     static const UINT kinds[] = {MB_ICONASTERISK, MB_OK, MB_ICONEXCLAMATION, MB_ICONHAND};
     MessageBeep(kinds[kind & 3]);
 }

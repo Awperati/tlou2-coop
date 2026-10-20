@@ -24,6 +24,14 @@ struct Section {
     bool sameAs(const Section& o) const { return world == o.world && task == o.task; }
 };
 
+// The ids task-find / task-play-debug! take, from the names (read live 10-21 on 'watchtower' /
+// 'wat-freeway-checkpoint'): FNV-1a 64 of the chapter world without "world-", and of the task name.
+inline uint64_t SectionFnv(const std::string& t) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char c : t) { h ^= c; h *= 0x100000001b3ull; } return h; }
+inline void SectionFindIds(Section& s) {
+    std::string w = s.world.rfind("world-", 0) == 0 ? s.world.substr(6) : s.world;
+    s.findA = SectionFnv(w); s.findB = SectionFnv(s.task);
+}
+
 // Section as WorldEvent args (kWorldSection): world, task (u8 length + bytes each), findA, findB (u64 LE).
 inline std::vector<uint8_t> SectionArgs(const Section& s) {
     std::vector<uint8_t> a;

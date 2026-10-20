@@ -363,6 +363,7 @@ public:
     void QueueReadSectionIds();
     void QueueJumpToSection(uint64_t a, uint64_t b);   // task-play-debug!(a, b, 0): the task from its start
     std::atomic<uint64_t> sectionFindA_{0}, sectionFindB_{0};
+    std::atomic<bool> cloneApart_{false};   // the partner is in another section: don't drive or snap her there
     std::mutex sectionMu_;
     std::string sectionIdsTask_;
     // M7 actions. task-restart-from-continue (native 0x427500, no args) runs

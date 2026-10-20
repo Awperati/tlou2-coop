@@ -276,6 +276,9 @@ void CoopMain() {
         Log("section: %zu sections explored on this PC, %zu chapters in story order", explored.size(), order.size());
     }
     SectionPrompt sectionPrompt;
+    // Our mesh mask (hood up/down) goes out again at once when the partner (re)joins: a restarted PC dressed
+    // its new clone with every mesh showing and waited up to 30 s for the periodic send (owner 10-21: hood up).
+    bool resendMask = false;
     const int sectionKey = ParseKey(cfg.get("sync", "SectionKey", "F9"));
     const bool sectionSync = cfg.getBool("sync", "SectionSync", true);
     bool sectionCmdPress = false;
@@ -285,6 +288,7 @@ void CoopMain() {
     Session::Callbacks cb;
     cb.onPeerJoined = [&](uint8_t slot, const Hello& h) {
         Log("player %u joined: %s", slot, h.playerName.c_str());
+        resendMask = true; lastSectionSend = 0;
         OverlayNotify(Wide(h.playerName) + L" joined");
         OverlayCue(2);
         if (objective) session.SendObjective(*objective);
@@ -323,6 +327,7 @@ void CoopMain() {
     auto inChapter = [](const std::string& pack) { return !pack.empty() && pack != "world-game-start"; };
     cb.onWelcome = [&](const Welcome& w) {
         mySlot = w.slot;
+        resendMask = true; lastSectionSend = 0;
         auto pack = bridge.CurrentWorldPack();
         Log("joined as slot %u (chapter '%s')", w.slot, pack.c_str());
         OverlayNotify(L"Connected to the host");
@@ -531,10 +536,11 @@ void CoopMain() {
         if (auto picked = TakePickedUp(); !picked.empty()) bridge.QueueNamePickups(std::move(picked));
         // Our own player's visible-mesh set (hood up/down and the like): tell the other PC when it changes.
         static ULONGLONG maskAt = 0; static uint32_t lastMask = ~0u; static int lastCount = -2;
-        if (cloneEnabled && session.connected() && now - maskAt > 1000) {
+        if (cloneEnabled && session.connected() && (now - maskAt > 1000 || resendMask)) {
             maskAt = now;
             int cnt = -1; uint32_t mk = bridge.ReadMeshMask(0, &cnt);
-            if (cnt > 0 && (mk != lastMask || cnt != lastCount || now % 30000 < 1000)) {
+            if (cnt > 0 && (mk != lastMask || cnt != lastCount || resendMask || now % 30000 < 1000)) {
+                resendMask = false;
                 lastMask = mk; lastCount = cnt;
                 WorldEvent we; we.eventId = kWorldMeshMask; we.args.resize(5); we.args[0] = static_cast<uint8_t>(cnt); std::memcpy(we.args.data() + 1, &mk, 4);
                 session.SendWorldEvent(we);
@@ -569,6 +575,10 @@ void CoopMain() {
         }
 
         auto self = bridge.ReadLocalPlayer(tick);
+        {   // co-op pop-ups only once a player is loaded in a chapter (not on the logos or the title screen)
+            std::string w = Lower(bridge.CurrentChapterWorld());
+            OverlaySetInGame(self.has_value() && !w.empty() && w != "world-game-start");
+        }
         if (self) {
             self->character = myCharacter;
             if (bool mv = (self->flags & kMoving) != 0; mv != selfMovingLogged) { selfMovingLogged = mv; Log("self: %s (stick world %.2f %.2f)", mv ? "moving" : "stopped", self->moveX, self->moveZ); }
@@ -635,15 +645,19 @@ void CoopMain() {
         // Section sync (core/sections.h): track and save this PC's story section, send it, and offer the partner's.
         if (sectionSync) {
             Section cur{Lower(bridge.CurrentChapterWorld()), bridge.CurrentTask()};
-            if (cur.valid() && !cur.sameAs(mySection)) {
+            if (cur.world == "world-game-start") cur = {};   // the title screen is no section to offer or record
+            if (!cur.valid()) mySection = {};
+            else if (!cur.sameAs(mySection)) {
                 mySection = cur;
+                SectionFindIds(mySection);   // from the names; the live read below confirms them
                 if (explored.Visit(cur)) explored.Save(Narrow(dir + L"tlou2-coop\\explored.txt"));
                 bridge.QueueReadSectionIds();
                 lastSectionSend = 0;
             }
             {   // the ids arrive from a script call once read
                 std::lock_guard lk(bridge.sectionMu_);
-                if (bridge.sectionIdsTask_ == mySection.task && (mySection.findA != bridge.sectionFindA_ || mySection.findB != bridge.sectionFindB_)) {
+                if (bridge.sectionIdsTask_ == mySection.task && (bridge.sectionFindA_ || bridge.sectionFindB_) && (mySection.findA != bridge.sectionFindA_ || mySection.findB != bridge.sectionFindB_)) {
+                    Log("section: live ids differ from the name hashes; using the live ones");
                     mySection.findA = bridge.sectionFindA_; mySection.findB = bridge.sectionFindB_; lastSectionSend = 0;
                 }
             }
@@ -658,8 +672,16 @@ void CoopMain() {
             bool press = (keyDown && !sectionKeyPrev) || sectionCmdPress;
             sectionKeyPrev = keyDown; sectionCmdPress = false;
             SectionWhere where = explored.Classify(mySection, partnerSection);
+            bool apart = partnerSection.valid() && mySection.valid() && !partnerSection.sameAs(mySection);
+            if (apart != bridge.cloneApart_.load()) {
+                bridge.cloneApart_ = apart;
+                Log("section: %s", apart ? "partner in another section: their clone hidden and not driven here" : "same section again: clone back");
+                if (bridge.cloneDrive_) bridge.QueuePlayerShow(1, !apart);
+            }
             if (sectionPrompt.Update(now, mySection, partnerSection, where, press)) {
-                const Section& t = sectionPrompt.target();
+                Section t = sectionPrompt.target();
+                if (partnerSection.sameAs(t) && (partnerSection.findA || partnerSection.findB)) { t.findA = partnerSection.findA; t.findB = partnerSection.findB; }
+                if (!t.findA && !t.findB) SectionFindIds(t);
                 if (t.findA || t.findB) {
                     Log("section: going to the partner's section '%s' / '%s' (%s)", t.world.c_str(), t.task.c_str(), where == SectionWhere::Explored ? "explored before" : "unexplored, confirmed");
                     OverlayNotify(L"Going to your partner's section");
@@ -1228,7 +1250,7 @@ void CoopMain() {
                 else if (now - cloneWaitStart > 90000) { cloneStage = 0; cloneLookPending = true; Log("clone: packages for '%s' still not loaded after 90 s; she stays Ellie for now, checking again every 10 s", cloneLook.c_str()); }
                 else cloneAt = now + 1000;
             }
-            else { bridge.QueuePlayerShow(1); scheduleShows(now); cloneStage = 0; Log("clone: player 1 ready as '%s'", cloneLook.c_str()); }
+            else { bridge.QueuePlayerShow(1, !bridge.cloneApart_.load()); scheduleShows(now); cloneStage = 0; Log("clone: player 1 ready as '%s'%s", cloneLook.c_str(), bridge.cloneApart_.load() ? " (hidden: partner in another section)" : ""); }
         }
         if (!isHost && mySlot && now - lastPackCheck >= 2000) {
             lastPackCheck = now;

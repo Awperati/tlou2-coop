@@ -417,6 +417,8 @@ static void TestSections() {
     // Over the wire.
     Section w{"world-theater", "thr-lobby", 0x1122334455667788ull, 0x99AABBCCDDEEFF00ull}, r;
     CHECK(SectionFromArgs(SectionArgs(w), r) && r.sameAs(w) && r.findA == w.findA && r.findB == w.findB);
+    Section ids{"world-watchtower", "wat-freeway-checkpoint"}; SectionFindIds(ids);   // live values 10-21
+    CHECK(ids.findA == 0xa0c7ce407357e715ull && ids.findB == 0xc295ac90963bc018ull);
     auto cut = SectionArgs(w); cut.resize(cut.size() - 3);
     CHECK(!SectionFromArgs(cut, r) && r.sameAs(w));                          // truncated: rejected, untouched
 

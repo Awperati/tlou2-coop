@@ -2168,6 +2168,12 @@ void GameBridge::QueueReadSectionIds() {
 
 void GameBridge::QueueJumpToSection(uint64_t a, uint64_t b) {
     RunInScriptContext([a, b] {
+        // The clone goes first (kill-entity 0xD4BB40 on 'player-2'): the jump reloads player 0, and the game
+        // asserts when player 0 spawns while a player 1 exists (PC B 10-21 07:14:55, as 10-19 11:17).
+        // Clone mode spawns her again once our player has been back 5 s.
+        uint64_t k[8] = {Fnv1a("player-2")}, kr[4] = {};
+        bool killed = SafeNative(BuildRva(0xD4BB40), 1, k, kr) && kr[0];
+        Log("section: clone removed before the jump: %s", killed ? "yes" : "no clone");
         uint64_t argv[8] = {a, b, 0}, ret[4] = {};
         bool ok = SafeNative(BuildRva(0xD61500), 3, argv, ret);
         Log("section: task-play-debug! %016llx %016llx from its start: %s", static_cast<unsigned long long>(a), static_cast<unsigned long long>(b), ok ? "queued" : "FAULT");
@@ -2501,6 +2507,9 @@ void GameBridge::TickCloneDrive() {
     if (!cloneDrive_ || cloneDriveQueued_.exchange(true)) return;
     RunOnGameFiber([this] {
         cloneDriveQueued_ = false;
+        // Partner in another section (section sync): their spots are not in this level. Driving or snapping her
+        // there would throw her out of the world (10-20 07:20 crash), so she stands still, hidden (dllmain).
+        if (cloneApart_.load()) { SetCloneRawStick(false, 0, 0); SetCloneFaceDir(PlayerProcess(1), false, 0, 1); return; }
         uintptr_t p = PlayerProcess(1), slot = JoypadSlot(3);
         // Only with traversal copying on (her jumps need landing probes); off by default until seen live.
         if (p && cloneTraversal_ && cloneKickJumpProbes_) { if (!KickCloneJumpProbes(p) && !kickProbeFailLogged_) { kickProbeFailLogged_ = true; Log("clonejump: kicking her jump probes faulted; leaving them"); cloneKickJumpProbes_ = false; } }
