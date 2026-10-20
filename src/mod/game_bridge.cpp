@@ -2591,6 +2591,21 @@ void GameBridge::TickCombat() {
         CombatReading her = ReadCombatOf(p1, p1);
         CombatActions a = combatReplay_.Update(now, pw, her, fresh);
         cloneCombatAim_ = a.aim; cloneTriggerUntil_ = a.triggerUntil; cloneMeleeUntil_ = a.meleeUntil;
+        // combattest (research, 10-21): drive her without the partner, to see what reaches her on this PC (her pad
+        // input with the game behind other windows) and how fast her body answers.
+        if (now < combatTestUntil_) {
+            std::lock_guard lk(combatMu_);
+            if (combatTestKind_ == "aim" || combatTestKind_ == "fire") cloneCombatAim_ = true;
+            if (combatTestKind_ == "fire" && now >= combatTestNextAt_ && combatTestLeft_ > 0) {
+                combatTestNextAt_ = now + 500; --combatTestLeft_; cloneTriggerUntil_ = now + 70; combatShotAskedAt_ = now;
+                Log("combattest: RT press (clip %d, %d left)", her.clip, combatTestLeft_);
+            }
+            if (combatTestKind_ == "melee" && now >= combatTestNextAt_ && combatTestLeft_ > 0) { combatTestNextAt_ = now + 700; --combatTestLeft_; cloneMeleeUntil_ = now + 100; Log("combattest: X press"); }
+            if (combatTestKind_ == "draw" && combatTestLeft_ > 0) { a.draw = combatTestWeapon_; combatTestLeft_ = 0; }
+            if (combatTestKind_ == "holster" && combatTestLeft_ > 0) { a.holster = true; combatTestLeft_ = 0; }
+            if (combatTestKind_ == "reload" && combatTestLeft_ > 0) { a.reload = true; combatTestLeft_ = 0; }
+            if (combatTestKind_ == "grenade" && combatTestLeft_ > 0) { a.selectGrenade = combatTestWeapon_; combatTestLeft_ = 0; }
+        }
         // Latency (the owner's 0.3 s): from asking her to the clone's own reading showing it.
         if (her.weapon && her.weapon != lastCloneCombat_.weapon && combatDrawAskedAt_ && her.weapon == combatDrawAsked_) {
             Log("combat: clone now holds %016llx, %llu ms after the draw was asked", static_cast<unsigned long long>(her.weapon), now - combatDrawAskedAt_); combatDrawAskedAt_ = 0;
@@ -2602,7 +2617,7 @@ void GameBridge::TickCombat() {
         if (her.weapon != lastCloneCombat_.weapon || her.reloading != lastCloneCombat_.reloading || her.state != lastCloneCombat_.state || (combatLog_ && her != lastCloneCombat_))
             Log("combat: clone %s", CombatText(her).c_str());
         lastCloneCombat_ = her;
-        bool topUp = her.weapon && her.total >= 0 && her.clip >= 0 && her.total - her.clip < 20 && now - lastAmmoTopUp_ > 3000;
+        bool topUp = her.weapon && her.total >= 0 && her.clip >= 0 && her.total - her.clip < 10 && now - lastAmmoTopUp_ > 3000;
         if (a.draw || a.holster || a.selectGrenade || a.setClip >= 0 || a.reload || a.fire || topUp) {
             SetPlayerOverride(p1);
             if (a.draw) {
@@ -2625,8 +2640,9 @@ void GameBridge::TickCombat() {
             }
             // Spare rounds for her reloads (a reload takes them from her reserve).
             if (topUp) {
-                lastAmmoTopUp_ = now; CombatNative(0xC8F870, 3, her.weapon, 30, 0);
-                Log("combatsync: clone reserve %d, gave 30 rounds of %016llx", her.total - her.clip, static_cast<unsigned long long>(her.weapon));
+                // give-player-weapon adds no rounds to a weapon she has (live 10-21: reserve stayed 1).
+                lastAmmoTopUp_ = now; CombatNative(0xC885E0, 1, 30);                       // set-player-weapon-reserve-ammo (count; in hand)
+                Log("combatsync: clone reserve %d, set to 30 for %016llx", her.total - her.clip, static_cast<unsigned long long>(her.weapon));
             }
             if (a.reload) { bool ok = false; CombatNative(0xCA15F0, 0, 0, 0, 0, &ok); combatReloadAskedAt_ = now; Log("combatsync: clone reload (clip %d, partner %d): %s", her.clip, pw.clip, ok ? "asked" : "FAULT"); }   // player-reload
             if (a.fire) { CombatNative(0xC987F0); combatShotAskedAt_ = now; Log("combatsync: clone fires at her reticle (engine)"); }   // player-fire-weapon-at-reticle

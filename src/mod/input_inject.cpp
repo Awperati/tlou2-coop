@@ -186,6 +186,7 @@ bool InputScriptAdd(const std::string& lineIn) {
         std::string btn; in >> btn;
         ms = 150; in >> ms;
         for (auto& part : SplitList(btn, '+')) {
+            if (part == "lt" || part == "rt") { (part == "lt" ? s.lt : s.rt) = 255; continue; }   // "press x+lt": reload while aiming
             WORD bit = ButtonBit(part);
             if (!bit) return false;
             s.buttons |= bit;

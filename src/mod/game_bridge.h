@@ -347,6 +347,14 @@ public:
     unsigned long long lastAmmoTopUp_ = 0, combatShotAskedAt_ = 0, combatReloadAskedAt_ = 0, combatDrawAskedAt_ = 0, combatThrowAskedAt_ = 0;
     uint64_t combatDrawAsked_ = 0;
     static unsigned long long GetTickCount64Ms();
+    // combattest aim|fire|melee|draw|holster|reload|grenade [n|id] [ms]: drive the clone's combat without the partner.
+    void CombatTest(const std::string& kind, uint64_t arg, unsigned ms) {
+        std::lock_guard lk(combatMu_);
+        combatTestKind_ = kind; combatTestWeapon_ = arg; combatTestLeft_ = kind == "fire" || kind == "melee" ? static_cast<int>(arg ? arg : 1) : 1;
+        combatTestNextAt_ = 0; combatTestUntil_ = GetTickCount64Ms() + ms;
+    }
+    std::string combatTestKind_; uint64_t combatTestWeapon_ = 0; int combatTestLeft_ = 0;
+    unsigned long long combatTestUntil_ = 0, combatTestNextAt_ = 0;
     void QueueCloneBody(unsigned index);
     void QueuePlayerProps(unsigned index);
     int ShowPlayerProps(uintptr_t player, bool visible);

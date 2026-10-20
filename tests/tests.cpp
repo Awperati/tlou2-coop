@@ -660,6 +660,12 @@ static void TestCombatSync() {
         // Engine fire mode: a shot is a fire action, no RT.
         CombatReplay eng; eng.padFire = false; CombatWire e; e.weapon = pistol; e.clip = 5;
         eng.Update(1000, e, her, true); e.fireSeq = 1; a = eng.Update(1033, e, her, true); CHECK(a.fire == 1 && a.triggerUntil == 0);
+        // No clip write while her replayed round is on its way (the mirror must not take it first).
+        CombatReplay hold; CombatWire h; h.weapon = pistol; h.clip = 5; CombatReading hh; hh.weapon = pistol; hh.clip = 5;
+        hold.Update(1000, h, hh, true); h.fireSeq = 1; h.clip = 4;
+        a = hold.Update(1033, h, hh, true); CHECK(a.triggerUntil > 1033 && a.setClip < 0);
+        a = hold.Update(1133, h, hh, true); CHECK(a.setClip < 0);
+        a = hold.Update(1700, h, hh, true); CHECK(a.setClip == 4);          // she never fired: back in line with the partner
         // Throwable selection follows the partner's aimed grenade once per change.
         CombatReplay g; CombatWire gw; gw.grenade = molotov; a = g.Update(1000, gw, her, true); CHECK(a.selectGrenade == molotov);
         a = g.Update(1033, gw, her, true); CHECK(a.selectGrenade == 0);

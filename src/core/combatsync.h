@@ -117,7 +117,7 @@ struct CombatActions {
 };
 
 struct CombatReplay {
-    unsigned pressMs = 70, gapMs = 60, meleeMs = 100, drawRetryMs = 1200, clipEveryMs = 250;
+    unsigned pressMs = 70, gapMs = 60, meleeMs = 100, drawRetryMs = 1200, clipEveryMs = 250, clipHoldMs = 500;
     bool padFire = true;      // shots as RT presses; false = the engine fire native (CombatActions.fire)
 
     // fresh: the partner's packets are current (their game runs, the link is up); apart: they are in another
@@ -153,6 +153,9 @@ struct CombatReplay {
             if (padFire) { triggerUntil_ = now + pressMs; triggerFreeAt_ = triggerUntil_ + gapMs; }
             else { a.fire = 1; triggerFreeAt_ = now + pressMs + gapMs; }
             --pendingShots_;
+            // No clip write until her own round has left (live 10-21 08:04: the mirror took the round 50 ms into
+            // the press, before her trigger could).
+            if (nextClipAt_ < triggerFreeAt_ + clipHoldMs) nextClipAt_ = triggerFreeAt_ + clipHoldMs;
         }
         if (pendingThrows_ && now >= triggerFreeAt_) { triggerUntil_ = now + pressMs; triggerFreeAt_ = triggerUntil_ + gapMs; --pendingThrows_; }
         if (pendingSwings_ && now >= meleeFreeAt_) { meleeUntil_ = now + meleeMs; meleeFreeAt_ = meleeUntil_ + gapMs; --pendingSwings_; }

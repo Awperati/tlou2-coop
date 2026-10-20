@@ -930,6 +930,11 @@ void CoopMain() {
                         }
                     }
                     else if (line == "padbits on" || line == "padbits off") { bridge.logPadBits_ = line == "padbits on"; Log("padbits: %s", bridge.logPadBits_ ? "on" : "off"); }
+                    else if (line.rfind("combattest ", 0) == 0) {   // combattest <kind> [n|hex id] [ms]
+                        std::istringstream ct(line.substr(11)); std::string kind, arg; unsigned ms = 3000; ct >> kind >> arg >> ms;
+                        uint64_t v = 0; try { v = arg.empty() ? 0 : std::stoull(arg, nullptr, (kind == "draw" || kind == "grenade") ? 16 : 10); } catch (...) {}
+                        bridge.CombatTest(kind, v, ms); Log("combattest: %s %llx for %u ms", kind.c_str(), static_cast<unsigned long long>(v), ms);
+                    }
                     else if (line == "combatfire pad" || line == "combatfire engine") { bridge.combatReplay_.padFire = line == "combatfire pad"; Log("combatfire: %s", bridge.combatReplay_.padFire ? "pad (RT presses)" : "engine (player-fire-weapon-at-reticle)"); }
                     else if (line.rfind("clonebuttons ", 0) == 0) { bridge.cloneButtonMask_ = std::stoull(Trim(line.substr(13)), nullptr, 16); Log("clonebuttons: mask %016llx", static_cast<unsigned long long>(bridge.cloneButtonMask_)); }
                     else if (line == "clonedrive on" || line == "clonedrive off") { bridge.cloneDrive_ = line == "clonedrive on"; if (!bridge.cloneDrive_) { SetCloneWorldStick(false, 0, 0); SetCloneRawStick(false, 0, 0); } Log("clonedrive: %s", bridge.cloneDrive_ ? "on (the other player's stick drives player 1)" : "off"); }
