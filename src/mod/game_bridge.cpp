@@ -2140,6 +2140,40 @@ void GameBridge::QueueGestureEvent(unsigned index, uint64_t gestureId, int layer
     });
 }
 
+// Section sync: task natives (rva) task-get-current 0xD61110 (node), task-get-current-world-id 0xD61380,
+// task-get-current-node-id 0xD611A0, task-get-current-symbol 0xD612F0, task-find 0xD60F60 (a, b) -> node,
+// task-play-debug! 0xD61500 (a, b, continue): finds the node like task-find and queues it to play from that
+// continue (0 = the task's default start; sub_141C46890 with deferred = 1, picked up by the task manager).
+void GameBridge::QueueReadSectionIds() {
+    std::string task = taskName_;
+    RunInScriptContext([this, task] {
+        uint64_t argv[8] = {}, ret[4] = {};
+        auto call = [&](uint32_t rva, int argc) { ret[0] = 0; return SafeNative(BuildRva(rva), argc, argv, ret) ? ret[0] : 0ull; };
+        uint64_t node = call(0xD61110, 0), world = call(0xD61380, 0), nodeId = call(0xD611A0, 0), sym = call(0xD612F0, 0);
+        uint64_t name = Fnv1a(task);
+        const uint64_t cand[][2] = {{world, nodeId}, {nodeId, world}, {world, sym}, {nodeId, sym}, {world, name}, {nodeId, name}, {sym, name}, {sym, nodeId}};
+        uint64_t a = 0, b = 0;
+        for (const auto& c : cand) {
+            if (!c[0] && !c[1]) continue;
+            argv[0] = c[0]; argv[1] = c[1];
+            if (node && call(0xD60F60, 2) == node) { a = c[0]; b = c[1]; break; }
+        }
+        Log("section: task '%s' node %p world %016llx node-id %016llx symbol %016llx name %016llx -> find %016llx %016llx%s", task.c_str(), reinterpret_cast<void*>(node),
+            static_cast<unsigned long long>(world), static_cast<unsigned long long>(nodeId), static_cast<unsigned long long>(sym), static_cast<unsigned long long>(name),
+            static_cast<unsigned long long>(a), static_cast<unsigned long long>(b), a || b ? "" : " (no pair found the current task)");
+        sectionFindA_ = a; sectionFindB_ = b;
+        std::lock_guard lk(sectionMu_); sectionIdsTask_ = task;
+    });
+}
+
+void GameBridge::QueueJumpToSection(uint64_t a, uint64_t b) {
+    RunInScriptContext([a, b] {
+        uint64_t argv[8] = {a, b, 0}, ret[4] = {};
+        bool ok = SafeNative(BuildRva(0xD61500), 3, argv, ret);
+        Log("section: task-play-debug! %016llx %016llx from its start: %s", static_cast<unsigned long long>(a), static_cast<unsigned long long>(b), ok ? "queued" : "FAULT");
+    });
+}
+
 void GameBridge::QueueGiveWeapon(unsigned index, const std::string& name, int ammo) {
     RunInScriptContext([this, index, name, ammo] {
         uintptr_t p = PlayerProcess(index);

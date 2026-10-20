@@ -252,6 +252,9 @@ constexpr uint32_t kWorldPickupTaken = 1;
 // kWorldMeshMask: args = mesh count (u8) + visible-mesh bit mask (u32 LE) of the sender's own player. The
 // look's variants are meshes (Ellie's hood up/down, 2026-10-19); the other PC mirrors the set on its clone.
 constexpr uint32_t kWorldMeshMask = 3;
+// kWorldSection: args = the sender's story section (core/sections.h SectionArgs: world, task, task-find ids).
+// Sent on every task change and every 10 s; the other PC offers to go there (section sync, 2026-10-21).
+constexpr uint32_t kWorldSection = 4;
 // Enemies are keyed by their spawner name's FNV-1a id: both PCs load the same level, and
 // the engine's script natives take that same id (M6, 2026-10-15).
 struct EnemyState { uint64_t sid = 0; float health = 0; uint8_t flags = 0; };

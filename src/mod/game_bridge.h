@@ -356,6 +356,15 @@ public:
     bool DrivePuppet(uint8_t slot, const PlayerState& s, bool selfMode = false);
     std::string CurrentWorldPack();
     std::string CurrentTask() const { return taskName_; }
+    std::string CurrentChapterWorld() const { return chapterWorld_; }
+    // Section sync (core/sections.h, owner 10-21). The two ids task-find / task-play-debug! take for the
+    // current task, found on the sender by trying the ids the task natives report until task-find returns the
+    // current task node. Script context; result in sectionFindA_/B_ for the task named in sectionIdsTask_.
+    void QueueReadSectionIds();
+    void QueueJumpToSection(uint64_t a, uint64_t b);   // task-play-debug!(a, b, 0): the task from its start
+    std::atomic<uint64_t> sectionFindA_{0}, sectionFindB_{0};
+    std::mutex sectionMu_;
+    std::string sectionIdsTask_;
     // M7 actions. task-restart-from-continue (native 0x427500, no args) runs
     // GameRestartCheckpoint(0, 1), like the pause menu's Restart Checkpoint.
     // pause-game-clock 0x41A060 / unpause-game-clock 0x427B40 freeze gameplay time.

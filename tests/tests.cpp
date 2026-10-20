@@ -11,6 +11,7 @@
 #include "core/clocksync.h"
 #include "core/faceforce.h"
 #include "core/lossy_proxy.h"
+#include "core/sections.h"
 #include "core/gesturesync.h"
 #include "core/pickups.h"
 #include "core/roster.h"
@@ -391,6 +392,64 @@ static void TestTraversalCopy() {
         CHECK(TraversalCopy::Active(w) == &st && (w & TraversalCopy::kUntilMask) == 25'920'000'000ull);
     }
     CHECK(TraversalCopy::Active(0) == nullptr);
+}
+
+static void TestSections() {
+    // Exploration: story order from roster.ini's chapter order.
+    ExploredLog log({"world-patrol", "world-seattle-arrival", "world-watchtower", "world-theater"});
+    Section patrol{"world-patrol", "pat-start"}, arrive{"world-seattle-arrival", "sea-hub"}, tower{"world-watchtower", "wat-climb"},
+            towerLater{"world-watchtower", "wat-top"}, theater{"world-theater", "thr-lobby"}, odd{"world-unknown", "x"};
+    CHECK(log.Visit(patrol) && log.Visit(arrive) && log.Visit(tower) && !log.Visit(tower));
+    CHECK(log.Classify(tower, tower) == SectionWhere::Same);
+    CHECK(log.Classify(tower, arrive) == SectionWhere::Explored);            // visited
+    CHECK(log.Classify(tower, Section{"world-patrol", "pat-other"}) == SectionWhere::Explored);   // earlier chapter
+    CHECK(log.Classify(tower, towerLater) == SectionWhere::Unexplored);      // later task in the furthest chapter
+    CHECK(log.Classify(tower, theater) == SectionWhere::Unexplored);         // later chapter
+    CHECK(log.Classify(tower, odd) == SectionWhere::Unexplored);             // unknown chapter: warn
+    CHECK(log.Classify(tower, Section{}) == SectionWhere::Unknown);
+    // Saved and loaded.
+    char tmp[MAX_PATH]; GetTempPathA(MAX_PATH, tmp);
+    std::string path = std::string(tmp) + "coop_explored_test.txt";
+    CHECK(log.Save(path));
+    ExploredLog back({"world-patrol", "world-seattle-arrival", "world-watchtower", "world-theater"});
+    CHECK(back.Load(path) && back.size() == 3 && back.Visited(arrive) && back.Classify(tower, theater) == SectionWhere::Unexplored);
+    DeleteFileA(path.c_str());
+    // Over the wire.
+    Section w{"world-theater", "thr-lobby", 0x1122334455667788ull, 0x99AABBCCDDEEFF00ull}, r;
+    CHECK(SectionFromArgs(SectionArgs(w), r) && r.sameAs(w) && r.findA == w.findA && r.findB == w.findB);
+    auto cut = SectionArgs(w); cut.resize(cut.size() - 3);
+    CHECK(!SectionFromArgs(cut, r) && r.sameAs(w));                          // truncated: rejected, untouched
+
+    // The prompt. Explored: one press goes, after the 5 s settle.
+    SectionPrompt p; unsigned long long t = 1000;
+    CHECK(!p.Update(t, tower, arrive, SectionWhere::Explored, false) && p.state() == SectionPrompt::State::Hidden);
+    CHECK(!p.Update(t += 4900, tower, arrive, SectionWhere::Explored, true) && p.state() == SectionPrompt::State::Hidden);   // too early
+    CHECK(!p.Update(t += 200, tower, arrive, SectionWhere::Explored, false) && p.state() == SectionPrompt::State::Offer);
+    CHECK(p.Update(t += 500, tower, arrive, SectionWhere::Explored, true) && p.target().sameAs(arrive));
+    CHECK(!p.Update(t += 6000, tower, arrive, SectionWhere::Explored, false) && p.state() == SectionPrompt::State::Hidden);  // not again
+    // Unexplored: first press asks, second press goes; no answer to the question goes back to the offer.
+    SectionPrompt q; t = 100000;
+    q.Update(t, tower, theater, SectionWhere::Unexplored, false);
+    q.Update(t += 5000, tower, theater, SectionWhere::Unexplored, false);
+    CHECK(q.state() == SectionPrompt::State::Offer);
+    CHECK(!q.Update(t += 100, tower, theater, SectionWhere::Unexplored, true) && q.state() == SectionPrompt::State::Confirm);
+    CHECK(!q.Update(t += 10001, tower, theater, SectionWhere::Unexplored, false) && q.state() == SectionPrompt::State::Offer);
+    CHECK(!q.Update(t += 100, tower, theater, SectionWhere::Unexplored, true) && q.state() == SectionPrompt::State::Confirm);
+    CHECK(q.Update(t += 100, tower, theater, SectionWhere::Unexplored, true));
+    // An offer nobody answers stays down for that section; the partner moving on offers the new one.
+    SectionPrompt d; t = 200000;
+    d.Update(t, tower, arrive, SectionWhere::Explored, false);
+    d.Update(t += 5000, tower, arrive, SectionWhere::Explored, false);
+    CHECK(d.state() == SectionPrompt::State::Offer);
+    d.Update(t += 30000, tower, arrive, SectionWhere::Explored, false);
+    CHECK(d.state() == SectionPrompt::State::Hidden);
+    d.Update(t += 60000, tower, arrive, SectionWhere::Explored, false);
+    CHECK(d.state() == SectionPrompt::State::Hidden);
+    d.Update(t += 100, tower, patrol, SectionWhere::Explored, false);
+    d.Update(t += 5000, tower, patrol, SectionWhere::Explored, false);
+    CHECK(d.state() == SectionPrompt::State::Offer && d.target().sameAs(patrol));
+    // Back together: nothing shown.
+    CHECK(!d.Update(t += 100, patrol, patrol, SectionWhere::Same, true) && d.state() == SectionPrompt::State::Hidden);
 }
 
 static void TestFreshHeld() {
@@ -992,6 +1051,7 @@ int main() {
     TestTraversalCopy();
     TestTraversalThreads();
     TestFreshHeld();
+    TestSections();
     TestJumpDetector();
     TestThetaSettledGuard();
     TestArriveStick();

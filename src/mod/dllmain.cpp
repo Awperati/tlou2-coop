@@ -27,6 +27,7 @@
 #include "core/pickups.h"
 #include "core/teleport.h"
 #include "core/faceforce.h"
+#include "core/sections.h"
 #include "mod/fiber_hook.h"
 #include "mod/game_bridge.h"
 #include "mod/log.h"
@@ -263,6 +264,24 @@ void CoopMain() {
     TeleportController teleporter(tc);
     TransitionGate gate(tc);
 
+    // Section sync (core/sections.h): the partner's story section and this PC's saved exploration.
+    Section partnerSection, mySection;
+    ExploredLog explored;
+    {   // chapter story order = roster.ini's [chapter.*] order
+        std::vector<std::string> order;
+        std::ifstream rf(dir + L"tlou2-coop\\roster.ini");
+        for (std::string line; std::getline(rf, line);) if (line.rfind("[chapter.", 0) == 0 && line.find(']') != std::string::npos) order.push_back(Lower(line.substr(9, line.find(']') - 9)));
+        explored.SetChapterOrder(order);
+        explored.Load(Narrow(dir + L"tlou2-coop\\explored.txt"));
+        Log("section: %zu sections explored on this PC, %zu chapters in story order", explored.size(), order.size());
+    }
+    SectionPrompt sectionPrompt;
+    const int sectionKey = ParseKey(cfg.get("sync", "SectionKey", "F9"));
+    const bool sectionSync = cfg.getBool("sync", "SectionSync", true);
+    bool sectionCmdPress = false;
+    SectionPrompt::State prevSectionState = SectionPrompt::State::Hidden;
+    bool sectionKeyPrev = false;
+    unsigned long long lastSectionSend = 0;
     Session::Callbacks cb;
     cb.onPeerJoined = [&](uint8_t slot, const Hello& h) {
         Log("player %u joined: %s", slot, h.playerName.c_str());
@@ -273,6 +292,7 @@ void CoopMain() {
     cb.onPeerLeft = [&](uint8_t slot) {
         Log("player %u left", slot);
         remote.erase(slot);
+        partnerSection = {};
         bridge.ReleasePuppet();
         gate.ForgetPlayer(slot);
         OverlayNotify(slot == 0 ? L"Host left the session" : L"Your partner left");
@@ -357,6 +377,12 @@ void CoopMain() {
     }
     cb.onWorldEvent = [&](uint8_t, const WorldEvent& e) {
         uint64_t sid = 0; std::string name;
+        if (e.eventId == kWorldSection) {
+            Section s;
+            if (SectionFromArgs(e.args, s) && !s.sameAs(partnerSection)) Log("section: partner is in '%s' / '%s' (find %016llx %016llx)", s.world.c_str(), s.task.c_str(), static_cast<unsigned long long>(s.findA), static_cast<unsigned long long>(s.findB));
+            if (SectionFromArgs(e.args, s)) partnerSection = s;
+            return;
+        }
         if (e.eventId == kWorldMeshMask && e.args.size() >= 5) {
             uint32_t mask; std::memcpy(&mask, e.args.data() + 1, 4);
             bridge.remoteMask_ = mask; bridge.remoteMaskCount_ = e.args[0];
@@ -604,6 +630,56 @@ void CoopMain() {
             prevPrompt = st;
         } else {
             OverlayClearPrompt();
+        }
+
+        // Section sync (core/sections.h): track and save this PC's story section, send it, and offer the partner's.
+        if (sectionSync) {
+            Section cur{Lower(bridge.CurrentChapterWorld()), bridge.CurrentTask()};
+            if (cur.valid() && !cur.sameAs(mySection)) {
+                mySection = cur;
+                if (explored.Visit(cur)) explored.Save(Narrow(dir + L"tlou2-coop\\explored.txt"));
+                bridge.QueueReadSectionIds();
+                lastSectionSend = 0;
+            }
+            {   // the ids arrive from a script call once read
+                std::lock_guard lk(bridge.sectionMu_);
+                if (bridge.sectionIdsTask_ == mySection.task && (mySection.findA != bridge.sectionFindA_ || mySection.findB != bridge.sectionFindB_)) {
+                    mySection.findA = bridge.sectionFindA_; mySection.findB = bridge.sectionFindB_; lastSectionSend = 0;
+                }
+            }
+            bool linked = session.connected() && (!isHost || session.peerCount() > 0);
+            if (linked && mySection.valid() && now - lastSectionSend >= 10000) {
+                lastSectionSend = now;
+                WorldEvent we; we.eventId = kWorldSection; we.args = SectionArgs(mySection);
+                session.SendWorldEvent(we);
+            }
+            if (!linked) partnerSection = {};
+            bool keyDown = sectionKey && bridge.GameWindowFocused() && (GetAsyncKeyState(sectionKey) & 0x8000);
+            bool press = (keyDown && !sectionKeyPrev) || sectionCmdPress;
+            sectionKeyPrev = keyDown; sectionCmdPress = false;
+            SectionWhere where = explored.Classify(mySection, partnerSection);
+            if (sectionPrompt.Update(now, mySection, partnerSection, where, press)) {
+                const Section& t = sectionPrompt.target();
+                if (t.findA || t.findB) {
+                    Log("section: going to the partner's section '%s' / '%s' (%s)", t.world.c_str(), t.task.c_str(), where == SectionWhere::Explored ? "explored before" : "unexplored, confirmed");
+                    OverlayNotify(L"Going to your partner's section");
+                    bridge.QueueJumpToSection(t.findA, t.findB);
+                } else {
+                    Log("section: can't go to '%s' / '%s': its task ids did not come with it", t.world.c_str(), t.task.c_str());
+                    OverlayNotify(L"Can't go to your partner's section yet (its task is unknown)");
+                }
+            }
+            auto ss = sectionPrompt.state();
+            const std::wstring sk = Wide(cfg.get("sync", "SectionKey", "F9"));
+            const std::wstring offer = L"Your partner is in a different section of the game. Press " + sk + L" to go to their section.";
+            const std::wstring confirm = L"This area is beyond anywhere you've explored before. Do you still wish to continue? Press " + sk + L" again.";
+            if (ss != prevSectionState) {
+                if (ss == SectionPrompt::State::Offer) { OverlayNotify(offer); Log("section: offering '%s' / '%s' (%s)", sectionPrompt.target().world.c_str(), sectionPrompt.target().task.c_str(), where == SectionWhere::Explored ? "explored" : "unexplored"); }
+                if (ss == SectionPrompt::State::Confirm) { OverlayNotify(confirm); Log("section: asked to confirm an unexplored section"); }
+                prevSectionState = ss;
+            }
+            if (ss == SectionPrompt::State::Offer) OverlaySetPrompt(offer, -1);
+            else if (ss == SectionPrompt::State::Confirm) OverlaySetPrompt(confirm, -1);
         }
 
         if (!mainHooked) mainHooked = MainThreadInit();
@@ -932,6 +1008,8 @@ void CoopMain() {
                     else if (line.rfind("jumptrace ", 0) == 0) { bridge.jumpTraceUntil_ = GetTickCount64() + 1000ull * static_cast<unsigned>(atoi(line.c_str() + 10)); Log("jumptrace: on"); }
                     else if (line == "facediff") { RequestFaceDiff(3); Log("facediff: next 3 forced updates"); }
                     else if (line == "faceptrs") Log("faceptrs:%s", FacePtrs().c_str());
+                    else if (line == "joinpartner") { sectionCmdPress = true; Log("section: joinpartner (same as pressing the section key)"); }
+                    else if (line == "sectionids") bridge.QueueReadSectionIds();
                     else if (line.rfind("facelead ", 0) == 0) { bridge.cloneFaceLead_ = static_cast<float>(atof(line.c_str() + 9)); Log("facelead: %.2f s", bridge.cloneFaceLead_); }
                     else if (line.rfind("gesturedirect ", 0) == 0) bridge.QueueGestureDirect(1, std::stoull(line.substr(14), nullptr, 16));   // gesturedirect <0xid>: on player 1
                     else if (line.rfind("gestureev ", 0) == 0) {   // gestureev <0xid> [layer] [simple]: event straight to player 1
