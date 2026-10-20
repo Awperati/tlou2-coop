@@ -89,6 +89,7 @@ uint8_t* TrampolineSlot(uintptr_t target);
 size_t TrampolineSlotsUsed();
 bool RestartEncounterHookInstall(uintptr_t target);
 bool LevelListenerHooksInstall(uintptr_t add, uintptr_t remove);
+bool EdgeLogoutHookInstall(uintptr_t target, uintptr_t ownerOf);   // NearbyEdgeMgr::NotifyFeatureDbLogout guard
 bool CommandGroupHooksInstall(uintptr_t push, uintptr_t pop);
 // GetPlayer() returns this player on the calling thread until reset with 0.
 void SetPlayerOverride(uintptr_t player);

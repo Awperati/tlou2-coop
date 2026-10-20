@@ -920,6 +920,61 @@ bool LevelListenerHooksInstall(uintptr_t add, uintptr_t remove) {
     Log("level listener hooks: double link / unlink guarded (add %d, remove %d)", 1, g_remTarget ? 1 : 0);
     return true;
 }
+// NearbyEdgeMgr (character subsystem, nearby-edge-mgr.cpp): each frame it gathers the traversal edges near its
+// character into a list in short-lived frame memory (allocator 20, SubsystemPreProcessUpdate rva 0xA84010) and
+// swaps it in at +0xF0 (SubsystemUpdate rva 0xA842A0). PC A crashed 10-21 07:47 in NotifyFeatureDbLogout
+// (rva 0xA83F30) while a pause-menu load unloaded the level with the clone alive: a manager's +0xF0 list held
+// reused frame memory (items pointer 0xc1400000c2c00000, two floats). Loads that removed the clone first never
+// crashed. Before the logout walks a list it is checked; one that cannot be a list is dropped (the next update
+// swaps a fresh one in) and logged with the manager's owner process (sub_141C129D0).
+namespace {
+using EdgeLogoutFn = void (*)(uint64_t mgr, uint64_t db);
+using EdgeOwnerFn = uint64_t (*)(uint64_t mgr);
+uint8_t* g_edgeTramp = nullptr;
+uint8_t g_edgeSaved[15];
+uintptr_t g_edgeTarget = 0;
+EdgeOwnerFn g_edgeOwner = nullptr;
+std::atomic<uint32_t> g_edgeDrops{0};
+// List: +0 count (u32), +8 items (64 bytes each).
+bool EdgeListReadable(uint64_t list) {
+    __try {
+        uint32_t n = *reinterpret_cast<volatile uint32_t*>(list);
+        if (n == 0) return true;
+        uint64_t items = *reinterpret_cast<volatile uint64_t*>(list + 8);
+        if (n > 65536 || !items) return false;
+        volatile uint64_t first = *reinterpret_cast<volatile uint64_t*>(items);
+        volatile uint64_t last = *reinterpret_cast<volatile uint64_t*>(items + (static_cast<uint64_t>(n) - 1) * 64 + 56);
+        (void)first; (void)last;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+uint64_t EdgeOwner(uint64_t mgr) {
+    __try { return g_edgeOwner ? g_edgeOwner(mgr) : 0; } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+void HookedEdgeLogout(uint64_t mgr, uint64_t db) {
+    uint64_t list = 0;
+    __try { list = *reinterpret_cast<volatile uint64_t*>(mgr + 0xF0); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    if (list && !EdgeListReadable(list)) {
+        *reinterpret_cast<uint64_t*>(mgr + 0xF0) = 0;
+        if (++g_edgeDrops <= 10) Log("edge logout: dropped a broken nearby-edge list %016llx (manager %016llx, owner process %016llx)",
+            static_cast<unsigned long long>(list), static_cast<unsigned long long>(mgr), static_cast<unsigned long long>(EdgeOwner(mgr)));
+    }
+    reinterpret_cast<EdgeLogoutFn>(g_edgeTramp)(mgr, db);
+}
+} // namespace
+
+bool EdgeLogoutHookInstall(uintptr_t target, uintptr_t ownerOf) {
+    if (g_edgeTarget) return true;
+    // mov [rsp+8],rbx; mov [rsp+10h],rsi; push rdi; sub rsp,30h
+    static const uint8_t expect[15] = {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x30};
+    g_edgeOwner = reinterpret_cast<EdgeOwnerFn>(ownerOf);
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedEdgeLogout), g_edgeSaved, g_edgeTramp)) {
+        Log("edge logout hook: prologue changed, not hooking"); return false;
+    }
+    g_edgeTarget = target;
+    Log("edge logout hook: nearby-edge lists checked before a level logout walks them");
+    return true;
+}
 // ActionCommandManager command groups (the global manager, sub_1415B6F10): every player's state
 // update pushes (sub_1415B6C90) or pops (sub_1415B6D70) groups on it each frame, refcounted. A
 // second player's pops drove a count below zero and the game asserted in GroupStack::Pop (Y
@@ -1473,6 +1528,7 @@ void FiberHookRemove() {
     if (g_aimRayTarget) { RemoveTrampoline(g_aimRayTarget, g_aimRaySaved, sizeof(g_aimRaySaved)); g_aimRayTarget = 0; }
     if (g_addTarget) { RemoveTrampoline(g_addTarget, g_addSaved, sizeof(g_addSaved)); g_addTarget = 0; }
     if (g_remTarget) { RemoveTrampoline(g_remTarget, g_remSaved, sizeof(g_remSaved)); g_remTarget = 0; }
+    if (g_edgeTarget) { RemoveTrampoline(g_edgeTarget, g_edgeSaved, sizeof(g_edgeSaved)); g_edgeTarget = 0; }
     g_rawOn = false;
     if (g_rawTarget) { RemoveTrampoline(g_rawTarget, g_rawSaved, sizeof(g_rawSaved)); g_rawTarget = 0; }
     if (g_cpInstalled) { RemoveTrampoline(g_cpTarget, g_cpSaved, sizeof(g_cpSaved)); g_cpInstalled = false; Log("checkpoint hook: RememberCheckpoint removed"); }
