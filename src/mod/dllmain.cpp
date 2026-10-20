@@ -659,6 +659,9 @@ void CoopMain() {
                 bridge.QueueReadSectionIds();
                 lastSectionSend = 0;
                 if (sectionJumped) { sectionJumped = false; selfRedressAt = now + 3000; }
+                // A new task can respawn the story companion with her AI on; the passive set-up ran only once
+                // (QueueCompanionHidden), so the 2 s re-hide now redoes it.
+                bridge.companionLogged_ = false;
             }
             {   // the ids arrive from a script call once read
                 std::lock_guard lk(bridge.sectionMu_);
