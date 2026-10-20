@@ -21,6 +21,7 @@ Full findings log: [ROADMAP.md](ROADMAP.md). Player guide: [PLAYING.md](PLAYING.
 | Body | 8 meshes and 3 cloth props match PC B's own Dina. Owner: torso and arms back (14:0x) |
 | Hood | Owner: "Ellie hood is great" |
 | Aim | Seen on video: she aims where PC B aims. Shots untested live |
+| Combat animations on the clone | Built and deployed 10-21 (combat sync, 4.2d). Live: weapon draw on the clone 31-62 ms after the ask (ask 51 ms after the partner's draw), holster 49 ms, partner shot -> her RT press 55 ms, reload 15 ms after the ask. Not yet seen live: her aim pose, her shots and throws (her pad needs her PC's game in front) |
 | Combat | Built 10-21, not yet live: no friendly fire on either PC (attack hooks, core/combat.h); the clone takes no hits and her hits count only on her own PC; her weapon, throws (RT) and melee (X) follow the partner (core/weaponsync.h). ROADMAP "Combat between the players" |
 | Jump, ledge, ladder, dodge, ledge drop | Deployed 05:56 (dbe37e2/49806e9/4b63c04): the partner's state machine state is sent; entering Jump/Edge/Ladder/Evade/LedgeDrop presses A/A/Y/LB/B on her, gated by her own state. Ropes and ziplines follow out of the jump. Not yet seen live: owner's six checks in [patches/traversal-wiring.md](patches/traversal-wiring.md) section 4 |
 | Idle gestures (nose wipe etc.) | Built and tested (64bf822, 832dfcb): partner's layer-1 gesture played once on her. Live end-to-end not seen |
@@ -141,6 +142,46 @@ Not bugs (owner confirmed):
     hook). It has not been hit since; look for `edge logout: dropped` in the log.
 - Commands: `joinpartner` (same as the key), `gotosection <chapter> <task>`, `sectionids`.
 - Open: a menu load (chapter select, load save) does not remove the clone first. Only the edge guard covers it.
+
+### 4.2d Combat animations on the clone (combat sync, 10-21; partly live)
+- **Goal (owner):** the partner aiming, shooting, reloading, throwing, swinging and switching weapons shows on their
+  clone on the other PC within ~0.3 s.
+- **Sender (engine state, not pad buttons; PC B's keyboard leaves no trigger bits):** every 33 ms in the script
+  context  reads its own player with script natives: get-player-weapon-id 0xC8F1D0 (in hand),
+  get-player-weapon-ammo-in-clip 0xC8EF60, get-player-weapon-total-ammo 0xC8F270, player-is-reloading? 0xC9E3A0,
+  is-player-switching-weapon? 0xC90B80, player-is-aiming? 0xC9DEC0, player-is-aiming-throwable? 0xC9DF00,
+  player-get-aimed-grenade 0xC9B110, player-is-firing? 0xB92990, and the state machine state (Melee).
+   (core/combatsync.h) makes the 23-byte  tail: weapon, grenade, clip, held flags
+  (aim, throwable aim, reload, switch, firing, melee) and fire/throw/reload/melee counters, so a lost datagram loses no
+  event. A shot = a clip drop of the weapon in hand (player-is-firing? stays on ~1 s per shot). Throws come from the
+  combat session's throw hooks (); the firing heuristic is only the fallback.
+- **Receiver:**  acts on the clone with the GetPlayer override: draws the partner's weapon
+  (player-has-weapon? 0xC9C980, give-player-weapon 0xC8F870, player-draw-weapon-by-name 0xC96EF0) only when the partner
+  just drew it, aims, shoots or reloads (both games put an idle weapon away after ~10 s on their own), holsters it
+  (holster-player-weapon 0xC900F0), keeps her clip equal to the partner's plus the shots she still owes
+  (set-player-weapon-clip-ammo 0xCA8A40, never within 500 ms of a press), refills her reserve
+  (set-player-weapon-reserve-ammo 0xC885E0), reloads (player-reload 0xCA15F0) and selects the throwable
+  (player-select-grenade 0xCA1BB0). Aim holds her LT; each shot or throw is one RT press (70 ms down, 60 ms up);
+  a swing is an X press. Her raw LT/RT/X copy is off while combat sync runs; the combat session's 
+  block is the fallback with . Her hits do nothing on that PC (core/combat.h).
+- **Live 10-21 08:04-08:21** (PC B's player driven by the virtual pad; logs, clocks aligned with the  offset):
+  draw asked 51 ms after PC B drew, held 31-62 ms after the ask; RT press 55 ms after PC B's shot; holster asked
+  49 ms after PC B's; reload started 15 ms after the ask (clip 2 -> 6 in 1.5 s), all with the game behind other windows.
+- **Open:** with her PC's game behind other windows her pad actions read nothing: her NdPlayerJoypad aim byte
+  (Player+19632 +0x294) stayed 0 under LT, RT fired nothing, and the virtual pad is ignored too. The action query
+  sub_141D96F20 bails on a global input check (component 2 vfunc +24), likely the window focus (not to be patched:
+  owner rule). Writing her aim bytes (+660/+661/+662) before her update sets the byte but gives no aim pose, and
+  player-fire-weapon-at-reticle fires nothing then. So her aim pose, shots, throws and swings need one run with both
+  games in front: each player aims, shoots, reloads and throws once;  on both PCs, then read
+   on one PC against  /  on the other.
+- **Switches:**  (combatsync on|off),  (auto: RT in front, the engine
+  fire native behind), ; ;  drives her without the partner. The virtual pad takes triggers in combos ().
+- **Engine facts:** natives were found by hashing the exe's own native-name strings (6774 registered). Player+11976
+  inventory (vfunc +528 selected weapon, +232 find by id), +12128 PlayerItemController (in hand), +12144 fire
+  controller, +12152 reload controller, +12304 grenade controller, +12648 throwable aim. NdPlayerJoypad actions are FNV
+  names ("aim" 0xE701C01905288CB6, "fire" 0xAA77F578EFDFC4B9, "reload" 0xE7F9484DA4B873AC). player-force-aiming
+  0xC99230 sets a global byte (0x1440FB837), not one per player. Square with nothing drawn is a melee swing (state
+  "Melee"). The pistol 226cdcf298320a8c holds 6.
 
 ### 4.3 Pickups to "mixed"
 - Live check that runtime pickup names match level-data names and classes (log line `pickup: '<name>' is a <class>`).
