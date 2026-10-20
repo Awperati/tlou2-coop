@@ -892,6 +892,17 @@ static void TestViewmodelTransform() {
     Apply(InObjectSpace(a, l), vo, t1); Apply(l, t1, w1);   // object-space change, then to world
     Apply(l, vo, t1); Apply(a, t1, w2);                      // to world, then the world change
     CHECK(std::fabs(w1[0] - w2[0]) < 1e-4f && std::fabs(w1[1] - w2[1]) < 1e-4f && std::fabs(w1[2] - w2[2]) < 1e-4f);
+    // The engine's row-vector 4x4 with scale: same point either way, and a true inverse.
+    float r4[16] = {0.f, 0, -1.2f, 0,   0, 1.2f, 0, 0,   1.2f, 0, 0, 0,   -67.6f, -6.8f, -205.f, 1};
+    Mat34 ls = FromRowVector4x4(r4), lsi = InverseAffine(ls), b2 = Mul(lsi, ls);
+    float pr[3] = {0.3f, 1.1f, -0.2f}, rv[3], cv[3];
+    for (int i = 0; i < 3; ++i) rv[i] = pr[0] * r4[0 + i] + pr[1] * r4[4 + i] + pr[2] * r4[8 + i] + r4[12 + i];   // row vector * 4x4
+    Apply(ls, pr, cv);
+    CHECK(std::fabs(rv[0] - cv[0]) < 1e-4f && std::fabs(rv[1] - cv[1]) < 1e-4f && std::fabs(rv[2] - cv[2]) < 1e-4f);
+    for (int i = 0; i < 12; ++i) CHECK(std::fabs(b2.m[i] - Identity34().m[i]) < 1e-4f);
+    Apply(InObjectSpaceAffine(a, ls), pr, t1); Apply(ls, t1, w1);
+    Apply(ls, pr, t1); Apply(a, t1, w2);
+    CHECK(std::fabs(w1[0] - w2[0]) < 1e-3f && std::fabs(w1[1] - w2[1]) < 1e-3f && std::fabs(w1[2] - w2[2]) < 1e-3f);
 }
 
 // Head-turn limit: the camera's yaw is held within the limit of the body's facing; pitch is kept.
@@ -925,6 +936,31 @@ static void TestClampYaw() {
     CHECK(std::fabs(YawOfQuat(q) - 105 * deg) < 1e-3f);
     float n = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
     CHECK(std::fabs(n - 1) < 1e-4f);
+}
+
+// Smooth head lock: soft edge, no snap when it starts past the limit, eased release.
+static void TestYawLimiter() {
+    using namespace coop::vm;
+    const float deg = 3.14159265f / 180.f, L = 65 * deg, m = 12 * deg;
+    CHECK(SoftLimit(30 * deg, L, m) == 30 * deg);                                  // inside the knee: untouched
+    float prev = 0;
+    for (float d = 0; d < 180 * deg; d += 1 * deg) {                               // monotonic, below the limit
+        float o = SoftLimit(d, L, m);
+        CHECK(o >= prev - 1e-6f && o < L);
+        prev = o;
+    }
+    CHECK(std::fabs(SoftLimit(-100 * deg, L, m) + SoftLimit(100 * deg, L, m)) < 1e-6f);
+    YawLimiter y;
+    CHECK(y.Step(100 * deg, false, L, 0.016f, 180 * deg, 300 * deg, m) == 100 * deg);   // unlocked: free
+    float first = y.Step(100 * deg, true, L, 0.016f, 180 * deg, 300 * deg, m);          // lock starts 100 deg off
+    CHECK(first > 90 * deg);                                                             // no snap to 65
+    float o = first;
+    for (int i = 0; i < 60; ++i) o = y.Step(100 * deg, true, L, 0.016f, 180 * deg, 300 * deg, m);
+    CHECK(o < L && o > 55 * deg);                                                        // settled at the soft limit
+    float r1 = y.Step(100 * deg, false, L, 0.016f, 180 * deg, 300 * deg, m);            // released
+    CHECK(r1 < 75 * deg);                                                                // eases out, no jump to 100
+    for (int i = 0; i < 60; ++i) r1 = y.Step(100 * deg, false, L, 0.016f, 180 * deg, 300 * deg, m);
+    CHECK(std::fabs(r1 - 100 * deg) < 1e-5f);                                            // back to free
 }
 
 int main() {
@@ -962,6 +998,7 @@ int main() {
     TestCatchUpModes();
     TestViewmodelTransform();
     TestClampYaw();
+    TestYawLimiter();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
