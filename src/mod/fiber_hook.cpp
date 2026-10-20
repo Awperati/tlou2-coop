@@ -731,6 +731,7 @@ std::atomic<uintptr_t> g_actPlayer[4];
 std::atomic<uint32_t> g_actCount[4];
 std::atomic<bool> g_cloneStickOn{false};
 std::atomic<float> g_cloneStickX{0}, g_cloneStickZ{0};
+std::atomic<bool> g_cloneAimHeld{false};   // combat sync: her NdPlayerJoypad aim bytes (SetCloneAimHeld)
 } // namespace
 // The player whose Player::Active::Update is running on this thread (-1 outside one).
 thread_local int t_updatingPlayer = -1;
@@ -757,6 +758,18 @@ uint64_t HookedActiveUpdate(uint64_t self) {
             if (*reinterpret_cast<int*>(pl + 21800) == 1) {
                 float* w = reinterpret_cast<float*>(pl + 19632 + 0xD0);
                 w[0] = g_cloneStickX.load(); w[1] = 0.f; w[2] = g_cloneStickZ.load();
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    // Combat sync: her aim as the joypad update leaves it (sub_140BE59F0: +662 aim wanted from the "aim" action,
+    // +660 aim held, +661 last frame's), written like the world stick. Her LT never reached them while the game
+    // was behind other windows (10-21 08:15, aim byte 0); the action query sub_141D96F20 bails on a global input
+    // check (component 2 vfunc +24), likely that.
+    if (pl && g_cloneAimHeld.load()) {
+        __try {
+            if (*reinterpret_cast<int*>(pl + 21800) == 1) {
+                uint8_t* j = reinterpret_cast<uint8_t*>(pl + 19632);
+                j[661] = j[660]; j[662] = 1; j[660] = 1;
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
@@ -790,6 +803,7 @@ bool ActiveUpdateHookInstall(uintptr_t target) {
     return true;
 }
 void SetCloneWorldStick(bool on, float x, float z) { g_cloneStickX = x; g_cloneStickZ = z; g_cloneStickOn = on; }
+void SetCloneAimHeld(bool on) { g_cloneAimHeld = on; }
 
 std::string ActiveUpdateCounts() {
     std::string out;

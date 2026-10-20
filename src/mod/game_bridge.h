@@ -336,6 +336,10 @@ public:
     CombatWire OwnCombat() { std::lock_guard lk(combatMu_); return ownCombat_; }
     bool cloneCombat_ = true;               // [clone] Combat: replay the partner's combat on the clone
     bool combatLog_ = false;                // combatlog on|off: every change of both readings, not just events
+    // [clone] CombatFire = auto | pad | engine, CombatAim = auto | write | pad (0 auto, 1, 2 as listed). Her pad's
+    // actions read nothing while this PC's game is behind other windows, so auto fires through the engine
+    // (player-fire-weapon-at-reticle) and writes her joypad aim bytes then, and uses her pad while it is in front.
+    int combatFireMode_ = 0, combatAimMode_ = 0;
     std::mutex combatMu_;
     CombatWire ownCombat_, partnerCombat_;  // guarded by combatMu_
     unsigned long long partnerCombatAt_ = 0;

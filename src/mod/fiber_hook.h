@@ -56,6 +56,7 @@ std::vector<std::pair<uintptr_t, uint32_t>> NativeTraceDump();
 std::string ActiveUpdateCounts();
 // Clone drive: write this world stick into player 1 before each Active::Update (needs the hook).
 void SetCloneWorldStick(bool on, float x, float z);
+void SetCloneAimHeld(bool on);   // combat sync: player 1's joypad aim bytes before her update
 bool FaceCtlHookInstall(uintptr_t target, uintptr_t flag, uintptr_t dir, uintptr_t storeFacing);
 void SetFaceForceStored(bool on);   // true: her stored facing (sub_140C34C80) instead of the force globals
 void SetCloneFaceDir(uintptr_t player, bool on, float x, float z);

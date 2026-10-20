@@ -239,7 +239,8 @@ void CoopMain() {
     bridge.cloneFaceLead_ = cfg.getFloat("clone", "FaceLead", 0.15f);
     bridge.cloneGestureSync_ = cfg.getBool("clone", "GestureSync", true);
     bridge.cloneCombat_ = cfg.getBool("clone", "Combat", true);   // core/combatsync.h: the partner's aim, shots, reloads, throws on the clone
-    bridge.combatReplay_.padFire = cfg.get("clone", "CombatFire", "pad") != "engine";
+    { auto f = cfg.get("clone", "CombatFire", "auto"), m = cfg.get("clone", "CombatAim", "auto");
+      bridge.combatFireMode_ = f == "pad" ? 1 : f == "engine" ? 2 : 0; bridge.combatAimMode_ = m == "write" ? 1 : m == "pad" ? 2 : 0; }
     {   // [clone] FaceForce = stored | globals (on, true) | off (false, no): core/faceforce.h
         auto ffm = ParseFaceForce(cfg.get("clone", "FaceForce", "stored"));
         bridge.cloneFaceForce_ = ffm.force; bridge.cloneFaceStored_ = ffm.stored;
@@ -935,7 +936,8 @@ void CoopMain() {
                         uint64_t v = 0; try { v = arg.empty() ? 0 : std::stoull(arg, nullptr, (kind == "draw" || kind == "grenade") ? 16 : 10); } catch (...) {}
                         bridge.CombatTest(kind, v, ms); Log("combattest: %s %llx for %u ms", kind.c_str(), static_cast<unsigned long long>(v), ms);
                     }
-                    else if (line == "combatfire pad" || line == "combatfire engine") { bridge.combatReplay_.padFire = line == "combatfire pad"; Log("combatfire: %s", bridge.combatReplay_.padFire ? "pad (RT presses)" : "engine (player-fire-weapon-at-reticle)"); }
+                    else if (line == "combatfire auto" || line == "combatfire pad" || line == "combatfire engine") { bridge.combatFireMode_ = line == "combatfire pad" ? 1 : line == "combatfire engine" ? 2 : 0; Log("%s", line.c_str()); }
+                    else if (line == "combataim auto" || line == "combataim write" || line == "combataim pad") { bridge.combatAimMode_ = line == "combataim write" ? 1 : line == "combataim pad" ? 2 : 0; Log("%s", line.c_str()); }
                     else if (line.rfind("clonebuttons ", 0) == 0) { bridge.cloneButtonMask_ = std::stoull(Trim(line.substr(13)), nullptr, 16); Log("clonebuttons: mask %016llx", static_cast<unsigned long long>(bridge.cloneButtonMask_)); }
                     else if (line == "clonedrive on" || line == "clonedrive off") { bridge.cloneDrive_ = line == "clonedrive on"; if (!bridge.cloneDrive_) { SetCloneWorldStick(false, 0, 0); SetCloneRawStick(false, 0, 0); } Log("clonedrive: %s", bridge.cloneDrive_ ? "on (the other player's stick drives player 1)" : "off"); }
                     else if (line.rfind("clone ", 0) == 0) {   // clone <look>: spawn player 1 beside us wearing <look>

@@ -2584,7 +2584,9 @@ void GameBridge::TickCombat() {
         lastOwnCombat_ = own;
         // Receiver: the partner's on the clone.
         uintptr_t p1 = PlayerProcess(1);
-        if (!cloneDrive_ || !cloneCombat_ || !p1) { cloneCombatAim_ = false; cloneTriggerUntil_ = 0; cloneMeleeUntil_ = 0; return; }
+        if (!cloneDrive_ || !cloneCombat_ || !p1) { cloneCombatAim_ = false; cloneTriggerUntil_ = 0; cloneMeleeUntil_ = 0; SetCloneAimHeld(false); return; }
+        bool front = GameWindowFocused();
+        combatReplay_.padFire = combatFireMode_ == 1 || (combatFireMode_ == 0 && front);
         CombatWire pw; unsigned long long pat;
         { std::lock_guard lk(combatMu_); pw = partnerCombat_; pat = partnerCombatAt_; }
         bool fresh = pat && now - pat < 500 && !cloneApart_.load();
@@ -2599,7 +2601,8 @@ void GameBridge::TickCombat() {
             cloneCombatAim_ = false; cloneTriggerUntil_ = 0; cloneMeleeUntil_ = 0;
             if (combatTestKind_ == "aim" || combatTestKind_ == "fire") cloneCombatAim_ = true;
             if (combatTestKind_ == "fire" && now >= combatTestNextAt_ && combatTestLeft_ > 0) {
-                combatTestNextAt_ = now + 500; --combatTestLeft_; cloneTriggerUntil_ = now + 70; combatShotAskedAt_ = now;
+                combatTestNextAt_ = now + 500; --combatTestLeft_; combatShotAskedAt_ = now;
+                if (combatReplay_.padFire) cloneTriggerUntil_ = now + 70; else a.fire = 1;
                 auto aimByte = Read<uint8_t>(p1 + 19632 + 0x294);   // NdPlayerJoypad aim held (sub_140BE5860)
                 Log("combattest: RT press (clip %d, %d left; her joypad aim byte %d, game in front %d, slot copies %u)", her.clip, combatTestLeft_, aimByte ? *aimByte : -1, GameWindowFocused() ? 1 : 0, CloneRawHits());
             }
@@ -2620,6 +2623,7 @@ void GameBridge::TickCombat() {
         if (her.weapon != lastCloneCombat_.weapon || her.reloading != lastCloneCombat_.reloading || her.state != lastCloneCombat_.state || (combatLog_ && her != lastCloneCombat_))
             Log("combat: clone %s", CombatText(her).c_str());
         lastCloneCombat_ = her;
+        SetCloneAimHeld(cloneCombatAim_.load() && (combatAimMode_ == 1 || (combatAimMode_ == 0 && !front)));
         bool topUp = her.weapon && her.total >= 0 && her.clip >= 0 && her.total - her.clip < 10 && now - lastAmmoTopUp_ > 3000;
         if (a.draw || a.holster || a.selectGrenade || a.setClip >= 0 || a.reload || a.fire || topUp) {
             SetPlayerOverride(p1);
