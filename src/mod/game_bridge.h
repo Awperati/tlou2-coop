@@ -306,6 +306,7 @@ public:
     void IssueStop(const std::string& name);
     void ActiveCount();
     uintptr_t PlayerProcess(unsigned index);   // entry i of the player table, game fiber only
+    bool PlayerSlotHeld(unsigned index);   // entry still holds a removed process: no spawn until a level load
     void QueuePlayerBeside(unsigned index, float metres);
     void QueuePlayerShow(unsigned index, bool visible = true);
     // Give player <index> a weapon with the game's give-player-weapon, run with GetPlayer() pointed at

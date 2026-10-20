@@ -1248,7 +1248,12 @@ void CoopMain() {
             } else bridge.QueueCloneMeshPoll();
         }
         if (cloneStage && now >= cloneAt) {
-            if (cloneStage == 1) {
+            if (cloneStage == 1 && bridge.PlayerSlotHeld(1)) {   // spawning into it froze PC A (08:04:57)
+                static ULONGLONG heldLog = 0;
+                if (now - heldLog > 10000) { heldLog = now; Log("clone: player 1's slot still holds a removed clone; waiting for a level load before spawning"); }
+                cloneAt = now + 1000;
+            }
+            else if (cloneStage == 1) {
                 bridge.WantCloneLook(lookPackages(cloneLook));
                 bridge.QueueSpawnPlayer(1, "ellie-seattle"); cloneStage = 2; cloneAt = now + 150;   // teleport at once: at the world origin she can fall out of the map
             }

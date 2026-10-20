@@ -77,6 +77,8 @@ uintptr_t GameBridge::resolveFunction(const Ini& ini, const char* key) {
     return *hit;
 }
 
+void RemoveCloneForLoad(unsigned mode);   // load request hook callback (defined below)
+
 bool GameBridge::engineTeleport(uintptr_t player, const Vec3& pos, float yaw, uint64_t eventId) {
     alignas(16) float locator[8] = {pos.x, pos.y, pos.z, 1.f, 0.f, std::sin(yaw * 0.5f), 0.f, std::cos(yaw * 0.5f)};
     if (CallTeleport(player, fnEventSend_, fnBindingDefault_, fnBoundFrameCtor_, eventId ? eventId : teleportEvent_, locator)) return true;
@@ -174,7 +176,7 @@ bool GameBridge::Init(const Ini& ini) {
         if (ini.getBool("engine", "demeanor_hooks", true)) DemeanorHooksInstall(BuildRva(0x1D4A120), BuildRva(0x1D51060));
         // Second-player safety, installed at start: a reload with player 1 alive left the camera
         // assist running for it and the game crashed (07:44).
-        if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); LevelListenerHooksInstall(BuildRva(0x1A4D870), BuildRva(0x1A4E210)); EdgeLogoutHookInstall(BuildRva(0xA83F30), BuildRva(0x1C129D0)); ActiveUpdateHookInstall(BuildRva(0xAD61E0)); CommandGroupHooksInstall(BuildRva(0x15B6C90), BuildRva(0x15B6D70)); PickupHookInstall(BuildRva(0x88FBF0)); CloneAimHooksInstall(BuildRva(0xC6E800), BuildRva(0xC6F020)); }
+        if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); LevelListenerHooksInstall(BuildRva(0x1A4D870), BuildRva(0x1A4E210)); EdgeLogoutHookInstall(BuildRva(0xA83F30), BuildRva(0x1C129D0)); LoadRequestHookInstall(BuildRva(0x1B6F4D0), &RemoveCloneForLoad); ActiveUpdateHookInstall(BuildRva(0xAD61E0)); CommandGroupHooksInstall(BuildRva(0x15B6C90), BuildRva(0x15B6D70)); PickupHookInstall(BuildRva(0x88FBF0)); CloneAimHooksInstall(BuildRva(0xC6E800), BuildRva(0xC6F020)); }
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
@@ -1843,6 +1845,26 @@ int SafeBuildSpawnInfo(uint8_t* dst) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { g_faultCode = GetExceptionCode(); return -2; }
 }
 } // namespace
+
+// A load is starting (load request hook): remove the clone now, before the load respawns player 0.
+// Clone mode spawns her again once our player has been back 5 s.
+void RemoveCloneForLoad(unsigned mode) {
+    RunInScriptContext([mode] {
+        uint64_t argv[8] = {Fnv1a("player-2")}, ret[4] = {};
+        if (!SafeNative(BuildRva(0xD3BA00), 1, argv, ret) || !(ret[0] & 0xFF)) return;   // entity-exists?: no clone
+        uint64_t k[8] = {Fnv1a("player-2")}, kr[4] = {};
+        bool killed = SafeNative(BuildRva(0xD4BB40), 1, k, kr) && kr[0];
+        Log("load: the game starts a load (mode %u); clone removed first: %s", mode, killed ? "yes" : "FAILED");
+    });
+}
+
+// Player 1's table entry still holds a handle whose process is gone: a clone removed without a level load
+// since. Spawning into it faulted and froze the game (PC A 10-21 08:04:57, after a hand-run kill-entity).
+bool GameBridge::PlayerSlotHeld(unsigned index) {
+    uintptr_t tab = BuildRva(0x411A510);
+    auto node = Read<uintptr_t>(tab + 16ull * index);
+    return node && *node && !PlayerProcess(index);
+}
 
 uintptr_t GameBridge::PlayerProcess(unsigned index) {
     uintptr_t tab = BuildRva(0x411A510);

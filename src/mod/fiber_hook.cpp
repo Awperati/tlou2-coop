@@ -963,6 +963,35 @@ void HookedEdgeLogout(uint64_t mgr, uint64_t db) {
 }
 } // namespace
 
+// Game load requests (sub_141B6F4D0 on the game-flow object 0x149334570, a2 = mode; called by task play,
+// checkpoint and encounter restarts, menu loads). A load respawns player 0, and the game asserts when that
+// happens with a player 1 alive (rva 0x12541C4: PC B 10-21 07:14:55, PC A 07:53:39 after a pause-menu load).
+// Our own section jump removed the clone first; a menu load did not. The callback removes her at the request.
+namespace {
+using LoadRequestFn = uint64_t (*)(uint64_t flow, uint64_t mode, uint64_t a3, uint64_t a4);
+uint8_t* g_lrTramp = nullptr;
+uint8_t g_lrSaved[15];
+uintptr_t g_lrTarget = 0;
+std::atomic<void (*)(unsigned)> g_lrCallback{nullptr};
+uint64_t HookedLoadRequest(uint64_t flow, uint64_t mode, uint64_t a3, uint64_t a4) {
+    if (auto cb = g_lrCallback.load()) cb(static_cast<unsigned>(mode));
+    return reinterpret_cast<LoadRequestFn>(g_lrTramp)(flow, mode, a3, a4);
+}
+} // namespace
+
+bool LoadRequestHookInstall(uintptr_t target, void (*onRequest)(unsigned mode)) {
+    g_lrCallback = onRequest;
+    if (g_lrTarget) return true;
+    // mov rax,rsp; mov [rax+10h],rbx; mov [rax+18h],rbp; mov [rax+20h],rsi
+    static const uint8_t expect[15] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x10, 0x48, 0x89, 0x68, 0x18, 0x48, 0x89, 0x70, 0x20};
+    if (!InstallTrampoline(target, expect, sizeof(expect), reinterpret_cast<void*>(&HookedLoadRequest), g_lrSaved, g_lrTramp)) {
+        Log("load request hook: prologue changed, not hooking"); return false;
+    }
+    g_lrTarget = target;
+    Log("load request hook: the clone is removed when the game starts a load");
+    return true;
+}
+
 bool EdgeLogoutHookInstall(uintptr_t target, uintptr_t ownerOf) {
     if (g_edgeTarget) return true;
     // mov [rsp+8],rbx; mov [rsp+10h],rsi; push rdi; sub rsp,30h
@@ -1529,6 +1558,8 @@ void FiberHookRemove() {
     if (g_addTarget) { RemoveTrampoline(g_addTarget, g_addSaved, sizeof(g_addSaved)); g_addTarget = 0; }
     if (g_remTarget) { RemoveTrampoline(g_remTarget, g_remSaved, sizeof(g_remSaved)); g_remTarget = 0; }
     if (g_edgeTarget) { RemoveTrampoline(g_edgeTarget, g_edgeSaved, sizeof(g_edgeSaved)); g_edgeTarget = 0; }
+    g_lrCallback = nullptr;
+    if (g_lrTarget) { RemoveTrampoline(g_lrTarget, g_lrSaved, sizeof(g_lrSaved)); g_lrTarget = 0; }
     g_rawOn = false;
     if (g_rawTarget) { RemoveTrampoline(g_rawTarget, g_rawSaved, sizeof(g_rawSaved)); g_rawTarget = 0; }
     if (g_cpInstalled) { RemoveTrampoline(g_cpTarget, g_cpSaved, sizeof(g_cpSaved)); g_cpInstalled = false; Log("checkpoint hook: RememberCheckpoint removed"); }
