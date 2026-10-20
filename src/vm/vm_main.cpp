@@ -33,6 +33,7 @@
 //                     "game" leaves it to the game
 //   anchor on|off     carry the arms with the camera as they sit against her chest (default on)
 //   calibrate         take the arms' place against her chest now (done by itself the first time she looks level)
+//   sling on|off      whether a rope near the held weapon (the rifle sling) follows it (default on)
 //   weapon on|off     whether the held weapon gets the same change (default on)
 //   off               stop changing anything
 //   headlock <deg>    first-person head-turn limit while a move holds her body (vault, climb, ledge,
@@ -134,11 +135,12 @@ std::atomic<float> g_holdX{0.f}, g_holdY{0.f}, g_holdZ{0.f};
 // gun are carried rigidly with the camera as they sat against her chest (spined) at calibration:
 // change = camera * C * chest^-1, C = camera0^-1 * chest0, taken the first time she looks level (or on
 // "calibrate"). Animation relative to her chest (aim sway, reloads) still plays, now in front of the camera.
-std::atomic<bool> g_anchorOn{true}, g_calibWanted{true};
+std::atomic<bool> g_anchorOn{false}, g_calibWanted{true};   // off: pointed the gun the wrong way live (13:01)
 vm::Mat34 g_anchorC{};
 bool g_anchorOk = false;                  // arms: viewmodel field of view (0 = use g_a as k)
 std::atomic<int> g_j0{0}, g_j1{100000};
 std::atomic<bool> g_armFromShoulder{false}, g_weaponOn{true};
+std::atomic<bool> g_slingOn{true};   // objects sharing the held weapon's locator (the sling) follow it
 std::atomic<uintptr_t> g_proc{0};      // player 0's process
 std::atomic<uintptr_t> g_fg{0};        // player 0's FgAnimData (Process+0x1C0)
 std::atomic<uintptr_t> g_cam{0};       // camera manager 0: final camera position +0x130, rotation +0x140, fov +0x160
@@ -231,6 +233,49 @@ void ChangePlayerSnapshot(uintptr_t ctx, float* snap, uint64_t done, const Frame
     vm::Mat34 t = vm::InObjectSpaceAffine(f.world, l);
     for (uint32_t s = 0; s < si->nSeg; ++s)
         if (todo >> s & 1) ApplySegment(snap, t, si, s);
+}
+
+// The weapon's later segments (the rifle sling's joints, tester 13:16 / 21:01: no rope skinning ran for
+// it) can be evaluated after its snapshot was made; sub_141698F20 then copies them into the snapshot
+// unchanged. Like hers, they get the change there. Bookkeeping under the weapon's ctx lock.
+uintptr_t g_wSnapBuf = 0;
+uint64_t g_wSnapFrame = 0, g_wSnapSegs = 0;
+std::atomic<uint64_t> g_weaponLateSegs{0};
+std::atomic<uint32_t> g_wSegCount{0}, g_wDoneAtSnap{0};
+
+// Segment ranges of any skeleton (hierarchy = skel+0x50: +0x16 count, +0x2C offset to 32-byte records).
+bool SegRange(uintptr_t skel, uint32_t seg, uint32_t& first, uint32_t& count) {
+    uintptr_t hier = *reinterpret_cast<uintptr_t*>(skel + 0x50);
+    if (!hier || seg >= *reinterpret_cast<uint8_t*>(hier + 0x16)) return false;
+    uint32_t off = *reinterpret_cast<uint32_t*>(hier + 0x2C);
+    first = *reinterpret_cast<uint16_t*>(hier + off + 32ull * seg);
+    count = *reinterpret_cast<uint16_t*>(hier + off + 32ull * seg + 0x10);
+    return true;
+}
+
+void ChangeWeaponLateSegments(uintptr_t ctx, float* snap, uint64_t done, const Frame& f) {
+    if (g_wSnapBuf != reinterpret_cast<uintptr_t>(snap) || g_wSnapFrame != f.frame) return;   // not a snapshot we made this frame
+    uint64_t todo = done & ~g_wSnapSegs;
+    g_wSnapSegs |= todo;
+    uintptr_t skel = *reinterpret_cast<uintptr_t*>(ctx + 0x10);
+    uint32_t n = *reinterpret_cast<uint32_t*>(skel + 0x44);
+    vm::Mat34 l;
+    if (!todo || !RenderLocator(ctx, l)) return;
+    vm::Mat34 t = vm::InObjectSpaceAffine(f.world, l);
+    for (uint32_t sgm = 0; sgm < 64; ++sgm) {
+        uint32_t a = 0, c = 0;
+        if (!(todo >> sgm & 1) || !SegRange(skel, sgm, a, c)) continue;
+        for (uint32_t j = a; j < a + c && j < n; ++j) {
+            vm::Mat34 m; std::memcpy(m.m, snap + 12 * j, 48);
+            m = vm::Mul(t, m);
+            std::memcpy(snap + 12 * j, m.m, 48);
+        }
+        g_weaponLateSegs.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+int SafeChangeWeaponLate(uintptr_t ctx, float* snap, uint64_t done, const Frame* f) {
+    __try { ChangeWeaponLateSegments(ctx, snap, done, *f); return 1; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
 
 // Under the weapon's ctx lock: changes every matrix of its snapshot.
@@ -397,6 +442,18 @@ int SafeChangePlayerSnapshot(uintptr_t ctx, float* snap, uint64_t done, const Fr
 
 uint64_t HookedEvalSegs(uint32_t mask, uint32_t flags, uintptr_t ctx, uintptr_t prev, uint8_t e, uint8_t f) {
     uint64_t r = g_evalOrig(mask, flags, ctx, prev, e, f);
+    uintptr_t wfg = g_weaponFg.load(std::memory_order_relaxed);
+    if ((flags & 8) && wfg && ctx && g_weaponOn.load(std::memory_order_relaxed) && g_mode.load(std::memory_order_relaxed) != kOff &&
+        *reinterpret_cast<uintptr_t*>(ctx + 0x18) == wfg && *reinterpret_cast<volatile uintptr_t*>(ctx + 0x78)) {
+        if (const Frame* fr = FrameNow()) {
+            CtxLock(ctx);
+            auto* snap = *reinterpret_cast<float**>(ctx + 0x78);
+            uint64_t done = *reinterpret_cast<volatile uint32_t*>(ctx + 0xC8);
+            bool ok = !snap || SafeChangeWeaponLate(ctx, snap, done, fr);
+            CtxUnlock(ctx);
+            if (!ok) g_faults.fetch_add(1);
+        }
+    }
     uintptr_t fg = g_playerFg.load(std::memory_order_relaxed);
     if ((flags & 8) && fg && ctx && g_mode.load(std::memory_order_relaxed) != kOff && *reinterpret_cast<uintptr_t*>(ctx + 0x18) == fg &&
         *reinterpret_cast<volatile uintptr_t*>(ctx + 0x78)) {
@@ -435,8 +492,15 @@ void MakeChangedSnapshot(uintptr_t ctx, bool player, const Frame* f) {
         auto* buf = live && n > 0 && n <= 4096 ? static_cast<float*>(SnapAlloc(48 * n)) : nullptr;
         if (buf) {
             std::memmove(buf, live, 48ull * n);
-            bool ok = player ? SafeChangePlayerSnapshot(ctx, buf, *reinterpret_cast<volatile uint32_t*>(ctx + 0xC8), f)
+            uint32_t doneNow = *reinterpret_cast<volatile uint32_t*>(ctx + 0xC8);
+            bool ok = player ? SafeChangePlayerSnapshot(ctx, buf, doneNow, f)
                              : SafeChangeWeaponSnapshot(ctx, buf, n, f);
+            if (!player) {
+                g_wSnapBuf = reinterpret_cast<uintptr_t>(buf); g_wSnapFrame = f->frame; g_wSnapSegs = doneNow;
+                g_wDoneAtSnap = doneNow;
+                uintptr_t hier = *reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(ctx + 0x10) + 0x50);
+                g_wSegCount = hier ? *reinterpret_cast<uint8_t*>(hier + 0x16) : 0;
+            }
             if (!ok) g_faults.fetch_add(1);
             else if (!player) g_weaponHits.fetch_add(1, std::memory_order_relaxed);
             *reinterpret_cast<float* volatile*>(ctx + 0x78) = buf;
@@ -445,15 +509,80 @@ void MakeChangedSnapshot(uintptr_t ctx, bool player, const Frame* f) {
     CtxUnlock(ctx);
 }
 
+// Parts of the held weapon that are objects of their own: the rifle sling (16 matrices) shares the
+// rifle's render locator exactly (survey 21:06: 0.00 m). An object whose locator is within 2 cm of the
+// held weapon's, with the same rotation, gets the weapon's change.
+bool IsWeaponPart(uintptr_t ctx, uintptr_t wfg) {
+    if (!g_slingOn.load(std::memory_order_relaxed)) return false;
+    __try {
+        auto* r = *reinterpret_cast<float**>(ctx + 0x50);
+        if (!r) return false;
+        const float* wl = reinterpret_cast<const float*>(wfg + 0x1D0);
+        float d2 = 0, rot = 0;
+        for (int i = 0; i < 3; ++i) { float d = r[12 + i] - wl[12 + i]; d2 += d * d; }
+        for (int i = 0; i < 12; ++i) { float d = r[i] - wl[i]; rot += d * d; }
+        return d2 < 0.02f * 0.02f && rot < 0.01f;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 uint64_t HookedSnapshot(uintptr_t ctx) {
     if (ctx && !*reinterpret_cast<volatile uintptr_t*>(ctx + 0x78) && g_mode.load(std::memory_order_relaxed) != kOff) {
         uintptr_t fg = *reinterpret_cast<uintptr_t*>(ctx + 0x18);
         bool player = fg && fg == g_playerFg.load(std::memory_order_relaxed);
-        bool weapon = fg && !player && g_weaponOn.load(std::memory_order_relaxed) && fg == g_weaponFg.load(std::memory_order_relaxed);
+        uintptr_t wfg = g_weaponFg.load(std::memory_order_relaxed);
+        bool weapon = fg && !player && g_weaponOn.load(std::memory_order_relaxed) && wfg && (fg == wfg || IsWeaponPart(ctx, wfg));
         if (player || weapon)
             if (const Frame* f = FrameNow()) MakeChangedSnapshot(ctx, player, f);
     }
     return g_snapOrig(ctx);
+}
+
+// ---- hook: RopeSkinning::PrepareRopeSkinning (rva 0x1376D40, rope2-base.cpp) ---------------------------
+// The rifle sling (tester 13:16: "the rifle sling doesn't line up") is a simulated rope, not part of the
+// rifle's skeleton. Its render matrices (3x4 rows, RopeSkinningData+240, count +224) are made here from
+// the rope's points, relative to an origin at +0xB0 (the points have it subtracted). After the game
+// makes them, a rope whose first point lies within 1.2 m of the held weapon gets the frame's change too:
+// m = T(-origin) * A * T(origin) * m.
+constexpr uintptr_t kRopeSkin = 0x1376D40;
+const uint8_t kRopeSkinExpect[15] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x10, 0x48, 0x89, 0x70, 0x18, 0x48, 0x89, 0x78, 0x20};
+using RopeSkinFn = uint64_t (*)(uintptr_t);
+RopeSkinFn g_ropeOrig = nullptr;
+std::atomic<uint64_t> g_ropeHits{0}, g_ropeSeen{0};
+std::atomic<float> g_ropeNear{1e9f};   // squared distance of the nearest rope to the weapon, per status line
+std::atomic<bool> g_ropeOn{true};
+
+void ChangeRope(uintptr_t data, const Frame& f) {
+    uintptr_t wfg = g_weaponFg.load(std::memory_order_relaxed);
+    uint32_t n = *reinterpret_cast<uint32_t*>(data + 224);
+    auto* mats = *reinterpret_cast<float**>(data + 240);
+    if (!wfg || !mats || n == 0 || n > 512) return;
+    const float* origin = reinterpret_cast<const float*>(data + 0xB0);
+    const float* wl = reinterpret_cast<const float*>(wfg + 0x1D0);   // the weapon's object-to-world 4x4, translation in row 3
+    float dx = mats[3] + origin[0] - wl[12], dy = mats[7] + origin[1] - wl[13], dz = mats[11] + origin[2] - wl[14];
+    float d2 = dx * dx + dy * dy + dz * dz;
+    g_ropeSeen.fetch_add(1, std::memory_order_relaxed);
+    if (d2 < g_ropeNear.load()) g_ropeNear = d2;
+    if (d2 > 1.2f * 1.2f) return;
+    vm::Mat34 to = vm::Identity34(), from = vm::Identity34();
+    for (int i = 0; i < 3; ++i) { to.m[i * 4 + 3] = origin[i]; from.m[i * 4 + 3] = -origin[i]; }
+    vm::Mat34 t = vm::Mul(from, vm::Mul(f.world, to));
+    for (uint32_t j = 0; j < n; ++j) {
+        vm::Mat34 m; std::memcpy(m.m, mats + 12 * j, 48);
+        m = vm::Mul(t, m);
+        std::memcpy(mats + 12 * j, m.m, 48);
+    }
+    g_ropeHits.fetch_add(1, std::memory_order_relaxed);
+}
+int SafeChangeRope(uintptr_t data, const Frame* f) {
+    __try { ChangeRope(data, *f); return 1; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+uint64_t HookedRopeSkin(uintptr_t data) {
+    uint64_t r = g_ropeOrig(data);
+    if (data && g_ropeOn.load(std::memory_order_relaxed) && g_weaponOn.load(std::memory_order_relaxed) && g_mode.load(std::memory_order_relaxed) != kOff)
+        if (const Frame* f = FrameNow())
+            if (!SafeChangeRope(data, f)) g_faults.fetch_add(1);
+    return r;
 }
 
 // ---- head-turn limit ------------------------------------------------------------------------------
@@ -736,6 +865,7 @@ void Handle(const std::string& line) {
     }
     else if (c == "anchor") { g_anchorOn = w != "off"; Log("cmd: arms anchored to the camera: %s", g_anchorOn.load() ? "on" : "off"); }
     else if (c == "calibrate") { g_calibWanted = true; Log("cmd: anchor recalibrates on the next frame"); }
+    else if (c == "sling") { g_ropeOn = g_slingOn = w != "off"; Log("cmd: rifle sling %s", g_slingOn.load() ? "follows the weapon" : "left alone"); }
     else if (c == "weapon") { g_weaponOn = w != "off"; Log("cmd: held weapon %s", g_weaponOn.load() ? "follows" : "left alone"); }
     else if (c == "off") { g_mode = kOff; if (g_dofAuto.load()) g_dofWanted = 0; Log("cmd: off"); }
     else if (c == "dof") {
@@ -804,12 +934,14 @@ DWORD WINAPI Main(void*) {
                    reinterpret_cast<void**>(&g_evalOrig), "anim segment evaluation");
     InstallChained(kSnapshot, kSnapshotExpect, sizeof(kSnapshotExpect), reinterpret_cast<void*>(&HookedSnapshot),
                    reinterpret_cast<void**>(&g_snapOrig), "render snapshot");
+    InstallChained(kRopeSkin, kRopeSkinExpect, sizeof(kRopeSkinExpect), reinterpret_cast<void*>(&HookedRopeSkin),
+                   reinterpret_cast<void**>(&g_ropeOrig), "rope skinning (rifle sling)");
     InstallChained(kCamSet, kCamSetExpect, sizeof(kCamSetExpect), reinterpret_cast<void*>(&HookedCamSet),
                    reinterpret_cast<void**>(&g_camOrig), "CameraFinalInfo::Set");
     RunStartupFile();
     uintptr_t lastFg = 0, lastWeapon = 1;
     uint64_t ticks = 0, lastState = ~0ull, lastAnim = ~0ull;
-    uint64_t lastHits = 0, lastSeg = 0, lastWeaponHits = 0, lastClamped = 0, lastCalls = 0;
+    uint64_t lastHits = 0, lastSeg = 0, lastWeaponHits = 0, lastClamped = 0, lastCalls = 0, lastRope = 0;
     bool lastLocked = false, lastFp = false;
     uint64_t offSince = 0;
     for (;;) {
@@ -878,9 +1010,14 @@ DWORD WINAPI Main(void*) {
         if (g_dumpReady.load()) { LogDump(); g_dumpReady = false; }
         if (++ticks % 200 == 0) {   // every 10 s
             uint64_t h = g_hits.load(), sh = g_segHits.load(), wh = g_weaponHits.load();
-            Log("status: mode %d, %llu player updates, %llu late segment evaluations, %llu weapon snapshots changed in 10 s; faults %llu",
+            uint64_t rh = g_ropeHits.load();
+            Log("status: mode %d, %llu player updates, %llu late segment evaluations, %llu weapon snapshots and %llu sling ropes changed in 10 s; faults %llu",
                 g_mode.load(), static_cast<unsigned long long>(h - lastHits), static_cast<unsigned long long>(sh - lastSeg),
-                static_cast<unsigned long long>(wh - lastWeaponHits), static_cast<unsigned long long>(g_faults.load()));
+                static_cast<unsigned long long>(wh - lastWeaponHits), static_cast<unsigned long long>(rh - lastRope), static_cast<unsigned long long>(g_faults.load()));
+            lastRope = rh;
+            Log("weapon: %u segments, done mask at its snapshot %x, %llu later segments changed in 10 s", g_wSegCount.load(), g_wDoneAtSnap.load(),
+                static_cast<unsigned long long>(g_weaponLateSegs.exchange(0)));
+            if (g_ropeSeen.load()) Log("sling: %llu ropes near a held weapon checked; nearest first point %.2f m from the weapon", static_cast<unsigned long long>(g_ropeSeen.exchange(0)), std::sqrt(g_ropeNear.exchange(1e9f)));
             lastHits = h; lastSeg = sh; lastWeaponHits = wh;
             uint64_t cl = g_clamped.load(), calls = g_camCalls.load();
             if (cl != lastClamped)
