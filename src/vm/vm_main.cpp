@@ -326,7 +326,15 @@ bool FrameChange(uintptr_t proc, uintptr_t ctx, const float* mats, vm::Mat34& ou
         std::memcpy(cq, reinterpret_cast<void*>(cam + 0x140), sizeof(cq));
         std::memcpy(&fov, reinterpret_cast<void*>(cam + 0x160), sizeof(fov));
         float now[3];
-        if (EyeNow(ctx, mats, now)) {
+        bool eyesOk = EyeNow(ctx, mats, now);
+        // Only in first person (tester: in third person the moved arms show as a ghost "double arms"):
+        // the final camera must sit at her eyes, checked every frame (no hysteresis, no lag).
+        if (g_mode.load() == kView && g_sel.load() == kSelArms) {
+            if (!eyesOk) return false;
+            float dx = camPos[0] - now[0], dy = camPos[1] - now[1], dz = camPos[2] - now[2];
+            if (dx * dx + dy * dy + dz * dz > 0.6f * 0.6f) return false;
+        }
+        if (eyesOk) {
             float off[3] = {0, 0, 0};
             if (g_prevEyeOk) for (int i = 0; i < 3; ++i) off[i] = camPos[i] - g_prevEye[i];
             if (off[0] * off[0] + off[1] * off[1] + off[2] * off[2] > 0.36f) { off[0] = off[1] = off[2] = 0; std::memcpy(now, camPos, sizeof(now)); }   // third person: use the camera
