@@ -5,7 +5,9 @@
 //   fp_launcher.exe                 wait for the game, load the ASI once it has a window, keep watching (re-loads into
 //                                   a restarted game); Ctrl+C to quit
 //   fp_launcher.exe --once          load into the running game, then exit
-//   fp_launcher.exe --asi <file>    another ASI (default: TLOU2FirstPerson.asi next to this exe)
+//   fp_launcher.exe --asi <file>    another ASI (default: TLOU2FirstPerson.asi next to this exe); repeat
+//                                   --asi to load several, in order, 2 s apart (e.g. the first-person
+//                                   mod, then TLOU2Viewmodel.dll, which hooks on top of it)
 //   fp_launcher.exe --delay <s>     seconds to wait after the game window appears (default 8: lets D3D12 come up,
 //                                   the overlay hooks the swap chain)
 // The ASI cannot be unloaded from a running game; quit the game to remove it.
@@ -16,6 +18,7 @@
 #include <cwchar>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -104,37 +107,42 @@ std::wstring FullPath(const std::wstring& p) {
 int wmain(int argc, wchar_t** argv) {
     bool once = false;
     double delay = 8.0;
-    std::wstring asi = ExeDir() + L"TLOU2FirstPerson.asi";
+    std::vector<std::wstring> asis;
     for (int i = 1; i < argc; ++i) {
         std::wstring a = argv[i];
         if (a == L"--once") once = true;
-        else if (a == L"--asi" && i + 1 < argc) asi = FullPath(argv[++i]);
+        else if (a == L"--asi" && i + 1 < argc) asis.push_back(FullPath(argv[++i]));
         else if (a == L"--delay" && i + 1 < argc) delay = _wtof(argv[++i]);
         else { std::printf("usage: fp_launcher [--once] [--asi <file>] [--delay <s>]\n"); return 2; }
     }
-    if (GetFileAttributesW(asi.c_str()) == INVALID_FILE_ATTRIBUTES) {
-        std::wprintf(L"Not found: %ls\nPut the ASI next to fp_launcher.exe or pass --asi <file>.\n", asi.c_str());
-        return 1;
+    if (asis.empty()) asis.push_back(ExeDir() + L"TLOU2FirstPerson.asi");
+    for (auto& asi : asis) {
+        if (GetFileAttributesW(asi.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            std::wprintf(L"Not found: %ls\nPut the ASI next to fp_launcher.exe or pass --asi <file>.\n", asi.c_str());
+            return 1;
+        }
     }
-    std::wstring module = asi.substr(asi.find_last_of(L"\\/") + 1);
-    std::wprintf(L"TLOU2 ASI launcher: %ls\nWaiting for the game (tlou-ii.exe)... Ctrl+C to quit.\n", asi.c_str());
+    std::wprintf(L"TLOU2 ASI launcher: %zu file(s), first %ls\nWaiting for the game (tlou-ii.exe)... Ctrl+C to quit.\n", asis.size(), asis[0].c_str());
     std::set<DWORD> done;
     for (;;) {
         DWORD pid = FindGame();
         if (pid && !done.count(pid) && HasWindow(pid)) {
-            if (HasModule(pid, module)) {
-                std::wprintf(L"Game %lu already has %ls (an ASI loader in the game folder?); not loading it twice.\n", pid, module.c_str());
-                done.insert(pid);
-            } else {
-                std::printf("Game %lu has a window; loading in %.0f s...\n", pid, delay);
-                Sleep(static_cast<DWORD>(delay * 1000));
-                if (Alive(pid)) {
-                    bool ok = Inject(pid, asi);
-                    std::wprintf(L"%ls into game %lu: %ls\n", module.c_str(), pid, ok ? L"loaded" : L"FAILED");
-                    done.insert(pid);
-                    if (once) return ok ? 0 : 1;
+            std::printf("Game %lu has a window; loading in %.0f s...\n", pid, delay);
+            Sleep(static_cast<DWORD>(delay * 1000));
+            bool all = true;
+            for (size_t k = 0; k < asis.size() && Alive(pid); ++k) {
+                std::wstring module = asis[k].substr(asis[k].find_last_of(L"\\/") + 1);
+                if (HasModule(pid, module)) {
+                    std::wprintf(L"Game %lu already has %ls; not loading it twice.\n", pid, module.c_str());
+                    continue;
                 }
+                if (k) Sleep(2000);   // let the previous one install its hooks first
+                bool ok = Inject(pid, asis[k]);
+                all = all && ok;
+                std::wprintf(L"%ls into game %lu: %ls\n", module.c_str(), pid, ok ? L"loaded" : L"FAILED");
             }
+            done.insert(pid);
+            if (once) return all ? 0 : 1;
         }
         if (once && !pid) { std::printf("The game is not running.\n"); return 1; }
         for (auto it = done.begin(); it != done.end();) it = Alive(*it) ? std::next(it) : done.erase(it);

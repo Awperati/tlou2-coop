@@ -28,6 +28,11 @@
 //                     with a <fov> degree field of view and s times nearer the camera
 //   joints all | joints <a> <b> | joints arms   which of her joints the change applies to
 //   armroot clavicle|shoulder   where the arm set starts (default clavicle)
+//   hold <x> <y> <z>  move the arms and gun by this much in camera axes first (right, up, forward, m)
+//   dof <scale> | dof game   near (foreground) blur while the viewmodel is on (default 0 = sharp);
+//                     "game" leaves it to the game
+//   anchor on|off     carry the arms with the camera as they sit against her chest (default on)
+//   calibrate         take the arms' place against her chest now (done by itself the first time she looks level)
 //   weapon on|off     whether the held weapon gets the same change (default on)
 //   off               stop changing anything
 //   headlock <deg>    first-person head-turn limit while a move holds her body (vault, climb, ledge,
@@ -118,7 +123,20 @@ enum Mode { kOff = 0, kLift = 1, kScale = 2, kView = 3 };
 enum Sel { kSelAll = 0, kSelRange = 1, kSelArms = 2 };
 std::atomic<int> g_mode{kOff}, g_sel{kSelAll};
 std::atomic<float> g_a{0.f}, g_b{1.55f};          // mode parameters (lift dy; scale s, h; view k, s)
-std::atomic<float> g_vmFov{0.f};                  // arms: viewmodel field of view (0 = use g_a as k)
+std::atomic<float> g_vmFov{0.f};
+// Hold offset (owner 12:52: with the arms viewmodel on, nothing showed: in first person her arms and
+// a lowered gun sit below the view, and the transform about the eye keeps them there). The arms and
+// the gun are first moved by this much in camera axes (right, up, forward; metres), then drawn as
+// the viewmodel. Seam at the clavicles, which sit outside the view.
+std::atomic<float> g_holdX{0.f}, g_holdY{0.f}, g_holdZ{0.f};
+// Anchor (owner 12:59: looking far up, an arm filled the view). The game's aim pose pitches her spine
+// and arms only part of the way, so the arms drift against the view. With the anchor on, the arms and
+// gun are carried rigidly with the camera as they sat against her chest (spined) at calibration:
+// change = camera * C * chest^-1, C = camera0^-1 * chest0, taken the first time she looks level (or on
+// "calibrate"). Animation relative to her chest (aim sway, reloads) still plays, now in front of the camera.
+std::atomic<bool> g_anchorOn{true}, g_calibWanted{true};
+vm::Mat34 g_anchorC{};
+bool g_anchorOk = false;                  // arms: viewmodel field of view (0 = use g_a as k)
 std::atomic<int> g_j0{0}, g_j1{100000};
 std::atomic<bool> g_armFromShoulder{false}, g_weaponOn{true};
 std::atomic<uintptr_t> g_proc{0};      // player 0's process
@@ -141,6 +159,8 @@ struct SkelInfo {
     int eye = -1;                  // l_eyeball
     int eyes[2] = {-1, -1};        // l_eyeball, r_eyeball
     float eyeBind[2][3] = {};      // their bind positions (object space), from the inverse bind matrices
+    int spine = -1;                // spined, the top of the spine: the arms' anchor
+    vm::Mat34 spineBind{};         // its bind transform (inverse of its inverse bind matrix)
 };
 std::atomic<SkelInfo*> g_skel{nullptr};   // replaced, never freed (a few KB per skeleton change)
 
@@ -274,6 +294,31 @@ bool FrameChange(uintptr_t proc, uintptr_t ctx, const float* mats, vm::Mat34& ou
         float vmFov = g_vmFov.load();
         float k = vmFov > 1.f ? (fov > 1.f && fov < 170.f ? vm::FovRatio(fov, vmFov) : 1.f) : g_a.load();
         out = vm::ViewmodelAlong(eye, fwd, k, g_b.load());
+        vm::Mat34 anchor = vm::Identity34();
+        const SkelInfo* si = g_skel.load(std::memory_order_acquire);
+        vm::Mat34 l;
+        if (g_anchorOn.load() && si && si->spine >= 0 && RenderLocator(ctx, l)) {
+            vm::Mat34 skin; std::memcpy(skin.m, mats + 12 * si->spine, 48);
+            vm::Mat34 chest = vm::Mul(l, vm::Mul(skin, si->spineBind));   // her chest joint in the world
+            vm::Mat34 camT = vm::FromPosQuat(eye, cq);
+            float pitch = std::asin(fwd[1] > 1.f ? 1.f : fwd[1] < -1.f ? -1.f : fwd[1]);
+            if (g_calibWanted.load() || (!g_anchorOk && std::fabs(pitch) < 0.12f)) {
+                g_anchorC = vm::Mul(vm::InverseAffine(camT), chest);
+                g_anchorOk = true; g_calibWanted = false;
+                Log("anchor: calibrated at camera pitch %.1f deg", pitch * 57.2958f);
+            }
+            if (g_anchorOk) anchor = vm::Mul(camT, vm::Mul(g_anchorC, vm::InverseAffine(chest)));
+        }
+        float hx = g_holdX.load(), hy = g_holdY.load(), hz = g_holdZ.load();
+        if (hx != 0 || hy != 0 || hz != 0) {
+            float x = cq[0], y = cq[1], z = cq[2], w = cq[3];
+            float right[3] = {1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)};   // local +x
+            float up[3] = {2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x)};      // local +y
+            vm::Mat34 t = vm::Identity34();
+            for (int i = 0; i < 3; ++i) t.m[i * 4 + 3] = hx * right[i] + hy * up[i] + hz * fwd[i];
+            out = vm::Mul(out, t);
+        }
+        out = vm::Mul(out, anchor);
         return true;
     }
     return false;
@@ -437,8 +482,36 @@ vm::YawLimiter g_limiter;
 SRWLOCK g_limiterLock = SRWLOCK_INIT;
 LARGE_INTEGER g_limiterLast{}, g_qpf{};
 
+// Depth of field (owner 12:54: the arms are out of focus). The game blurs what is near the camera; the
+// viewmodel is near it on purpose. The render setting "post:dof-foreground-blur-scale" gets an
+// override of 0 while the viewmodel is on (sub_141474480(sid, float), what the debug menu's "Foreground
+// Blur Scale" calls) and the override is removed when it goes off (sub_14147A190(sid)). Applied from
+// this hook, on the game's camera thread, like the menu.
+constexpr uintptr_t kSetRenderFloat = 0x1474480, kSetRenderBool = 0x1474510, kClearRenderSetting = 0x147A190;
+std::atomic<int> g_dofWanted{-1};      // -1 nothing to do, 0 remove the override, 1 set it
+std::atomic<float> g_dofScale{0.f};
+std::atomic<bool> g_dofAuto{false};   // off by default: the overrides did not sharpen the arms; the Depth of Field menu option does (13:14)
+void ApplyDof() {
+    int w = g_dofWanted.exchange(-1);
+    if (w < 0) return;
+    // The foreground scale alone did not sharpen the arms (owner 12:59), so depth of field is also
+    // switched off ("post:dof-force-disable", sub_141474510(sid, bool)) while the viewmodel is on.
+    uint64_t sid = Fnv1a("post:dof-foreground-blur-scale"), off = Fnv1a("post:dof-force-disable");
+    __try {
+        if (w == 1) {
+            reinterpret_cast<void (*)(uint64_t, float)>(Rva(kSetRenderFloat))(sid, g_dofScale.load());
+            reinterpret_cast<void (*)(uint64_t, uint8_t)>(Rva(kSetRenderBool))(off, 1);
+        } else {
+            reinterpret_cast<void (*)(uint64_t)>(Rva(kClearRenderSetting))(sid);
+            reinterpret_cast<void (*)(uint64_t)>(Rva(kClearRenderSetting))(off);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { g_faults.fetch_add(1); }
+    Log("dof: %s", w == 1 ? "near blur 0 and depth of field off while the viewmodel is on" : "left to the game");
+}
+
 uint64_t HookedCamSet(uintptr_t out, uintptr_t in, float a, float b, float c, float d) {
     g_camCalls.fetch_add(1, std::memory_order_relaxed);
+    if (g_dofWanted.load(std::memory_order_relaxed) >= 0) ApplyDof();
     uintptr_t proc = g_proc.load(std::memory_order_relaxed);
     float deg = g_lockDeg.load();
     bool locked = deg > 0 && g_fpOn.load() && (g_bodyLocked.load() || g_lockAlways.load());
@@ -558,7 +631,7 @@ SkelInfo* BuildSkelInfo(uintptr_t skel, bool fromShoulder) {
     const char* rootNames[4] = {fromShoulder ? "l_shoulder" : "l_clavicle", fromShoulder ? "r_shoulder" : "r_clavicle",
                                 fromShoulder ? "l_shoulder_helper" : "l_clavicle_helper", fromShoulder ? "r_shoulder_helper" : "r_clavicle_helper"};
     uint64_t rootIds[4] = {Fnv1a(rootNames[0]), Fnv1a(rootNames[1]), Fnv1a(rootNames[2]), Fnv1a(rootNames[3])};
-    uint64_t eyeId = Fnv1a("l_eyeball"), reyeId = Fnv1a("r_eyeball"), flashId = Fnv1a("flashlight_attach");
+    uint64_t eyeId = Fnv1a("l_eyeball"), reyeId = Fnv1a("r_eyeball"), flashId = Fnv1a("flashlight_attach"), spineId = Fnv1a("spined");
     int roots[4] = {-1, -1, -1, -1}, flash = -1;
     for (uint32_t i = 0; i < n; ++i) {
         uint64_t sid = 0;
@@ -568,6 +641,7 @@ SkelInfo* BuildSkelInfo(uintptr_t skel, bool fromShoulder) {
         if (sid == eyeId && si->eye < 0) si->eye = static_cast<int>(i);
         if (sid == eyeId && si->eyes[0] < 0) si->eyes[0] = static_cast<int>(i);
         if (sid == reyeId && si->eyes[1] < 0) si->eyes[1] = static_cast<int>(i);
+        if (sid == spineId && si->spine < 0) si->spine = static_cast<int>(i);
     }
     // Eye bind positions: the inverse bind matrices are at hier + *(u32*)(hier+0x28), 48 bytes each.
     uint32_t oInv = 0;
@@ -579,6 +653,8 @@ SkelInfo* BuildSkelInfo(uintptr_t skel, bool fromShoulder) {
                 si->eyeBind[k][0] = b.m[3]; si->eyeBind[k][1] = b.m[7]; si->eyeBind[k][2] = b.m[11];
             }
         }
+        vm::Mat34 ib;
+        if (si->spine >= 0 && ReadMem(hier + oInv + 48ull * si->spine, ib)) si->spineBind = vm::InverseAffine(ib);
     }
     si->arm.assign(n, 0);
     uint32_t count = 0, segCount[64] = {};
@@ -638,6 +714,7 @@ void Handle(const std::string& line) {
     else if (c == "view" && n >= 3) { g_a = a; g_b = b; g_vmFov = 0; g_mode = kView; Log("cmd: view k %.2f, s %.2f", a, b); }
     else if (c == "arms" && n >= 3) {
         g_vmFov = a; g_b = b; g_sel = kSelArms; g_mode = kView;
+        if (g_dofAuto.load()) g_dofWanted = 1;
         Log("cmd: viewmodel: arms (%s) + held weapon (%s) at %.0f deg field of view, %.2f of the distance", g_armFromShoulder.load() ? "shoulders" : "clavicles",
             g_weaponOn.load() ? "on" : "off", a, b);
     }
@@ -651,8 +728,20 @@ void Handle(const std::string& line) {
         g_skel = nullptr;   // rebuilt by the poll thread
         Log("cmd: arm set starts at the %s", g_armFromShoulder.load() ? "shoulders" : "clavicles");
     }
+    else if (c == "hold") {
+        float x = 0, y = 0, z = 0;
+        sscanf_s(line.c_str(), "%*s %f %f %f", &x, &y, &z);
+        g_holdX = x; g_holdY = y; g_holdZ = z;
+        Log("cmd: hold offset right %.2f, up %.2f, forward %.2f m", x, y, z);
+    }
+    else if (c == "anchor") { g_anchorOn = w != "off"; Log("cmd: arms anchored to the camera: %s", g_anchorOn.load() ? "on" : "off"); }
+    else if (c == "calibrate") { g_calibWanted = true; Log("cmd: anchor recalibrates on the next frame"); }
     else if (c == "weapon") { g_weaponOn = w != "off"; Log("cmd: held weapon %s", g_weaponOn.load() ? "follows" : "left alone"); }
-    else if (c == "off") { g_mode = kOff; Log("cmd: off"); }
+    else if (c == "off") { g_mode = kOff; if (g_dofAuto.load()) g_dofWanted = 0; Log("cmd: off"); }
+    else if (c == "dof") {
+        if (w == "game") { g_dofAuto = false; g_dofWanted = 0; Log("cmd: near blur left to the game"); }
+        else { g_dofAuto = true; if (n >= 2) g_dofScale = a; g_dofWanted = g_mode.load() != kOff ? 1 : 0; Log("cmd: near blur scale %.2f while the viewmodel is on", g_dofScale.load()); }
+    }
     else if (c == "animlog") { g_animLog = w != "off"; Log("cmd: anim state log %s", g_animLog.load() ? "on" : "off"); }
     else if (c == "headlock") {
         if (w == "always") { g_lockAlways = true; Log("cmd: head lock in every state (test)"); }
@@ -668,6 +757,23 @@ void Handle(const std::string& line) {
         else if (n >= 2) { g_lockDeg = a; Log("cmd: head lock %.0f deg either side of her facing%s", a, a <= 0 ? " (off)" : ""); }
     }
     else if (!c.empty()) Log("cmd: unknown '%s'", line.c_str());
+}
+
+// Startup settings: <dll name>.ini next to the DLL, one command per line (same commands as the
+// command file; lines starting with ';' or '#' are comments). Read once when the DLL loads.
+void RunStartupFile() {
+    std::wstring path = g_stem + L".ini";
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, path.c_str(), L"r") != 0 || !f) { Log("startup: no %ls; viewmodel stays off until a command turns it on", path.c_str()); return; }
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        std::string l = line;
+        while (!l.empty() && (l.back() == '\n' || l.back() == '\r' || l.back() == ' ')) l.pop_back();
+        size_t a = l.find_first_not_of(" \t");
+        if (a == std::string::npos || l[a] == ';' || l[a] == '#' || l[a] == '[') continue;
+        Handle(l.substr(a));
+    }
+    fclose(f);
 }
 
 void PollCommands() {
@@ -700,6 +806,7 @@ DWORD WINAPI Main(void*) {
                    reinterpret_cast<void**>(&g_snapOrig), "render snapshot");
     InstallChained(kCamSet, kCamSetExpect, sizeof(kCamSetExpect), reinterpret_cast<void*>(&HookedCamSet),
                    reinterpret_cast<void**>(&g_camOrig), "CameraFinalInfo::Set");
+    RunStartupFile();
     uintptr_t lastFg = 0, lastWeapon = 1;
     uint64_t ticks = 0, lastState = ~0ull, lastAnim = ~0ull;
     uint64_t lastHits = 0, lastSeg = 0, lastWeaponHits = 0, lastClamped = 0, lastCalls = 0;
