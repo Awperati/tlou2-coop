@@ -47,6 +47,10 @@ target_compile_definitions(coop_loader PRIVATE UNICODE _UNICODE NOMINMAX)
 # separate program instead of being loaded by the game.
 add_library(coop_inject SHARED src/loader/loader.cpp)
 target_compile_definitions(coop_inject PRIVATE UNICODE _UNICODE NOMINMAX)
+# fp_launcher.exe (10-20): loads a third-party ASI (TLOU2FirstPerson.asi) into a running game from its own folder,
+# so nothing goes into the game folder. Independent of the co-op mod.
+add_executable(fp_launcher tools/fp_launcher/fp_launcher.cpp)
+target_compile_definitions(fp_launcher PRIVATE UNICODE _UNICODE NOMINMAX)
 add_executable(coop_launcher src/launcher/launcher.cpp)
 target_compile_definitions(coop_launcher PRIVATE UNICODE _UNICODE NOMINMAX)
 
