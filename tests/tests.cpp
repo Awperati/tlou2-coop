@@ -20,6 +20,8 @@
 #include "core/teleport.h"
 #include "core/traversal.h"
 #include "core/viewmodel.h"
+#include "core/combat.h"
+#include "core/weaponsync.h"
 #include <cstdio>
 #include <thread>
 #include <windows.h>
@@ -91,6 +93,7 @@ static void TestProtocolRoundTrip() {
     PlayerState s; s.tick = 42; s.pos = {1, 2, 3}; s.yaw = 1.5f; s.health = 77; s.character = CharacterId::Dina;
     s.shots = 250; s.shotTarget = 0x1122334455667788ull; s.padHeld = 0x8000000000000201ull;
     s.aimYaw = -1.25f; s.aimPitch = 0.5f; s.gesture = 0xD8AD71F5DB29687Full; s.state = kStateJump;
+    s.weapon = 0xABCDEF0123456789ull; s.throws = 4000000000u;
     Writer w; Write(w, s);
     Reader r(w.data().data(), w.data().size());
     PlayerState o; CHECK(Read(r, o));
@@ -98,13 +101,14 @@ static void TestProtocolRoundTrip() {
     CHECK(o.shots == 250 && o.shotTarget == 0x1122334455667788ull && o.padHeld == 0x8000000000000201ull);
     CHECK(o.aimYaw == -1.25f && o.aimPitch == 0.5f);
     CHECK(o.gesture == 0xD8AD71F5DB29687Full && o.state == kStateJump);
-    // A sender without the combat tail (state last): no weapon, no clip.
-    const size_t kCombat = 23;
-    { Reader r3(w.data().data(), w.data().size() - kCombat); PlayerState g; CHECK(Read(r3, g) && g.state == kStateJump && g.combat == CombatWire{} && g.combat.clip == -1); }
+    CHECK(o.weapon == 0xABCDEF0123456789ull && o.throws == 4000000000u);
+    // A sender without the combat tail (weapon/throws last): no weapon, no clip.
+    const size_t kCombat = 23, kWeapon = 16;
+    { Reader r3(w.data().data(), w.data().size() - kCombat); PlayerState g; CHECK(Read(r3, g) && g.state == kStateJump && g.throws == 4000000000u && g.combat == CombatWire{} && g.combat.clip == -1); }
     // A sender without the state field (gesture last): the state reads as unknown.
-    { Reader r2(w.data().data(), w.data().size() - kCombat - 8); PlayerState g; CHECK(Read(r2, g) && g.state == 0 && g.gesture == 0xD8AD71F5DB29687Full); }
+    { Reader r2(w.data().data(), w.data().size() - kCombat - kWeapon - 8); PlayerState g; CHECK(Read(r2, g) && g.state == 0 && g.gesture == 0xD8AD71F5DB29687Full); }
     // An older sender stops after the aim: the gesture reads as none.
-    Reader oldR(w.data().data(), w.data().size() - kCombat - 16);
+    Reader oldR(w.data().data(), w.data().size() - kCombat - kWeapon - 16);
     PlayerState old; CHECK(Read(oldR, old) && old.gesture == 0 && old.state == 0 && old.aimPitch == 0.5f);
 
     // Truncated input must fail cleanly, never read past the end.
@@ -592,6 +596,12 @@ static void TestCombatSync() {
         t += 33; r.firing = true; snd.Update(t, r); CHECK(snd.threw && snd.wire.throwSeq == 1);
         t += 33; snd.Update(t, r); CHECK(!snd.threw);                       // held: once
         t += 2000; r.firing = false; snd.Update(t, r); t += 33; r.firing = true; snd.Update(t, r); CHECK(!snd.threw);   // long after: no throwable
+        {   // With the throw hooks: the hook count, not the firing heuristic.
+            CombatSender hk; hk.useThrowCount = true; hk.throwCount = 7; CombatReading q; hk.Update(1, q);
+            q.firing = true; q.aimingThrowable = true; hk.Update(40, q); CHECK(!hk.threw && hk.wire.throwSeq == 0);
+            hk.throwCount = 8; hk.Update(80, q); CHECK(hk.threw && hk.wire.throwSeq == 1);
+            hk.Update(120, q); CHECK(!hk.threw);
+        }
         t += 33; r.firing = false; r.state = kStateMelee; snd.Update(t, r); CHECK(snd.swung && snd.wire.meleeSeq == 1 && (snd.wire.flags & kCombatMelee));
         t += 33; snd.Update(t, r); CHECK(!snd.swung);
     }
@@ -1147,6 +1157,136 @@ static void TestYawLimiter() {
     CHECK(std::fabs(r1 - 100 * deg) < 1e-5f);                                            // back to free
 }
 
+// Friendly fire (owner 10-21: PC B's molotov burned the clone of PC A's Ellie on PC B only).
+static void TestCombatRules() {
+    const CombatRules def;
+    // On each PC: 0 = our player, 1 = the clone, -1 = an enemy or other non-player.
+    CHECK(JudgeAttack(def, 1, 0) == AttackVerdict::DropCloneVictim);     // PC B: Dina's molotov at Ellie's clone
+    CHECK(JudgeAttack(def, 1, -1) == AttackVerdict::DropCloneVictim);    // an enemy shoots the clone: her own PC owns her health
+    CHECK(JudgeAttack(def, 0, 1) == AttackVerdict::DropFriendlyFire);    // PC A: the clone's molotov / bullet / melee at Ellie
+    CHECK(JudgeAttack(def, -1, 1) == AttackVerdict::DropCloneAttacker);  // the clone hits an enemy: counted on her own PC
+    CHECK(JudgeAttack(def, -1, 0) == AttackVerdict::Allow);              // our player hits an enemy
+    CHECK(JudgeAttack(def, 0, -1) == AttackVerdict::Allow);              // an enemy hits our player
+    CHECK(JudgeAttack(def, 0, 0) == AttackVerdict::Allow);               // our own molotov at our feet still hurts
+    CHECK(JudgeAttack(def, -1, -1) == AttackVerdict::Allow);             // enemies among themselves
+    CHECK(JudgeAttack(def, 1, 1) == AttackVerdict::DropCloneVictim);
+    // No player 1 (clone mode off): nothing resolves to 1, nothing is dropped.
+    for (int v : {-1, 0}) for (int a : {-1, 0}) CHECK(JudgeAttack(def, v, a) == AttackVerdict::Allow);
+    // Switches.
+    CombatRules ff; ff.friendlyFire = true;
+    CHECK(JudgeAttack(ff, 0, 1) == AttackVerdict::Allow && JudgeAttack(ff, 1, 0) == AttackVerdict::DropCloneVictim);
+    CombatRules takes; takes.cloneTakesDamage = true;
+    CHECK(JudgeAttack(takes, 1, 0) == AttackVerdict::Allow && JudgeAttack(takes, 0, 1) == AttackVerdict::DropFriendlyFire);
+    CombatRules deals; deals.cloneDealsDamage = true;
+    CHECK(JudgeAttack(deals, -1, 1) == AttackVerdict::Allow && JudgeAttack(deals, 0, 1) == AttackVerdict::DropFriendlyFire);
+    // The owner's molotov on both PCs: Dina (PC B's player 0) throws at Ellie. On PC B Ellie is the clone,
+    // on PC A (once throws are mirrored) Dina is the clone. Neither PC lets a point of damage through.
+    struct Pc { int ellie, dina; } pcA{0, 1}, pcB{1, 0};
+    for (Pc pc : {pcA, pcB}) CHECK(JudgeAttack(def, pc.ellie, pc.dina) != AttackVerdict::Allow);
+    // ... and Ellie can't hurt Dina either way round.
+    for (Pc pc : {pcA, pcB}) CHECK(JudgeAttack(def, pc.dina, pc.ellie) != AttackVerdict::Allow);
+}
+
+// Enemy health stays the same on both PCs when each hit counts on the shooter's PC only. Host = PC A,
+// partner = PC B. A partner hit is seen on PC B (health drop), reported to the host (EnemyDamage) and
+// applied there; the host's hits apply on PC A and reach PC B in EnemyStates. Each shot also lands
+// on the shooter's clone on the other PC; JudgeAttack decides whether that copy counts.
+static void TestCombatEnemyConsistency() {
+    auto run = [](const CombatRules& r) {
+        float host = 100.f, partner = 100.f;
+        struct Shot { bool byHost; float dmg; } shots[] = {{false, 30.f}, {true, 25.f}, {false, 20.f}};
+        for (const auto& s : shots) {
+            // On the shooter's PC the shooter is player 0; on the other PC the same shot comes from the clone.
+            float& own = s.byHost ? host : partner;
+            float& other = s.byHost ? partner : host;
+            if (JudgeAttack(r, -1, 0) == AttackVerdict::Allow) own -= s.dmg;
+            if (JudgeAttack(r, -1, 1) == AttackVerdict::Allow) other -= s.dmg;   // the clone's copy
+            if (!s.byHost) host -= s.dmg;          // partner's report to the host
+            partner = host;                        // EnemyStates: the host's value wins
+        }
+        return host;
+    };
+    CHECK(std::fabs(run(CombatRules{}) - 25.f) < 1e-3f);                       // 100 - 30 - 25 - 20
+    CombatRules twice; twice.cloneDealsDamage = true;
+    CHECK(run(twice) < 25.f - 1.f);                                           // without the drop hits count twice
+}
+
+static void TestAttackRing() {
+    AttackRing<4> ring;
+    AttackRecord a; a.type = 1;
+    for (int i = 0; i < 6; ++i) { a.type = static_cast<uint32_t>(i); ring.Push(a); }
+    CHECK(ring.dropped == 2);   // full at 4: the newest are dropped, never the hooks blocked
+    AttackRecord o; int n = 0; uint32_t last = 99;
+    while (ring.Pop(o)) { CHECK(n == 0 || o.type == last + 1); last = o.type; ++n; }
+    CHECK(n == 4 && last == 3);
+    ring.Push(a); CHECK(ring.Pop(o) && o.type == 5 && !ring.Pop(o));
+    AttackRecord quiet; CHECK(!AttackWorthLogging(quiet));          // enemy on enemy, allowed
+    quiet.victim = 0; CHECK(AttackWorthLogging(quiet));             // anything at our player
+    AttackRecord drop; drop.verdict = AttackVerdict::DropCloneAttacker; CHECK(AttackWorthLogging(drop));
+    CHECK(std::string(VerdictName(AttackVerdict::DropFriendlyFire)).find("friendly") != std::string::npos);
+}
+
+// Weapon actions on the clone (core/weaponsync.h), end to end through the wire: the sender's weapon, throw count
+// and state go out in PlayerState every 50 ms; the receiver decides what to give her and what to press.
+static void TestWeaponSync() {
+    const uint64_t pistol = 0x1111, molotov = 0x2222, brick = 0x3333;
+    // Equip: give/draw the partner's weapon until she holds it, every 1.5 s, at most 4 tries per id.
+    WeaponEquip eq;
+    CHECK(eq.Update(0, 0, 0) == 0);                       // unarmed partner: leave her be
+    CHECK(eq.Update(100, pistol, 0) == pistol);           // first try at once
+    CHECK(eq.Update(600, pistol, 0) == 0);                // too soon
+    CHECK(eq.Update(1700, pistol, 0) == pistol);          // retry
+    CHECK(eq.Update(2000, pistol, pistol) == 0);          // she holds it
+    CHECK(eq.Update(2100, molotov, pistol) == molotov);   // the partner switched: at once
+    int tries = 1;
+    for (unsigned long long t = 2200; t < 20000; t += 100) if (eq.Update(t, molotov, pistol)) ++tries;
+    CHECK(tries == WeaponEquip::kMaxTries);               // gives up on a weapon she can't take
+    CHECK(eq.Update(20100, brick, pistol) == brick);      // a new id tries again
+    CHECK(eq.Update(20200, 0, brick) == 0);
+
+    // Presses over the wire: throws at 1 s and 3 s, a melee swing 5-5.6 s, a restart of their game at 8 s
+    // (count back to 0), a throw after it at 9 s.
+    struct Step { int fromMs; uint32_t throws; uint64_t state; uint64_t weapon; };
+    const Step script[] = {{0, 7, 0, pistol}, {1000, 8, 0, molotov}, {3000, 9, 0, molotov}, {5000, 9, wstate::Melee, 0},
+                           {5600, 9, 0, 0}, {8000, 0, 0, 0}, {9000, 1, 0, brick}};
+    WeaponPress press;
+    std::vector<int> rtOn, xOn;
+    bool rtPrev = false, xPrev = false;
+    for (int t = 0; t < 10000; t += 50) {
+        PlayerState s;
+        for (const auto& st : script) if (t >= st.fromMs) { s.throws = st.throws; s.state = st.state; s.weapon = st.weapon; }
+        Writer w; Write(w, s);
+        Reader r(w.data().data(), w.data().size());
+        PlayerState got;
+        CHECK(Read(r, got) && got.throws == s.throws && got.weapon == s.weapon && got.state == s.state);
+        press.UpdateThrows(t, got.throws);
+        press.UpdateState(t, got.state);
+        for (int f = 0; f < 50; f += 16) {   // her drive reads the presses every frame
+            uint64_t h = press.Held(t + f, 0);
+            bool rt = (h & kPadRT) != 0, x = (h & kPadX) != 0;
+            if (rt && !rtPrev) rtOn.push_back(t + f);
+            if (x && !xPrev) xOn.push_back(t + f);
+            rtPrev = rt; xPrev = x;
+        }
+    }
+    CHECK(rtOn.size() == 3);   // the first count (7) and the restart only resync
+    if (rtOn.size() == 3) CHECK(rtOn[0] == 1000 && rtOn[1] == 3000 && rtOn[2] == 9000);
+    CHECK(xOn.size() == 1 && !xOn.empty() && xOn[0] == 5000);
+    // No X while she is already swinging; RT is not gated.
+    WeaponPress p2;
+    p2.UpdateState(0, 0); p2.UpdateState(100, wstate::Melee);
+    CHECK(p2.Held(150, wstate::Melee) == 0 && p2.Held(150, 0) == kPadX && p2.Held(300, 0) == 0);
+    p2.UpdateThrows(0, 5); p2.UpdateThrows(400, 6);
+    CHECK(p2.Held(450, wstate::Melee) == kPadRT && p2.Held(600, 0) == 0);
+    // An older sender (no weapon tail) reads as unarmed with no throws.
+    PlayerState old; old.state = 0x77;
+    Writer w; Write(w, old);
+    std::vector<uint8_t> cut(w.data().begin(), w.data().end() - 16);
+    Reader r(cut.data(), cut.size());
+    PlayerState got; got.weapon = 9; got.throws = 9;
+    CHECK(Read(r, got) && got.state == 0x77 && got.weapon == 0 && got.throws == 0);
+}
+
 int main() {
     TestProtocolRoundTrip();
     TestShots();
@@ -1185,6 +1325,10 @@ int main() {
     TestViewmodelTransform();
     TestClampYaw();
     TestYawLimiter();
+    TestCombatRules();
+    TestCombatEnemyConsistency();
+    TestAttackRing();
+    TestWeaponSync();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

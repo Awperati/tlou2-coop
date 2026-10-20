@@ -66,6 +66,9 @@ struct CombatWire {
 // - Reload: player-is-reloading? turns on. Melee: the state machine enters Melee.
 struct CombatSender {
     unsigned throwWindowMs = 600;
+    // The player's own throw count from the throw hooks (FastGrenadeController::Release, throw-object launch;
+    // core/weaponsync.h): when set, throws come from it and not from the firing heuristic below.
+    bool useThrowCount = false; uint32_t throwCount = 0;
     CombatWire wire;
     // Events counted by the last Update (for the log).
     int shots = 0; bool threw = false, reloaded = false, swung = false;
@@ -81,7 +84,13 @@ struct CombatSender {
             wire.fireSeq = static_cast<uint8_t>(wire.fireSeq + shots);
         }
         bool throwable = r.aimingThrowable || r.grenade || (throwableAt_ && now - throwableAt_ <= throwWindowMs);
-        if (have_ && r.firing && !prev_.firing && throwable && !clipDrop && r.clip < 0) { threw = true; ++wire.throwSeq; }
+        if (useThrowCount) {
+            if (haveCount_ && throwCount != lastCount_) {
+                uint32_t d = throwCount - lastCount_;
+                threw = true; wire.throwSeq = static_cast<uint8_t>(wire.throwSeq + (d > 3 ? 3 : d));
+            }
+            lastCount_ = throwCount; haveCount_ = true;
+        } else if (have_ && r.firing && !prev_.firing && throwable && !clipDrop && r.clip < 0) { threw = true; ++wire.throwSeq; }
         if (have_ && r.reloading && !prev_.reloading) { reloaded = true; ++wire.reloadSeq; }
         if (have_ && r.state == kStateMelee && prev_.state != kStateMelee) { swung = true; ++wire.meleeSeq; }
         wire.weapon = r.weapon; wire.grenade = r.grenade;
@@ -93,7 +102,8 @@ struct CombatSender {
         return wire;
     }
 private:
-    CombatReading prev_; bool have_ = false;
+    CombatReading prev_; bool have_ = false, haveCount_ = false;
+    uint32_t lastCount_ = 0;
     unsigned long long throwableAt_ = 0;
 };
 

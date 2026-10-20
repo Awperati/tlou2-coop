@@ -10,6 +10,7 @@
 #include <vector>
 #include <utility>
 #include "mod/hw_watch.h"
+#include "core/combat.h"
 
 namespace coop {
 
@@ -85,6 +86,19 @@ void SetCloneAim(bool on, float dx, float dy, float dz, float ex, float ey, floa
 uint32_t CloneAimHits();
 bool PickupHookInstall(uintptr_t target);
 std::vector<uintptr_t> TakePickedUp();
+// Friendly fire (core/combat.h): SendAttack (rva 0x3921E0), PostAttack (0x392070) and
+// Player::HandleAttackEvent (0xB7AF30) judge every attack by its two ends; curProc = the current
+// process getter (0x133D360), the attacker when the AttackInfo names none.
+bool AttackHooksInstall(uintptr_t sendAttack, uintptr_t postAttack, uintptr_t handleAttack, uintptr_t curProc);
+void SetCombatRules(const CombatRules& r);
+void SetAttackLogAll(bool on);   // also record attacks between non-players (research)
+std::vector<AttackRecord> TakeAttackRecords(uint32_t* dropped);
+void AttackCounts(uint32_t out[4]);   // totals by AttackVerdict since load
+// Own throws (core/weaponsync.h): FastGrenadeController::Release (rva 0xB8D9A0) and the throw-object launch
+// (0xD1E150) count throws per player index (0 or 1).
+bool ThrowHooksInstall(uintptr_t release, uintptr_t launch);
+uint32_t PlayerThrows(int index);
+void ThrowHookHits(uint32_t& release, uint32_t& launch);   // raw hook calls (any player), research
 // Reload-proof trampoline memory: the same slot for the same hooked address in every instance.
 uint8_t* TrampolineSlot(uintptr_t target);
 size_t TrampolineSlotsUsed();

@@ -9,6 +9,8 @@
 #include "core/clonedrive.h"
 #include "core/combatsync.h"
 #include "core/traversal.h"
+#include "core/combat.h"
+#include "core/weaponsync.h"
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -101,6 +103,8 @@ public:
     ShotCounter shotCounter_;
     std::atomic<bool> firing_{false}, firingQueued_{false};
     std::atomic<float> aimYaw_{0}, aimPitch_{0};   // our aim direction (PollFiring)
+    std::atomic<uint64_t> ownWeapon_{0};            // our weapon in hand, or the aimed throwable (PollFiring)
+    uint32_t lastThrowsLogged_ = 0;
     std::atomic<float> cloneAimYaw_{0}, cloneAimPitch_{0};   // the other player's, for the clone
     bool cloneAimOverride_ = true;   // [clone] AimOverride: point the clone's camera with the aim override
     bool cloneAimSet_ = false;
@@ -180,6 +184,8 @@ public:
     void ApplyEnemyDamage(const EnemyDamage& d);
     std::vector<EnemyDamage> TakeDamageOut();
     void QueueNamePickups(std::vector<uintptr_t> procs);
+    // Attack records from the attack hooks (core/combat.h): named on the game fiber and logged, alike ones merged.
+    void QueueLogAttacks(std::vector<AttackRecord> recs, uint32_t droppedFromRing);
     std::vector<std::pair<uint64_t, std::string>> TakePickupOut();
     void QueuePickupCheck(uint64_t sid, const std::string& name, bool despawn);
     std::vector<std::pair<uint64_t, std::string>> pickupOut_;
@@ -230,6 +236,9 @@ public:
     void TickPadMirror();
     bool padMirror_ = false;
     // clonedrive on|off: the other player's stick drives player 1 (slot 3).
+    // Weapon actions (core/weaponsync.h): the partner's weapon, own-throw count and state, from their PlayerState.
+    void SetCloneWeapon(uint64_t weapon, uint32_t throws, uint64_t state);
+    bool cloneWeaponActions_ = true;            // [clone] WeaponActions: aim, fire, throws, melee and weapon copied
     void SetCloneMove(float x, float z, uint64_t held = 0, const Vec3* pos = nullptr, float yaw = 0, bool moving = false, int stance = -1, float aimYaw = 0, float aimPitch = 0, uint8_t flags = 0, uint64_t state = 0);
     std::atomic<bool> cloneAimingFlag_{false}, cloneFiringFlag_{false};
     // Stance sync ([clone] StanceSync): crouch is a toggle, so passing the B button through let the
@@ -247,6 +256,12 @@ public:
     JumpDetector jumpDet_;
     JumpFromState jumpState_;              // jump from the own player's "Jump" state (speed is the fallback)
     TraversalCopy traversal_;
+    WeaponPress weaponPress_;                   // throw (RT) and melee (X) presses for the clone
+    WeaponEquip weaponEquip_;                   // her weapon follows the partner's (script-context task only)
+    std::atomic<uint64_t> partnerWeapon_{0};
+    std::atomic<bool> equipBusy_{false};
+    unsigned long long equipAt_ = 0;
+    void QueueCloneEquip();
     bool cloneTraversal_ = false;
     uint32_t lastCamFaults_ = 0;
     unsigned long long lastBadSpotLog_ = 0;   // SetCloneMove: a broken spot from the other PC (SpotSane)
@@ -350,6 +365,8 @@ public:
     CombatReading lastOwnCombat_, lastCloneCombat_;
     unsigned long long lastAmmoTopUp_ = 0, combatShotAskedAt_ = 0, combatReloadAskedAt_ = 0, combatDrawAskedAt_ = 0, combatThrowAskedAt_ = 0;
     uint64_t combatDrawAsked_ = 0;
+    uint32_t cloneThrowsSeen_ = 0; unsigned long long combatThrowPressAt_ = 0;
+    bool throwHooks_ = false;               // the throw hooks are in: own throws come from them (PlayerThrows)
     static unsigned long long GetTickCount64Ms();
     // combattest aim|fire|melee|draw|holster|reload|clip|grenade [n|id] [ms]: drive the clone's combat without the partner.
     void CombatTest(const std::string& kind, uint64_t arg, unsigned ms) {

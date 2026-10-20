@@ -68,6 +68,7 @@ void Write(Writer& w, const PlayerState& s) {
     w.f32(s.aimYaw); w.f32(s.aimPitch);
     w.u64(s.gesture);
     w.u64(s.state);
+    w.u64(s.weapon); w.u32(s.throws); w.u32(0);
     w.u64(s.combat.weapon); w.u64(s.combat.grenade); w.u16(static_cast<uint16_t>(s.combat.clip)); w.u8(s.combat.flags);
     w.u8(s.combat.fireSeq); w.u8(s.combat.throwSeq); w.u8(s.combat.reloadSeq); w.u8(s.combat.meleeSeq);
 }
@@ -84,6 +85,8 @@ bool Read(Reader& r, PlayerState& s) {
     if (r.ok() && r.remaining() >= 8) { s.aimYaw = r.f32(); s.aimPitch = r.f32(); } else { s.aimYaw = s.aimPitch = 0; }
     s.gesture = (r.ok() && r.remaining() >= 8) ? r.u64() : 0;
     s.state = (r.ok() && r.remaining() >= 8) ? r.u64() : 0;
+    s.weapon = (r.ok() && r.remaining() >= 8) ? r.u64() : 0;
+    if (r.ok() && r.remaining() >= 8) { s.throws = r.u32(); r.u32(); } else s.throws = 0;
     s.combat = CombatWire{};
     if (r.ok() && r.remaining() >= 23) {
         s.combat.weapon = r.u64(); s.combat.grenade = r.u64(); s.combat.clip = static_cast<int16_t>(r.u16()); s.combat.flags = r.u8();

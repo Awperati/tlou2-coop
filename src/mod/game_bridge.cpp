@@ -177,6 +177,9 @@ bool GameBridge::Init(const Ini& ini) {
         // Second-player safety, installed at start: a reload with player 1 alive left the camera
         // assist running for it and the game crashed (07:44).
         if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); LevelListenerHooksInstall(BuildRva(0x1A4D870), BuildRva(0x1A4E210)); EdgeLogoutHookInstall(BuildRva(0xA83F30), BuildRva(0x1C129D0)); LoadRequestHookInstall(BuildRva(0x1B6F4D0), &RemoveCloneForLoad); ActiveUpdateHookInstall(BuildRva(0xAD61E0)); CommandGroupHooksInstall(BuildRva(0x15B6C90), BuildRva(0x15B6D70)); PickupHookInstall(BuildRva(0x88FBF0)); CloneAimHooksInstall(BuildRva(0xC6E800), BuildRva(0xC6F020)); }
+        // Friendly fire and the clone's hits (core/combat.h): every attack judged by its two ends.
+        if (ini.getBool("engine", "attack_hooks", true)) AttackHooksInstall(BuildRva(0x3921E0), BuildRva(0x392070), BuildRva(0xB7AF30), BuildRva(0x133D360));
+        if (ini.getBool("engine", "throw_hooks", true)) throwHooks_ = ThrowHooksInstall(BuildRva(0xB8D9A0), BuildRva(0xD1E150));
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
@@ -243,6 +246,8 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
     if (auto mz = Read<float>(p + 19632 + 0xD8)) s.moveZ = *mz;
     s.aimYaw = aimYaw_; s.aimPitch = aimPitch_;
     s.gesture = ownGesture_.load();
+    s.weapon = ownWeapon_.load();
+    s.throws = PlayerThrows(0);
     if (auto held = Read<uint64_t>(BuildRva(0x824C860) + 0x528)) {
         s.padHeld = *held;
         if (logPadBits_ && *held != lastPadHeld_) { Log("padbits: held %016llx", static_cast<unsigned long long>(*held)); lastPadHeld_ = *held; }
@@ -1670,6 +1675,15 @@ void GameBridge::PollFiring() {
                 if (h > 1e-4f || std::fabs(d->y) > 1e-4f) { aimYaw_ = std::atan2(d->x, d->z); aimPitch_ = std::atan2(d->y, h); }
             }
         }
+        // Weapon in hand for the clone on the other PC (core/weaponsync.h): the aimed throwable while one is up
+        // (player-get-aimed-grenade 0xC9B110), else get-player-weapon-id (0xC8F1D0).
+        ret[0] = 0;
+        uint64_t aimedGrenade = SafeNative(BuildRva(0xC9B110), 0, argv, ret) ? ret[0] : 0;
+        ret[0] = 0;
+        uint64_t inHand = SafeNative(BuildRva(0xC8F1D0), 0, argv, ret) ? ret[0] : 0;
+        uint64_t w = aimedGrenade ? aimedGrenade : inHand;
+        if (w != ownWeapon_.exchange(w)) Log("weapon: own player now holds %016llx%s", static_cast<unsigned long long>(w), aimedGrenade ? " (aimed throwable)" : "");
+        if (uint32_t th = PlayerThrows(0); th != lastThrowsLogged_) { lastThrowsLogged_ = th; Log("weapon: own player threw (%u so far), holding %016llx", th, static_cast<unsigned long long>(w)); }
         if (!shotCounter_.Update(firing, GetTickCount64())) return;
         ret[0] = 0;
         uint64_t target = SafeNative(BuildRva(0xC9C070), 0, argv, ret) ? ret[0] : 0;
@@ -2252,6 +2266,28 @@ void GameBridge::QueueNamePickups(std::vector<uintptr_t> procs) {
         }
     }, true);
 }
+void GameBridge::QueueLogAttacks(std::vector<AttackRecord> recs, uint32_t droppedFromRing) {
+    RunOnGameFiber([recs, droppedFromRing] {
+        static const char* kHook[3] = {"send", "post", "player"};
+        struct Line { AttackRecord a; int n; };
+        std::vector<Line> lines;
+        for (const auto& a : recs) {
+            bool merged = false;
+            for (auto& l : lines)
+                if (l.a.hook == a.hook && l.a.victim == a.victim && l.a.attacker == a.attacker && l.a.type == a.type &&
+                    l.a.attackerType == a.attackerType && l.a.verdict == a.verdict && l.a.victimProc == a.victimProc) { ++l.n; merged = true; break; }
+            if (!merged && lines.size() < 12) lines.push_back({a, 1});
+        }
+        for (const auto& l : lines) {
+            const auto& a = l.a;
+            std::string vn = a.victimProc ? ProcessName(a.victimProc) : std::string("-");
+            std::string an = a.attackerProc ? ProcessName(a.attackerProc) : std::string("-");
+            Log("attack: %s, '%s' (player %d) -> '%s' (player %d), kind %u, attacker type %016llx, x%d: %s", kHook[a.hook < 3 ? a.hook : 0],
+                an.c_str(), a.attacker, vn.c_str(), a.victim, a.type, static_cast<unsigned long long>(a.attackerType), l.n, VerdictName(a.verdict));
+        }
+        if (droppedFromRing) Log("attack: %u records lost (ring full)", droppedFromRing);
+    }, true);
+}
 std::vector<std::pair<uint64_t, std::string>> GameBridge::TakePickupOut() { std::lock_guard lk(enemyMu_); return std::exchange(pickupOut_, {}); }
 void GameBridge::QueuePickupCheck(uint64_t sid, const std::string& name, bool despawn) {
     RunInScriptContext([sid, name, despawn] {
@@ -2403,6 +2439,49 @@ uintptr_t GameBridge::JoypadSlot(int slot) {
     if (!componentTable_) return 0;
     auto c1 = Read<uintptr_t>(componentTable_ + 1 * 8);
     return c1 && *c1 ? *c1 + 0x520 + 0x2570ull * slot : 0;
+}
+
+void GameBridge::SetCloneWeapon(uint64_t weapon, uint32_t throws, uint64_t state) {
+    if (!cloneWeaponActions_) return;
+    partnerWeapon_ = weapon;
+    unsigned long long now = GetTickCount64();
+    if (const char* what = weaponPress_.UpdateThrows(now, throws)) {
+        bool threw = std::string(what) == "throw";
+        Log("cloneweapon: the other player %s (count %u, holding %016llx)%s", threw ? "threw" : "restarted their count", throws,
+            static_cast<unsigned long long>(weapon), threw ? ": pressing RT on the clone" : "");
+    }
+    if (weaponPress_.UpdateState(now, state)) Log("cloneweapon: the other player swung (Melee): pressing X on the clone");
+}
+
+// The clone's weapon follows the partner's (WeaponEquip): read what she holds, give her the partner's weapon if she
+// lacks it (give-player-weapon 0xC8F870: id, ammo, flag) and draw it (player-instant-draw-weapon-by-name 0xC9DA80:
+// id, blend seconds, flag), all for player 1 through the GetPlayer override.
+void GameBridge::QueueCloneEquip() {
+    if (equipBusy_.exchange(true)) return;
+    RunInScriptContext([this] {
+        uintptr_t cp = PlayerProcess(1);
+        if (!cp) { equipBusy_ = false; return; }
+        uint64_t argv[8] = {}, ret[4] = {};
+        SetPlayerOverride(cp);
+        uint64_t aimed = SafeNative(BuildRva(0xC9B110), 0, argv, ret) ? ret[0] : 0;
+        ret[0] = 0;
+        uint64_t inHand = SafeNative(BuildRva(0xC8F1D0), 0, argv, ret) ? ret[0] : 0;
+        uint64_t holds = aimed ? aimed : inHand;
+        uint64_t want = weaponEquip_.Update(GetTickCount64(), partnerWeapon_.load(), holds);
+        if (want) {
+            uint64_t has[8] = {want}, hr[4] = {};
+            bool hasIt = SafeNative(BuildRva(0xC9C980), 1, has, hr) && hr[0];
+            bool gave = false;
+            if (!hasIt) { uint64_t give[8] = {want, 30, 0}, gr[4] = {}; gave = SafeNative(BuildRva(0xC8F870), 3, give, gr) != 0; }
+            float blend = 0.f; uint32_t bits; std::memcpy(&bits, &blend, 4);
+            uint64_t draw[8] = {want, bits, 0}, dr[4] = {};
+            bool drew = SafeNative(BuildRva(0xC9DA80), 3, draw, dr) != 0;
+            Log("cloneweapon: clone holds %016llx, the other player %016llx: %s%s (try %d)", static_cast<unsigned long long>(holds), static_cast<unsigned long long>(want),
+                hasIt ? "" : (gave ? "given, " : "give FAULT, "), drew ? "drawn" : "draw FAULT", weaponEquip_.tries);
+        }
+        SetPlayerOverride(0);
+        equipBusy_ = false;
+    });
 }
 
 void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, float yaw, bool moving, int stance, float aimYaw, float aimPitch, uint8_t flags, uint64_t state) {
@@ -2572,6 +2651,7 @@ void GameBridge::TickCombat() {
         if (!p0) return;
         // Sender: our player's state and events, sent in every PlayerState (ReadLocalPlayer).
         CombatReading own = ReadCombatOf(0, p0);
+        combatSender_.useThrowCount = throwHooks_; combatSender_.throwCount = PlayerThrows(0);
         CombatWire w = combatSender_.Update(now, own);
         { std::lock_guard lk(combatMu_); ownCombat_ = w; }
         if (combatSender_.shots) Log("combat: own shot x%d (weapon %016llx, clip %d)", combatSender_.shots, static_cast<unsigned long long>(own.weapon), own.clip);
@@ -2620,6 +2700,10 @@ void GameBridge::TickCombat() {
         if (her.weapon == lastCloneCombat_.weapon && her.clip >= 0 && lastCloneCombat_.clip >= 0 && her.clip < lastCloneCombat_.clip && !her.reloading && combatShotAskedAt_) {
             Log("combat: clone fired (clip %d -> %d), %llu ms after the trigger", lastCloneCombat_.clip, her.clip, now - combatShotAskedAt_); combatShotAskedAt_ = 0;
         }
+        if (uint32_t ht = PlayerThrows(1); ht != cloneThrowsSeen_) {
+            if (combatThrowPressAt_) Log("combat: clone threw (her count %u), %llu ms after the RT press", ht, now - combatThrowPressAt_);
+            cloneThrowsSeen_ = ht; combatThrowPressAt_ = 0;
+        }
         if (her.reloading && !lastCloneCombat_.reloading && combatReloadAskedAt_) { Log("combat: clone reloading, %llu ms after the reload was asked", now - combatReloadAskedAt_); combatReloadAskedAt_ = 0; }
         if (her.weapon != lastCloneCombat_.weapon || her.reloading != lastCloneCombat_.reloading || her.state != lastCloneCombat_.state || (combatLog_ && her != lastCloneCombat_))
             Log("combat: clone %s", CombatText(her).c_str());
@@ -2658,7 +2742,7 @@ void GameBridge::TickCombat() {
         }
         bool trig = a.triggerUntil > now;
         if (trig && !combatShotAskedAt_ && her.clip >= 0) { combatShotAskedAt_ = now; Log("combatsync: RT for a partner shot (clip %d, owed %d)", her.clip, combatReplay_.PendingShots()); }
-        else if (trig && her.clip < 0 && !combatThrowAskedAt_) { combatThrowAskedAt_ = now; Log("combatsync: RT for a partner throw"); }
+        else if (trig && her.clip < 0 && !combatThrowAskedAt_) { combatThrowAskedAt_ = now; combatThrowPressAt_ = now; Log("combatsync: RT for a partner throw"); }
         if (!trig) combatThrowAskedAt_ = 0;
         if (combatShotAskedAt_ && now - combatShotAskedAt_ > 2000) { Log("combat: clone did not fire within 2 s of the trigger (clip %d)", her.clip); combatShotAskedAt_ = 0; }
         if (combatReloadAskedAt_ && now - combatReloadAskedAt_ > 2000) { Log("combat: clone did not start reloading within 2 s"); combatReloadAskedAt_ = 0; }
@@ -2779,6 +2863,14 @@ void GameBridge::TickCloneDrive() {
             if (cloneCombatAim_.load()) held |= 0x200;
             if (tc < cloneTriggerUntil_.load()) held |= 0x2000;
             if (tc < cloneMeleeUntil_.load()) held |= 0x40;
+        } else if (cloneWeaponActions_) {
+            // Weapon actions (core/weaponsync.h), the fallback with combat sync off ([clone] Combat = false; both on
+            // would press RT and draw twice): the partner's aim and fire from their state flags pass whatever
+            // [clone] Buttons says (her hits do nothing here: core/combat.h), plus the throw (RT) and melee (X)
+            // presses. Her weapon follows theirs, checked twice a second.
+            held |= FreshHeld(flagHeld, GetTickCount64() - cloneMoveAt_.load());
+            held |= weaponPress_.Held(GetTickCount64(), PlayerStateOf(p));
+            if (GetTickCount64() - equipAt_ > 500) { equipAt_ = GetTickCount64(); QueueCloneEquip(); }
         }
         if (GetTickCount64() < cloneJumpUntil_) held |= 0x20;
         // No catch-up sprint: holding LB stopped her stick input (engine world 0, drift 2.7 m, 11:43 A/B: catch-up
