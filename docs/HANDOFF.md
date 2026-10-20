@@ -147,35 +147,39 @@ Not bugs (owner confirmed):
 - **Goal (owner):** the partner aiming, shooting, reloading, throwing, swinging and switching weapons shows on their
   clone on the other PC within ~0.3 s.
 - **Sender (engine state, not pad buttons; PC B's keyboard leaves no trigger bits):** every 33 ms in the script
-  context  reads its own player with script natives: get-player-weapon-id 0xC8F1D0 (in hand),
+  context `TickCombat` reads its own player with script natives: get-player-weapon-id 0xC8F1D0 (in hand),
   get-player-weapon-ammo-in-clip 0xC8EF60, get-player-weapon-total-ammo 0xC8F270, player-is-reloading? 0xC9E3A0,
   is-player-switching-weapon? 0xC90B80, player-is-aiming? 0xC9DEC0, player-is-aiming-throwable? 0xC9DF00,
   player-get-aimed-grenade 0xC9B110, player-is-firing? 0xB92990, and the state machine state (Melee).
-   (core/combatsync.h) makes the 23-byte  tail: weapon, grenade, clip, held flags
+  `CombatSender` (core/combatsync.h) makes the 23-byte `PlayerState.combat` tail: weapon, grenade, clip, held flags
   (aim, throwable aim, reload, switch, firing, melee) and fire/throw/reload/melee counters, so a lost datagram loses no
-  event. A shot = a clip drop of the weapon in hand (player-is-firing? stays on ~1 s per shot). Throws come from the
-  combat session's throw hooks (); the firing heuristic is only the fallback.
-- **Receiver:**  acts on the clone with the GetPlayer override: draws the partner's weapon
-  (player-has-weapon? 0xC9C980, give-player-weapon 0xC8F870, player-draw-weapon-by-name 0xC96EF0) only when the partner
-  just drew it, aims, shoots or reloads (both games put an idle weapon away after ~10 s on their own), holsters it
-  (holster-player-weapon 0xC900F0), keeps her clip equal to the partner's plus the shots she still owes
-  (set-player-weapon-clip-ammo 0xCA8A40, never within 500 ms of a press), refills her reserve
-  (set-player-weapon-reserve-ammo 0xC885E0), reloads (player-reload 0xCA15F0) and selects the throwable
-  (player-select-grenade 0xCA1BB0). Aim holds her LT; each shot or throw is one RT press (70 ms down, 60 ms up);
-  a swing is an X press. Her raw LT/RT/X copy is off while combat sync runs; the combat session's 
-  block is the fallback with . Her hits do nothing on that PC (core/combat.h).
-- **Live 10-21 08:04-08:21** (PC B's player driven by the virtual pad; logs, clocks aligned with the  offset):
+  event. A shot is a clip drop of the weapon in hand (player-is-firing? stays on ~1 s per shot). Throws come from the
+  combat session's throw hooks (`PlayerThrows(0)`); the firing heuristic is only the fallback.
+- **Receiver:** `CombatReplay` acts on the clone with the GetPlayer override:
+  - Draws the partner's weapon (player-has-weapon? 0xC9C980, give-player-weapon 0xC8F870, player-draw-weapon-by-name
+    0xC96EF0), but only when the partner just drew it, aims, shoots or reloads. Both games put an idle weapon away
+    after ~10 s on their own.
+  - Holsters it (holster-player-weapon 0xC900F0) when the partner's hand is empty.
+  - Keeps her clip equal to the partner's plus the shots she still owes (set-player-weapon-clip-ammo 0xCA8A40, never
+    within 500 ms of a press) and refills her reserve (set-player-weapon-reserve-ammo 0xC885E0).
+  - Reloads (player-reload 0xCA15F0) and selects the throwable (player-select-grenade 0xCA1BB0).
+  - Aim holds her LT. Each shot or throw is one RT press (70 ms down, 60 ms up). A swing is an X press.
+  - Her raw LT/RT/X copy is off while combat sync runs. The combat session's `WeaponActions` block is the fallback
+    with `[clone] Combat = false`. Her hits do nothing on that PC (core/combat.h).
+- **Live 10-21 08:04-08:21** (PC B's player driven by the virtual pad; clocks aligned with the `net: peer` offset):
   draw asked 51 ms after PC B drew, held 31-62 ms after the ask; RT press 55 ms after PC B's shot; holster asked
-  49 ms after PC B's; reload started 15 ms after the ask (clip 2 -> 6 in 1.5 s), all with the game behind other windows.
-- **Open:** with her PC's game behind other windows her pad actions read nothing: her NdPlayerJoypad aim byte
+  49 ms after PC B's; reload started 15 ms after the ask (clip 2 -> 6 in 1.5 s). All with the game behind other windows.
+- **Open:** with her PC's game behind other windows her pad actions read nothing. Her NdPlayerJoypad aim byte
   (Player+19632 +0x294) stayed 0 under LT, RT fired nothing, and the virtual pad is ignored too. The action query
-  sub_141D96F20 bails on a global input check (component 2 vfunc +24), likely the window focus (not to be patched:
-  owner rule). Writing her aim bytes (+660/+661/+662) before her update sets the byte but gives no aim pose, and
+  sub_141D96F20 bails on a global input check (component 2 vfunc +24), likely the window focus; not to be patched
+  (owner rule). Writing her aim bytes (+660/+661/+662) before her update sets the byte but gives no aim pose, and
   player-fire-weapon-at-reticle fires nothing then. So her aim pose, shots, throws and swings need one run with both
-  games in front: each player aims, shoots, reloads and throws once;  on both PCs, then read
-   on one PC against  /  on the other.
-- **Switches:**  (combatsync on|off),  (auto: RT in front, the engine
-  fire native behind), ; ;  drives her without the partner. The virtual pad takes triggers in combos ().
+  games in front: each player aims, shoots, reloads and throws once. Turn on `combatlog on` on both PCs, then read
+  `combat: own ...` on one PC against `combatsync: ...` and `combat: clone fired|reloading|threw ... ms after ...` on the other.
+- **Switches:** `[clone] Combat` (`combatsync on|off`), `CombatFire = auto|pad|engine` (auto: RT in front, the engine
+  fire native behind), `CombatAim = auto|write|pad`; `combatlog on|off`;
+  `combattest aim|fire|melee|draw|holster|reload|clip|grenade [n|hex id] [ms]` drives her without the partner.
+  The virtual pad takes triggers in combos (`press x+lt 150`).
 - **Engine facts:** natives were found by hashing the exe's own native-name strings (6774 registered). Player+11976
   inventory (vfunc +528 selected weapon, +232 find by id), +12128 PlayerItemController (in hand), +12144 fire
   controller, +12152 reload controller, +12304 grenade controller, +12648 throwable aim. NdPlayerJoypad actions are FNV
