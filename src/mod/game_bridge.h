@@ -7,6 +7,7 @@
 #include "core/config.h"
 #include "core/protocol.h"
 #include "core/clonedrive.h"
+#include "core/combatsync.h"
 #include "core/traversal.h"
 #include <atomic>
 #include <map>
@@ -325,6 +326,26 @@ public:
     uint64_t lastGesture_[2][3] = {};
     std::atomic<bool> gesturePollQueued_{false};
     void QueueWeaponInfo(unsigned index);
+    // Combat animations on the clone (core/combatsync.h, 2026-10-21). TickCombat runs every 33 ms in the script
+    // context: it reads our player's weapon state for PlayerState.combat and replays the partner's on the clone
+    // (weapon draws and holsters, clip, reloads with the game's natives; aim, shots, throws and melee as her pad's
+    // LT / RT / X, which TickCloneDrive adds to her buttons).
+    void TickCombat();
+    void SetCloneCombat(const CombatWire& w) { std::lock_guard lk(combatMu_); partnerCombat_ = w; partnerCombatAt_ = GetTickCount64Ms(); }
+    CombatWire OwnCombat() { std::lock_guard lk(combatMu_); return ownCombat_; }
+    bool cloneCombat_ = true;               // [clone] Combat: replay the partner's combat on the clone
+    bool combatLog_ = false;                // combatlog on|off: every change of both readings, not just events
+    std::mutex combatMu_;
+    CombatWire ownCombat_, partnerCombat_;  // guarded by combatMu_
+    unsigned long long partnerCombatAt_ = 0;
+    CombatSender combatSender_;
+    CombatReplay combatReplay_;
+    std::atomic<bool> combatQueued_{false}, cloneCombatAim_{false};
+    std::atomic<unsigned long long> cloneTriggerUntil_{0}, cloneMeleeUntil_{0};
+    CombatReading lastOwnCombat_, lastCloneCombat_;
+    unsigned long long lastAmmoTopUp_ = 0, combatShotAskedAt_ = 0, combatReloadAskedAt_ = 0, combatDrawAskedAt_ = 0, combatThrowAskedAt_ = 0;
+    uint64_t combatDrawAsked_ = 0;
+    static unsigned long long GetTickCount64Ms();
     void QueueCloneBody(unsigned index);
     void QueuePlayerProps(unsigned index);
     int ShowPlayerProps(uintptr_t player, bool visible);

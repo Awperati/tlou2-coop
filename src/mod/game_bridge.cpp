@@ -267,6 +267,7 @@ std::optional<PlayerState> GameBridge::ReadLocalPlayer(uint32_t tick) {
         if (now - lastRiseLog_ > 5000) { if (maxRise_ > 0.5f) Log("jump: largest rise in the last 5 s %.2f m/s", maxRise_); maxRise_ = 0; lastRiseLog_ = now; }
     }
     s.shots = shots_;
+    s.combat = OwnCombat();
     s.shotTarget = shotTarget_;
     if (InCombat()) s.flags |= 4;
     if (s.health == 0) s.flags |= 8;
@@ -2499,6 +2500,125 @@ static bool KickCloneJumpProbes(uintptr_t p) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
+// Combat sync (core/combatsync.h, 2026-10-21). One player's weapon state from the script natives, in the script
+// context. player = 0 reads our own player; otherwise GetPlayer() is pointed at that player for the calls.
+namespace {
+int64_t CombatNative(uint32_t rva, int argc = 0, uint64_t a0 = 0, uint64_t a1 = 0, uint64_t a2 = 0, bool* ok = nullptr) {
+    uint64_t argv[8] = {a0, a1, a2}, ret[4] = {};
+    bool good = SafeNative(BuildRva(rva), argc, argv, ret) != 0;
+    if (ok) *ok = good;
+    return good ? static_cast<int64_t>(ret[0]) : 0;
+}
+}
+static CombatReading ReadCombatOf(uintptr_t player, uintptr_t stateOf) {
+    CombatReading r;
+    if (player) SetPlayerOverride(player);
+    r.weapon = static_cast<uint64_t>(CombatNative(0xC8F1D0));                  // get-player-weapon-id (in hand)
+    bool ok = false;
+    int64_t clip = CombatNative(0xC8EF60, 1, 0, 0, 0, &ok);                    // get-player-weapon-ammo-in-clip (0 = in hand)
+    r.clip = ok ? static_cast<int>(static_cast<int32_t>(clip)) : -1;
+    int64_t total = CombatNative(0xC8F270, 0, 0, 0, 0, &ok);                   // get-player-weapon-total-ammo
+    r.total = ok ? static_cast<int>(static_cast<int32_t>(total)) : -1;
+    r.reloading = (CombatNative(0xC9E3A0) & 0xFF) != 0;                        // player-is-reloading?
+    r.switching = (CombatNative(0xC90B80) & 0xFF) != 0;                        // is-player-switching-weapon?
+    // player-is-aiming? asks the player's camera manager (sub_140D97180); the clone's (manager 1) has no camera,
+    // so hers is not read: her GunMove state shows her aim in the log.
+    if (!player) r.aiming = (CombatNative(0xC9DEC0) & 0xFF) != 0;
+    r.aimingThrowable = (CombatNative(0xC9DF00) & 0xFF) != 0;                  // player-is-aiming-throwable?
+    r.grenade = static_cast<uint64_t>(CombatNative(0xC9B110));                 // player-get-aimed-grenade
+    r.firing = (CombatNative(0xB92990) & 0xFF) != 0;                           // player-is-firing?
+    if (player) SetPlayerOverride(0);
+    r.state = PlayerStateOf(stateOf);
+    if (r.weapon == 0) r.clip = r.total = -1;
+    return r;
+}
+static std::string CombatText(const CombatReading& r) {
+    char b[220];
+    snprintf(b, sizeof(b), "weapon %016llx clip %d/%d%s%s%s%s%s grenade %016llx state %016llx", static_cast<unsigned long long>(r.weapon), r.clip, r.total,
+        r.aiming ? " aiming" : "", r.aimingThrowable ? " aiming-throwable" : "", r.reloading ? " reloading" : "", r.switching ? " switching" : "",
+        r.firing ? " firing" : "", static_cast<unsigned long long>(r.grenade), static_cast<unsigned long long>(r.state));
+    return b;
+}
+unsigned long long GameBridge::GetTickCount64Ms() { return GetTickCount64(); }
+
+void GameBridge::TickCombat() {
+    if (combatQueued_.exchange(true)) return;
+    RunInScriptContext([this] {
+        combatQueued_ = false;
+        unsigned long long now = GetTickCount64();
+        uintptr_t p0 = PlayerProcess(0);
+        if (!p0) return;
+        // Sender: our player's state and events, sent in every PlayerState (ReadLocalPlayer).
+        CombatReading own = ReadCombatOf(0, p0);
+        CombatWire w = combatSender_.Update(now, own);
+        { std::lock_guard lk(combatMu_); ownCombat_ = w; }
+        if (combatSender_.shots) Log("combat: own shot x%d (weapon %016llx, clip %d)", combatSender_.shots, static_cast<unsigned long long>(own.weapon), own.clip);
+        if (combatSender_.threw) Log("combat: own throw (grenade %016llx)", static_cast<unsigned long long>(own.grenade ? own.grenade : lastOwnCombat_.grenade));
+        if (combatSender_.reloaded) Log("combat: own reload (weapon %016llx, clip %d)", static_cast<unsigned long long>(own.weapon), own.clip);
+        if (combatSender_.swung) Log("combat: own melee");
+        if (own.weapon != lastOwnCombat_.weapon || own.aiming != lastOwnCombat_.aiming || own.aimingThrowable != lastOwnCombat_.aimingThrowable ||
+            own.reloading != lastOwnCombat_.reloading || (combatLog_ && own != lastOwnCombat_))
+            Log("combat: own %s", CombatText(own).c_str());
+        lastOwnCombat_ = own;
+        // Receiver: the partner's on the clone.
+        uintptr_t p1 = PlayerProcess(1);
+        if (!cloneDrive_ || !cloneCombat_ || !p1) { cloneCombatAim_ = false; cloneTriggerUntil_ = 0; cloneMeleeUntil_ = 0; return; }
+        CombatWire pw; unsigned long long pat;
+        { std::lock_guard lk(combatMu_); pw = partnerCombat_; pat = partnerCombatAt_; }
+        bool fresh = pat && now - pat < 500 && !cloneApart_.load();
+        CombatReading her = ReadCombatOf(p1, p1);
+        CombatActions a = combatReplay_.Update(now, pw, her, fresh);
+        cloneCombatAim_ = a.aim; cloneTriggerUntil_ = a.triggerUntil; cloneMeleeUntil_ = a.meleeUntil;
+        // Latency (the owner's 0.3 s): from asking her to the clone's own reading showing it.
+        if (her.weapon && her.weapon != lastCloneCombat_.weapon && combatDrawAskedAt_ && her.weapon == combatDrawAsked_) {
+            Log("combat: clone now holds %016llx, %llu ms after the draw was asked", static_cast<unsigned long long>(her.weapon), now - combatDrawAskedAt_); combatDrawAskedAt_ = 0;
+        }
+        if (her.weapon == lastCloneCombat_.weapon && her.clip >= 0 && lastCloneCombat_.clip >= 0 && her.clip < lastCloneCombat_.clip && !her.reloading && combatShotAskedAt_) {
+            Log("combat: clone fired (clip %d -> %d), %llu ms after the trigger", lastCloneCombat_.clip, her.clip, now - combatShotAskedAt_); combatShotAskedAt_ = 0;
+        }
+        if (her.reloading && !lastCloneCombat_.reloading && combatReloadAskedAt_) { Log("combat: clone reloading, %llu ms after the reload was asked", now - combatReloadAskedAt_); combatReloadAskedAt_ = 0; }
+        if (her.weapon != lastCloneCombat_.weapon || her.reloading != lastCloneCombat_.reloading || her.state != lastCloneCombat_.state || (combatLog_ && her != lastCloneCombat_))
+            Log("combat: clone %s", CombatText(her).c_str());
+        lastCloneCombat_ = her;
+        bool topUp = her.weapon && her.total >= 0 && her.clip >= 0 && her.total - her.clip < 20 && now - lastAmmoTopUp_ > 3000;
+        if (a.draw || a.holster || a.selectGrenade || a.setClip >= 0 || a.reload || a.fire || topUp) {
+            SetPlayerOverride(p1);
+            if (a.draw) {
+                bool has = (CombatNative(0xC9C980, 1, a.draw) & 0xFF) != 0;                   // player-has-weapon?
+                if (!has) CombatNative(0xC8F870, 3, a.draw, 60, 0);                            // give-player-weapon (lands on her next update)
+                bool ok = false; CombatNative(0xC96EF0, 1, a.draw, 0, 0, &ok);                 // player-draw-weapon-by-name
+                combatDrawAsked_ = a.draw; combatDrawAskedAt_ = now;
+                Log("combatsync: drawing %016llx on the clone (she held %016llx)%s: %s", static_cast<unsigned long long>(a.draw), static_cast<unsigned long long>(her.weapon), has ? "" : ", gave it first", ok ? "asked" : "FAULT");
+            }
+            if (a.holster) { bool ok = false; CombatNative(0xC900F0, 1, 0, 0, 0, &ok); Log("combatsync: holstering the clone's %016llx: %s", static_cast<unsigned long long>(her.weapon), ok ? "asked" : "FAULT"); }   // holster-player-weapon
+            if (a.selectGrenade) {
+                bool has = (CombatNative(0xC9C980, 1, a.selectGrenade) & 0xFF) != 0;
+                if (!has) CombatNative(0xC8F870, 3, a.selectGrenade, 3, 0);
+                bool ok = false; CombatNative(0xCA1BB0, 1, a.selectGrenade, 0, 0, &ok);        // player-select-grenade
+                Log("combatsync: clone selects throwable %016llx%s: %s", static_cast<unsigned long long>(a.selectGrenade), has ? "" : " (gave 3)", ok ? "asked" : "FAULT");
+            }
+            if (a.setClip >= 0) {
+                CombatNative(0xCA8A40, 2, static_cast<uint64_t>(a.setClip), 0);                // set-player-weapon-clip-ammo (count, 0 = in hand)
+                if (combatLog_) Log("combatsync: clone clip %d -> %d (partner %d, shots owed %d)", her.clip, a.setClip, pw.clip, combatReplay_.PendingShots());
+            }
+            // Spare rounds for her reloads (a reload takes them from her reserve).
+            if (topUp) {
+                lastAmmoTopUp_ = now; CombatNative(0xC8F870, 3, her.weapon, 30, 0);
+                Log("combatsync: clone reserve %d, gave 30 rounds of %016llx", her.total - her.clip, static_cast<unsigned long long>(her.weapon));
+            }
+            if (a.reload) { bool ok = false; CombatNative(0xCA15F0, 0, 0, 0, 0, &ok); combatReloadAskedAt_ = now; Log("combatsync: clone reload (clip %d, partner %d): %s", her.clip, pw.clip, ok ? "asked" : "FAULT"); }   // player-reload
+            if (a.fire) { CombatNative(0xC987F0); combatShotAskedAt_ = now; Log("combatsync: clone fires at her reticle (engine)"); }   // player-fire-weapon-at-reticle
+            SetPlayerOverride(0);
+        }
+        bool trig = a.triggerUntil > now;
+        if (trig && !combatShotAskedAt_ && her.clip >= 0) { combatShotAskedAt_ = now; Log("combatsync: RT for a partner shot (clip %d, owed %d)", her.clip, combatReplay_.PendingShots()); }
+        else if (trig && her.clip < 0 && !combatThrowAskedAt_) { combatThrowAskedAt_ = now; Log("combatsync: RT for a partner throw"); }
+        if (!trig) combatThrowAskedAt_ = 0;
+        if (combatShotAskedAt_ && now - combatShotAskedAt_ > 2000) { Log("combat: clone did not fire within 2 s of the trigger (clip %d)", her.clip); combatShotAskedAt_ = 0; }
+        if (combatReloadAskedAt_ && now - combatReloadAskedAt_ > 2000) { Log("combat: clone did not start reloading within 2 s"); combatReloadAskedAt_ = 0; }
+    });
+}
+
 // clonedrive: the other player's world stick drives player 1 through joypad slot 3. The slot
 // stick is rotated into the clone camera's frame; that rotation (theta) is measured each tick
 // from what the engine made of the last stick (Player+19632 +0xD0/+0xD8).
@@ -2604,6 +2724,16 @@ void GameBridge::TickCloneDrive() {
         // take aiming and firing from the state flags (player-is-aiming? / player-is-firing?).
         uint64_t flagHeld = (cloneAimingFlag_.load() ? 0x200ull : 0) | (cloneFiringFlag_.load() ? 0x2000ull : 0);
         uint64_t held = FreshHeld((cloneHeld_.load() | flagHeld) & cloneButtonMask_, GetTickCount64() - cloneMoveAt_.load());   // none on stale news
+        // Combat sync (TickCombat, core/combatsync.h): aim (LT), shots and throws (RT) and melee (X) come from the
+        // partner's engine state, whatever their device; their raw LT / RT / X would press twice or, from a
+        // keyboard, not at all (the firing flag held RT ~1 s per shot). Unmasked: the replay is the gate.
+        if (cloneCombat_) {
+            unsigned long long tc = GetTickCount64();
+            held &= ~0x2240ull;
+            if (cloneCombatAim_.load()) held |= 0x200;
+            if (tc < cloneTriggerUntil_.load()) held |= 0x2000;
+            if (tc < cloneMeleeUntil_.load()) held |= 0x40;
+        }
         if (GetTickCount64() < cloneJumpUntil_) held |= 0x20;
         // No catch-up sprint: holding LB stopped her stick input (engine world 0, drift 2.7 m, 11:43 A/B: catch-up
         // on mean 1.32 m vs off 0.25 m). The steering pull alone is kept. [clone] CatchUpSprint to try again.

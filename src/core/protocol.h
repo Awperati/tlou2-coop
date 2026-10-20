@@ -8,6 +8,7 @@
 #include <vector>
 #include <map>
 #include <optional>
+#include "core/combatsync.h"
 
 namespace coop {
 
@@ -93,6 +94,9 @@ struct PlayerState {
     // The sender's player state machine state (name id, FNV-1a: kState*, traversal.h; 0 = unknown). The other PC
     // copies jumps, ledge climbs, ladders and dodges from it (2026-10-20).
     uint64_t state = 0;
+    // The sender's weapon state and combat events (core/combatsync.h): the other PC replays them on the clone
+    // (aim, shots, throws, reloads, melee, weapon switches; 2026-10-21).
+    CombatWire combat;
 };
 
 // Stick for the clone's joypad slot from a wanted world direction. The engine turns a slot

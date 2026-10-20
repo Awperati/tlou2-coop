@@ -123,7 +123,8 @@ static bool HandleToggle(const std::string& line, GameBridge& b) {
         {"standturn", &GameBridge::cloneStandTurn_}, {"animlog", &GameBridge::cloneAnimLog_},
         {"facetrace", &GameBridge::faceTrace_}, {"gesturesync", &GameBridge::cloneGestureSync_},
         {"gesturelog", &GameBridge::gestureLog_}, {"lookanswer", &GameBridge::cloneLookAnswer_},
-        {"catchup", &GameBridge::cloneCatchUp_},
+        {"catchup", &GameBridge::cloneCatchUp_}, {"combatsync", &GameBridge::cloneCombat_},
+        {"combatlog", &GameBridge::combatLog_},
     };
     for (const auto& t : kToggles) {
         std::string n = t.name;
@@ -237,6 +238,8 @@ void CoopMain() {
     bridge.cloneKickJumpProbes_ = cfg.getBool("clone", "KickJumpProbes", true);
     bridge.cloneFaceLead_ = cfg.getFloat("clone", "FaceLead", 0.15f);
     bridge.cloneGestureSync_ = cfg.getBool("clone", "GestureSync", true);
+    bridge.cloneCombat_ = cfg.getBool("clone", "Combat", true);   // core/combatsync.h: the partner's aim, shots, reloads, throws on the clone
+    bridge.combatReplay_.padFire = cfg.get("clone", "CombatFire", "pad") != "engine";
     {   // [clone] FaceForce = stored | globals (on, true) | off (false, no): core/faceforce.h
         auto ffm = ParseFaceForce(cfg.get("clone", "FaceForce", "stored"));
         bridge.cloneFaceForce_ = ffm.force; bridge.cloneFaceStored_ = ffm.stored;
@@ -357,6 +360,7 @@ void CoopMain() {
         }
         bridge.SetCloneMove(s.moveX, s.moveZ, s.padHeld, &s.pos, s.yaw, (s.flags & kMoving) != 0, s.stance, s.aimYaw, s.aimPitch, s.flags, s.state);
         bridge.SetCloneGesture(s.gesture);
+        bridge.SetCloneCombat(s.combat);
         if (!cloneOnAtStart && !bridge.cloneDrive_) bridge.DrivePuppet(slot, s);   // clone mode never puppets the story companion
     };
     cb.onObjective = [&](const Objective& o) { objective = o; };
@@ -926,6 +930,7 @@ void CoopMain() {
                         }
                     }
                     else if (line == "padbits on" || line == "padbits off") { bridge.logPadBits_ = line == "padbits on"; Log("padbits: %s", bridge.logPadBits_ ? "on" : "off"); }
+                    else if (line == "combatfire pad" || line == "combatfire engine") { bridge.combatReplay_.padFire = line == "combatfire pad"; Log("combatfire: %s", bridge.combatReplay_.padFire ? "pad (RT presses)" : "engine (player-fire-weapon-at-reticle)"); }
                     else if (line.rfind("clonebuttons ", 0) == 0) { bridge.cloneButtonMask_ = std::stoull(Trim(line.substr(13)), nullptr, 16); Log("clonebuttons: mask %016llx", static_cast<unsigned long long>(bridge.cloneButtonMask_)); }
                     else if (line == "clonedrive on" || line == "clonedrive off") { bridge.cloneDrive_ = line == "clonedrive on"; if (!bridge.cloneDrive_) { SetCloneWorldStick(false, 0, 0); SetCloneRawStick(false, 0, 0); } Log("clonedrive: %s", bridge.cloneDrive_ ? "on (the other player's stick drives player 1)" : "off"); }
                     else if (line.rfind("clone ", 0) == 0) {   // clone <look>: spawn player 1 beside us wearing <look>
@@ -1131,7 +1136,7 @@ void CoopMain() {
         }
         testWasDown = testDown;
 
-        if (now - lastFiring >= 33) { lastFiring = now; bridge.PollFiring(); }   // also samples the camera yaw sent for her facing (was 100 ms)
+        if (now - lastFiring >= 33) { lastFiring = now; bridge.PollFiring(); bridge.TickCombat(); }   // also samples the camera yaw sent for her facing (was 100 ms)
         bridge.TickPadMirror();
         bridge.TickCloneDrive();
         // Clone mode ([clone] Enabled): the other player is a real second player (player 1) on

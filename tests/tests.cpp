@@ -8,6 +8,7 @@
 #include "core/protocol.h"
 #include "core/relay.h"
 #include "core/clonedrive.h"
+#include "core/combatsync.h"
 #include "core/clocksync.h"
 #include "core/faceforce.h"
 #include "core/lossy_proxy.h"
@@ -97,10 +98,13 @@ static void TestProtocolRoundTrip() {
     CHECK(o.shots == 250 && o.shotTarget == 0x1122334455667788ull && o.padHeld == 0x8000000000000201ull);
     CHECK(o.aimYaw == -1.25f && o.aimPitch == 0.5f);
     CHECK(o.gesture == 0xD8AD71F5DB29687Full && o.state == kStateJump);
+    // A sender without the combat tail (state last): no weapon, no clip.
+    const size_t kCombat = 23;
+    { Reader r3(w.data().data(), w.data().size() - kCombat); PlayerState g; CHECK(Read(r3, g) && g.state == kStateJump && g.combat == CombatWire{} && g.combat.clip == -1); }
     // A sender without the state field (gesture last): the state reads as unknown.
-    { Reader r2(w.data().data(), w.data().size() - 8); PlayerState g; CHECK(Read(r2, g) && g.state == 0 && g.gesture == 0xD8AD71F5DB29687Full); }
+    { Reader r2(w.data().data(), w.data().size() - kCombat - 8); PlayerState g; CHECK(Read(r2, g) && g.state == 0 && g.gesture == 0xD8AD71F5DB29687Full); }
     // An older sender stops after the aim: the gesture reads as none.
-    Reader oldR(w.data().data(), w.data().size() - 16);
+    Reader oldR(w.data().data(), w.data().size() - kCombat - 16);
     PlayerState old; CHECK(Read(oldR, old) && old.gesture == 0 && old.state == 0 && old.aimPitch == 0.5f);
 
     // Truncated input must fail cleanly, never read past the end.
@@ -557,6 +561,109 @@ static void TestGestureSync() {
     // Off: nothing starts; a gesture she already plays is not restarted.
     GestureSync off; CHECK(off.Update(wipe, false, 0, false) == 0);
     GestureSync same; CHECK(same.Update(wipe, false, wipe) == 0 && same.Update(wipe, false, 0) == 0);
+}
+
+// Combat sync (core/combatsync.h): the partner's weapon state through the wire onto the clone.
+static void TestCombatSync() {
+    const uint64_t pistol = CombatFnv("pistol-a-semi-auto"), rifle = CombatFnv("rifle-rembrandt-bolt"), molotov = CombatFnv("molotov");
+    {   // Round trip of the tail.
+        PlayerState s; s.combat.weapon = pistol; s.combat.grenade = molotov; s.combat.clip = 7; s.combat.flags = kCombatAim | kCombatReload;
+        s.combat.fireSeq = 255; s.combat.throwSeq = 3; s.combat.reloadSeq = 9; s.combat.meleeSeq = 1;
+        Writer w; Write(w, s); Reader r(w.data().data(), w.data().size()); PlayerState o;
+        CHECK(Read(r, o) && o.combat == s.combat && r.remaining() == 0);
+        PlayerState neg; neg.combat.clip = -1; Writer w2; Write(w2, neg); Reader r2(w2.data().data(), w2.data().size()); PlayerState o2;
+        CHECK(Read(r2, o2) && o2.combat.clip == -1);
+    }
+    {   // Sender: shots from clip drops, not from the reload refill or a weapon change; throws; reloads; melee.
+        CombatSender snd; CombatReading r; unsigned long long t = 1000;
+        r.weapon = pistol; r.clip = 12; r.total = 40; snd.Update(t, r);
+        for (int i = 0; i < 3; ++i) { t += 33; r.firing = true; r.clip = 11 - i; snd.Update(t, r); CHECK(snd.shots == 1); t += 300; r.firing = i < 2; snd.Update(t, r); CHECK(snd.shots == 0); }
+        CHECK(snd.wire.fireSeq == 3 && snd.wire.throwSeq == 0);
+        t += 33; r.reloading = true; snd.Update(t, r); CHECK(snd.reloaded && snd.wire.reloadSeq == 1 && (snd.wire.flags & kCombatReload));
+        t += 33; r.clip = 12; snd.Update(t, r); CHECK(snd.shots == 0);      // refill while reloading
+        t += 33; r.reloading = false; snd.Update(t, r); CHECK(snd.shots == 0 && snd.wire.reloadSeq == 1);
+        t += 33; r.clip = 10; snd.Update(t, r); CHECK(snd.shots == 2 && snd.wire.fireSeq == 5);   // two shots between polls
+        t += 33; r.weapon = rifle; r.clip = 4; snd.Update(t, r); CHECK(snd.shots == 0 && snd.wire.weapon == rifle && snd.wire.clip == 4);
+        t += 33; r.clip = 9; snd.Update(t, r); CHECK(snd.shots == 0);       // clip up: a pickup, not a shot
+        // A molotov: aimed (no clip), then thrown (player-is-firing? turns on); the in-hand weapon is unknown.
+        t += 33; r.weapon = 0; r.clip = -1; r.firing = false; r.aimingThrowable = true; r.grenade = molotov; snd.Update(t, r);
+        CHECK((snd.wire.flags & kCombatAimThrow) && snd.wire.grenade == molotov && snd.wire.clip == -1);
+        t += 33; r.aimingThrowable = false; r.grenade = 0; snd.Update(t, r);   // the aim ends a poll before the throw shows
+        t += 33; r.firing = true; snd.Update(t, r); CHECK(snd.threw && snd.wire.throwSeq == 1);
+        t += 33; snd.Update(t, r); CHECK(!snd.threw);                       // held: once
+        t += 2000; r.firing = false; snd.Update(t, r); t += 33; r.firing = true; snd.Update(t, r); CHECK(!snd.threw);   // long after: no throwable
+        t += 33; r.firing = false; r.state = kStateMelee; snd.Update(t, r); CHECK(snd.swung && snd.wire.meleeSeq == 1 && (snd.wire.flags & kCombatMelee));
+        t += 33; snd.Update(t, r); CHECK(!snd.swung);
+    }
+    {   // Wire with loss onto the clone: a fight of shots, a reload, a switch, a throw and a holster.
+        CombatSender snd; CombatReplay rep; CombatReading me, her;
+        me.weapon = pistol; me.clip = 8;
+        her.weapon = 0; her.clip = -1;
+        PlayerState got; bool have = false;
+        int presses = 0, reloads = 0, draws = 0, holsters = 0, throws = 0, lostPackets = 0;
+        unsigned long long lastPressAt = 0, minGap = ~0ull, firstShotAt = 0, firstPressAt = 0;
+        bool prevTrig = false;
+        unsigned seed = 12345;
+        for (unsigned long long t = 1000; t < 12000; t += 16) {
+            // Partner script (their own game); at(x): the tick that crosses x ms.
+            auto at = [t](unsigned long long x) { return t >= x && t < x + 16; };
+            if (at(2000) || at(2300) || at(2600) || at(2900)) { --me.clip; if (!firstShotAt) firstShotAt = t; }   // 4 shots, 0.3 s apart
+            me.aiming = t >= 1800 && t < 3500;
+            if (at(4000)) me.reloading = true;
+            if (at(5600)) { me.reloading = false; me.clip = 8; }
+            if (at(6000)) { me.weapon = rifle; me.clip = 4; }
+            if (at(7000)) { me.weapon = 0; me.clip = -1; me.aimingThrowable = true; me.grenade = molotov; }
+            if (at(7800)) { me.aimingThrowable = false; me.grenade = 0; me.firing = true; }
+            if (at(8200)) me.firing = false;
+            // Sender polls every 32 ms (every other 16 ms tick), sends every tick; ~25 % of datagrams lost.
+            bool even = (t / 16) % 2 == 0;
+            if (even) snd.Update(t, me);
+            PlayerState s; s.combat = snd.wire;
+            Writer w; Write(w, s);
+            seed = seed * 1103515245u + 12345u;
+            if ((seed >> 16) % 4 == 0) ++lostPackets;
+            else { Reader r(w.data().data(), w.data().size()); CHECK(Read(r, got)); have = true; }
+            if (!have || even) continue;
+            // The clone: draws land at once, her clip follows setClip, an RT press fires one round.
+            CombatActions a = rep.Update(t, got.combat, her, true);
+            if (a.draw) { ++draws; her.weapon = a.draw; her.clip = 0; }
+            if (a.holster) { ++holsters; her.weapon = 0; her.clip = -1; }
+            if (a.setClip >= 0) her.clip = a.setClip;
+            if (a.reload) ++reloads;
+            bool trig = a.triggerUntil > t;
+            if (trig && !prevTrig) {
+                if (her.clip > 0) { ++presses; --her.clip; } else if (her.clip < 0) ++throws;
+                if (!firstPressAt) firstPressAt = t;
+                if (lastPressAt) minGap = (std::min)(minGap, t - lastPressAt);
+                lastPressAt = t;
+            }
+            prevTrig = trig;
+        }
+        CHECK(lostPackets > 50);
+        CHECK(presses == 4);                       // every shot, none twice, through the loss
+        CHECK(firstPressAt && firstPressAt - firstShotAt <= 300);   // the owner's 0.3 s
+        CHECK(minGap >= 100);                      // released between presses (semi-automatic)
+        CHECK(reloads == 1 && throws == 1 && holsters == 1);
+        CHECK(draws == 2);                         // the pistol, then the rifle
+    }
+    {   // Stale news: nothing held; what happened meanwhile does not replay when news comes back.
+        CombatReplay rep; CombatWire p; CombatReading her; her.weapon = pistol; her.clip = 5;
+        p.weapon = pistol; p.clip = 5; p.flags = kCombatAim;
+        CombatActions a = rep.Update(1000, p, her, true); CHECK(a.aim);
+        p.fireSeq = 3; p.reloadSeq = 1;
+        a = rep.Update(1100, p, her, false); CHECK(!a.aim && a.triggerUntil <= 1100 && !a.reload);
+        a = rep.Update(1200, p, her, true); CHECK(a.triggerUntil <= 1200 && !a.reload && rep.PendingShots() == 0);
+        // The first wire seen is the baseline: counts from before are history.
+        CombatReplay fresh; CombatWire q; q.weapon = pistol; q.clip = 5; q.fireSeq = 40; q.reloadSeq = 7;
+        a = fresh.Update(1000, q, her, true); CHECK(a.triggerUntil == 0 && !a.reload);
+        q.fireSeq = 41; a = fresh.Update(1033, q, her, true); CHECK(a.triggerUntil > 1033);
+        // Engine fire mode: a shot is a fire action, no RT.
+        CombatReplay eng; eng.padFire = false; CombatWire e; e.weapon = pistol; e.clip = 5;
+        eng.Update(1000, e, her, true); e.fireSeq = 1; a = eng.Update(1033, e, her, true); CHECK(a.fire == 1 && a.triggerUntil == 0);
+        // Throwable selection follows the partner's aimed grenade once per change.
+        CombatReplay g; CombatWire gw; gw.grenade = molotov; a = g.Update(1000, gw, her, true); CHECK(a.selectGrenade == molotov);
+        a = g.Update(1033, gw, her, true); CHECK(a.selectGrenade == 0);
+    }
 }
 
 static void TestCameraLocatorFor() {
@@ -1052,6 +1159,7 @@ int main() {
     TestCloneSpotBroken();
     TestCameraLocatorFor();
     TestGestureSync();
+    TestCombatSync();
     TestClockSync();
     TestLossySession();
     TestTraversalCopy();
