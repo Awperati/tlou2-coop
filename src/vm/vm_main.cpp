@@ -34,6 +34,8 @@
 //   anchor on|off     carry the arms with the camera as they sit against her chest (default on)
 //   calibrate         take the arms' place against her chest now (done by itself the first time she looks level)
 //   sling on|off      whether a rope near the held weapon (the rifle sling) follows it (default on)
+//   autotp on|off     switch to third person while she crawls through a gap, dies or plays a scripted /
+//                     cutscene move, and back after (uses the first-person mod's toggle key; default on)
 //   weapon on|off     whether the held weapon gets the same change (default on)
 //   off               stop changing anything
 //   headlock <deg>    first-person head-turn limit while a move holds her body (vault, climb, ledge,
@@ -696,7 +698,23 @@ const struct { uint64_t id; const char* name; bool lock; } kStates[] = {
     {0x6F8D81A17BB4E150ull, "Carry", false}, {0x41912A19C979556Eull, "Igc", false}, {0xCD7743F6969479EBull, "Crouch", false},
     // Unnamed: follows every Jump/Fall before Move (owner's vaults 12:18-12:22), so the landing of a vault.
     {0xDC08B4AA178A64D9ull, "Land?", true},
+    {0xB05F8BDC266380CDull, "Death", false}, {0xD049237343C44E47ull, "Dead", false}, {0xFCBE98DF5B4A65E8ull, "Ragdoll", false},
+    {0x386C9402B2567A3Bull, "Scripted", false},
 };
+// Third person for scripted moves (tester: "when Ellie is doing an animation such as a crawl through a
+// wallscape, doing a death animation, some sort of plot animation, always put the camera back into
+// third person"). While her state is one of these, first person is switched off with the first-person
+// mod's own toggle key, and switched back on when the state ends (only if we switched it off).
+const uint64_t kThirdPersonStates[] = {
+    0xDD860669F287283Cull,   // SqueezeThrough (crawling through gaps)
+    0xB05F8BDC266380CDull,   // Death
+    0xD049237343C44E47ull,   // Dead
+    0xFCBE98DF5B4A65E8ull,   // Ragdoll
+    0x41912A19C979556Eull,   // Igc (in-game cutscene)
+    0x386C9402B2567A3Bull,   // Scripted
+};
+bool StateThirdPerson(uint64_t id) { for (uint64_t t : kThirdPersonStates) if (t == id) return true; return false; }
+
 const char* StateName(uint64_t id) { for (auto& s : kStates) if (s.id == id) return s.name; return nullptr; }
 bool StateLocks(uint64_t id) { for (auto& s : kStates) if (s.id == id) return s.lock; return false; }
 
@@ -816,6 +834,49 @@ SkelInfo* BuildSkelInfo(uintptr_t skel, bool fromShoulder) {
     return si;
 }
 
+// ---- automatic third person ----------------------------------------------------------------------
+std::atomic<bool> g_autoTp{true};
+UINT g_toggleVk = VK_F5;   // the first-person mod's ToggleKey (TLOU2FirstPerson.ini next to this DLL), default F5
+
+UINT KeyFromName(std::string n) {
+    for (auto& ch : n) ch = static_cast<char>(toupper(static_cast<unsigned char>(ch)));
+    if (n.size() >= 2 && n[0] == 'F' && isdigit(static_cast<unsigned char>(n[1]))) { int k = atoi(n.c_str() + 1); if (k >= 1 && k <= 24) return VK_F1 + k - 1; }
+    if (n == "HOME") return VK_HOME;
+    if (n == "END") return VK_END;
+    if (n == "INSERT") return VK_INSERT;
+    if (n == "DELETE") return VK_DELETE;
+    if (n.size() > 2 && n[0] == '0' && n[1] == 'X') return static_cast<UINT>(strtoul(n.c_str(), nullptr, 16));
+    if (n.size() == 1 && isalnum(static_cast<unsigned char>(n[0]))) return static_cast<UINT>(n[0]);
+    return 0;
+}
+void ReadToggleKey() {
+    std::wstring path = g_dir + L"TLOU2FirstPerson.ini";
+    wchar_t buf[64] = {};
+    GetPrivateProfileStringW(L"FirstPerson", L"ToggleKey", L"F5", buf, 64, path.c_str());
+    std::string n;
+    for (wchar_t* c = buf; *c; ++c) n += static_cast<char>(*c);
+    UINT vk = KeyFromName(n);
+    if (vk) g_toggleVk = vk;
+    Log("auto third person: the first-person mod's toggle key is %s (vk 0x%X)", n.c_str(), g_toggleVk);
+}
+
+// Presses the toggle key for the first-person mod. Only while the game window is in front, so the key
+// never lands in another program.
+bool PressToggle() {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+    if (pid != GetCurrentProcessId()) return false;
+    INPUT in[2] = {};
+    in[0].type = in[1].type = INPUT_KEYBOARD;
+    in[0].ki.wVk = in[1].ki.wVk = static_cast<WORD>(g_toggleVk);
+    in[0].ki.wScan = in[1].ki.wScan = static_cast<WORD>(MapVirtualKeyW(g_toggleVk, MAPVK_VK_TO_VSC));
+    in[1].ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(1, &in[0], sizeof(INPUT));
+    Sleep(80);   // long enough for a polling GetAsyncKeyState to see it down
+    SendInput(1, &in[1], sizeof(INPUT));
+    return true;
+}
+
 // ---- commands -------------------------------------------------------------------------------------
 void LogDump() {
     const Dump& d = g_dump;
@@ -866,6 +927,7 @@ void Handle(const std::string& line) {
     else if (c == "anchor") { g_anchorOn = w != "off"; Log("cmd: arms anchored to the camera: %s", g_anchorOn.load() ? "on" : "off"); }
     else if (c == "calibrate") { g_calibWanted = true; Log("cmd: anchor recalibrates on the next frame"); }
     else if (c == "sling") { g_ropeOn = g_slingOn = w != "off"; Log("cmd: rifle sling %s", g_slingOn.load() ? "follows the weapon" : "left alone"); }
+    else if (c == "autotp") { g_autoTp = w != "off"; Log("cmd: third person during crawls, deaths and cutscenes: %s", g_autoTp.load() ? "on" : "off"); }
     else if (c == "weapon") { g_weaponOn = w != "off"; Log("cmd: held weapon %s", g_weaponOn.load() ? "follows" : "left alone"); }
     else if (c == "off") { g_mode = kOff; if (g_dofAuto.load()) g_dofWanted = 0; Log("cmd: off"); }
     else if (c == "dof") {
@@ -938,12 +1000,14 @@ DWORD WINAPI Main(void*) {
                    reinterpret_cast<void**>(&g_ropeOrig), "rope skinning (rifle sling)");
     InstallChained(kCamSet, kCamSetExpect, sizeof(kCamSetExpect), reinterpret_cast<void*>(&HookedCamSet),
                    reinterpret_cast<void**>(&g_camOrig), "CameraFinalInfo::Set");
+    ReadToggleKey();
     RunStartupFile();
     uintptr_t lastFg = 0, lastWeapon = 1;
     uint64_t ticks = 0, lastState = ~0ull, lastAnim = ~0ull;
     uint64_t lastHits = 0, lastSeg = 0, lastWeaponHits = 0, lastClamped = 0, lastCalls = 0, lastRope = 0;
     bool lastLocked = false, lastFp = false;
-    uint64_t offSince = 0;
+    uint64_t offSince = 0, lastToggle = 0;
+    bool weTurnedOff = false;
     for (;;) {
         uintptr_t proc = PlayerProcess0(), fg = 0;
         if (proc) ReadMem(proc + 0x1C0, fg);
@@ -988,6 +1052,15 @@ DWORD WINAPI Main(void*) {
         uint64_t anim = proc ? AnimStateId(proc) : 0;
         bool climbing = AnimClimbing(anim);
         bool locked = StateLocks(st) || climbing;
+        // Automatic third person: off when a scripted move starts with first person on, back on when it ends.
+        bool wantTp = g_autoTp.load() && StateThirdPerson(st);
+        if (wantTp && !weTurnedOff && g_fpOn.load() && GetTickCount64() - lastToggle > 1000) {
+            if (PressToggle()) { weTurnedOff = true; lastToggle = GetTickCount64(); Log("auto third person: %s, first person off", StateName(st) ? StateName(st) : "move"); }
+        } else if (!wantTp && weTurnedOff && GetTickCount64() - lastToggle > 1000) {
+            if (st == 0) {}   // no player (loading): wait
+            else if (g_fpOn.load()) weTurnedOff = false;   // the player turned it back on already
+            else if (PressToggle()) { weTurnedOff = false; lastToggle = GetTickCount64(); Log("auto third person: move over, first person on"); }
+        }
         g_bodyLocked = locked;
         if (anim != lastAnim) {
             if (g_animLog.load() || climbing) Log("anim: base layer state %016llx%s", static_cast<unsigned long long>(anim), climbing ? " (climbing up)" : "");
