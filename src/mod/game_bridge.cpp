@@ -2725,8 +2725,18 @@ void GameBridge::TickCloneDrive() {
             // Broken clone (10-20 07:20, PC B): thrown to the world origin and falling, 213-477 m off. The 2 s snap
             // spacing let her fall out of the world. Far drift or a spot at the origin snaps at once (every 250 ms
             // at most), and never to a partner spot at the origin (CloneSpotBroken, clonedrive.h).
-            bool broken = have && cp && CloneSpotBroken(*cp, tgt);
-            if (have && cp && !NearOrigin(tgt) && tn > cloneFixAt_ && tn - cloneFixAt_ > (broken ? 250u : 2000u)) {
+            // But not mid-jump (10-20 10:07:54, PC A, owner's own jump): during the Jump/Fall states the player's
+            // position field reads in the jump's own frame (root (-1.94 -0.55 -0.07) while the eyes were at
+            // (-67 -5 -203), first-person log). Snapping on that reading is what threw her at 07:20: the snap wrote
+            // world coordinates into the jump frame. No snap and no "broken" call while she is in the air.
+            // A real jump lands within ~1.5 s; still airborne after that means she is falling out of the world
+            // (07:20 again), and then the snap is needed, so the hold ends there.
+            uint64_t herState = PlayerStateOf(p);
+            bool airborne = herState == kStateJump || herState == kStateFall;
+            if (!airborne) airborneSince_ = 0; else if (!airborneSince_) airborneSince_ = tn;
+            if (airborne && tn - airborneSince_ < 1500) jumpGraceUntil_ = tn + 500;   // + a moment after landing
+            bool broken = have && cp && tn >= jumpGraceUntil_ && CloneSpotBroken(*cp, tgt);
+            if (have && cp && tn >= jumpGraceUntil_ && !NearOrigin(tgt) && tn > cloneFixAt_ && tn - cloneFixAt_ > (broken ? 250u : 2000u)) {
                 float d = Distance(*cp, tgt);
                 if (broken) { cloneFixAt_ = tn; bool ok = engineTeleport(p, tgt, tyaw); Log("clonedrive: broken spot (%.0f m off, at %.1f %.1f %.1f), snapped at once: %s", d, cp->x, cp->y, cp->z, ok ? "sent" : "FAILED"); }
                 else {
