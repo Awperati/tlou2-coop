@@ -248,6 +248,7 @@ public:
     TraversalCopy traversal_;
     bool cloneTraversal_ = false;
     uint32_t lastCamFaults_ = 0;
+    unsigned long long lastBadSpotLog_ = 0;   // SetCloneMove: a broken spot from the other PC (SpotSane)
     unsigned long long jumpGraceUntil_ = 0, airborneSince_ = 0;   // no drift snap while she jumps/falls (position is jump-frame)
     bool cloneCameraAnswer_ = false;       // [clone] CameraAnswer: answer player 1's camera locator (off until seen live)
     unsigned long long lastCamAnswerLog_ = 0;

@@ -285,6 +285,8 @@ void CoopMain() {
     SectionPrompt::State prevSectionState = SectionPrompt::State::Hidden;
     bool sectionKeyPrev = false;
     unsigned long long lastSectionSend = 0;
+    bool sectionJumped = false;          // our jump respawns our player: dress her again once the new task is in
+    unsigned long long selfRedressAt = 0;
     Session::Callbacks cb;
     cb.onPeerJoined = [&](uint8_t slot, const Hello& h) {
         Log("player %u joined: %s", slot, h.playerName.c_str());
@@ -306,11 +308,14 @@ void CoopMain() {
     // screen picked a random character (tommy) and no look (2026-10-17). Re-run when the chapter changes.
     uint8_t mySlot = 0;
     std::string setupPack;
-    auto setupPartner = [&](const std::string& pack) {
+    // keep: dress the same character again (a section jump respawned our player as Ellie, owner 10-21 07:3x).
+    auto setupPartner = [&](const std::string& pack, bool keep = false) {
         setupPack = pack;
-        myCharacter = roster.AssignForSlot(pack, mySlot, wanted, rng);
-        Log("partner setup: slot %u, character %s (chapter '%s')", mySlot, CharacterName(myCharacter), pack.c_str());
-        session.SendCharacterSelect(myCharacter);
+        if (!keep || myCharacter == CharacterId::None) {
+            myCharacter = roster.AssignForSlot(pack, mySlot, wanted, rng);
+            session.SendCharacterSelect(myCharacter);
+        }
+        Log("partner setup: slot %u, character %s (chapter '%s')%s", mySlot, CharacterName(myCharacter), pack.c_str(), keep ? ", dressed again after a section jump" : "");
         if (autoLook) {
             const ChapterRule* rule = roster.chapter(pack);
             bool companion = rule && mySlot >= 1 && mySlot <= rule->companions.size();
@@ -653,6 +658,7 @@ void CoopMain() {
                 if (explored.Visit(cur)) explored.Save(Narrow(dir + L"tlou2-coop\\explored.txt"));
                 bridge.QueueReadSectionIds();
                 lastSectionSend = 0;
+                if (sectionJumped) { sectionJumped = false; selfRedressAt = now + 3000; }
             }
             {   // the ids arrive from a script call once read
                 std::lock_guard lk(bridge.sectionMu_);
@@ -686,6 +692,7 @@ void CoopMain() {
                     Log("section: going to the partner's section '%s' / '%s' (%s)", t.world.c_str(), t.task.c_str(), where == SectionWhere::Explored ? "explored before" : "unexplored, confirmed");
                     OverlayNotify(L"Going to your partner's section");
                     bridge.QueueJumpToSection(t.findA, t.findB);
+                    sectionJumped = true;
                 } else {
                     Log("section: can't go to '%s' / '%s': its task ids did not come with it", t.world.c_str(), t.task.c_str());
                     OverlayNotify(L"Can't go to your partner's section yet (its task is unknown)");
@@ -1035,7 +1042,7 @@ void CoopMain() {
                     else if (line.rfind("gotosection ", 0) == 0) {   // gotosection <chapter without world-> <task>: test jump
                         std::istringstream gs(line.substr(12)); std::string ch, tk; gs >> ch >> tk;
                         auto fnv = [](const std::string& t) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char c : t) { h ^= c; h *= 0x100000001b3ull; } return h; };
-                        if (!ch.empty() && !tk.empty()) { Log("section: gotosection '%s' / '%s'", ch.c_str(), tk.c_str()); bridge.QueueJumpToSection(fnv(ch), fnv(tk)); }
+                        if (!ch.empty() && !tk.empty()) { Log("section: gotosection '%s' / '%s'", ch.c_str(), tk.c_str()); bridge.QueueJumpToSection(fnv(ch), fnv(tk)); sectionJumped = true; }
                     }
                     else if (line.rfind("facelead ", 0) == 0) { bridge.cloneFaceLead_ = static_cast<float>(atof(line.c_str() + 9)); Log("facelead: %.2f s", bridge.cloneFaceLead_); }
                     else if (line.rfind("gesturedirect ", 0) == 0) bridge.QueueGestureDirect(1, std::stoull(line.substr(14), nullptr, 16));   // gesturedirect <0xid>: on player 1
@@ -1255,7 +1262,8 @@ void CoopMain() {
         if (!isHost && mySlot && now - lastPackCheck >= 2000) {
             lastPackCheck = now;
             auto pack = bridge.CurrentWorldPack();
-            if (inChapter(pack) && pack != setupPack) setupPartner(pack);
+            if (inChapter(pack) && pack != setupPack) { setupPartner(pack); selfRedressAt = 0; }
+            else if (selfRedressAt && now >= selfRedressAt && inChapter(pack)) { selfRedressAt = 0; setupPartner(pack, true); }
         }
         // Partner: take the host's coop.dll from its file drop (tools/share.py, port 8765) when it
         // differs; the loader then hot-reloads it. Saves copying every build to PC B by hand.

@@ -2404,6 +2404,11 @@ void GameBridge::SetCloneMove(float x, float z, uint64_t held, const Vec3* pos, 
     { std::lock_guard lk(cloneMu_); yawLead_.Add(GetTickCount64(), aimYaw); }   // standing-turn lead (YawLead)
     cloneMoveX_ = x; cloneMoveZ_ = z; cloneHeld_ = held; cloneMoveAt_ = GetTickCount64();
     if (stance >= 0) cloneWantStance_ = stance;
+    if (pos && (!SpotSane(*pos) || !std::isfinite(yaw))) {   // their player is reloading: keep the last good spot
+        ULONGLONG t = GetTickCount64();
+        if (t - lastBadSpotLog_ > 2000) { lastBadSpotLog_ = t; Log("clonedrive: ignoring a broken spot from the other PC (%g %g %g, yaw %g)", pos->x, pos->y, pos->z, yaw); }
+        pos = nullptr;
+    }
     if (pos) { std::lock_guard lk(cloneMu_); cloneTarget_ = *pos; cloneTargetYaw_ = yaw; cloneTargetMoving_ = moving; cloneHasTarget_ = true; }
 }
 

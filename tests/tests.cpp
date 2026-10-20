@@ -575,6 +575,10 @@ static void TestCloneSpotBroken() {
     Vec3 partner{-67.6f, -6.8f, -205.0f};
     CHECK(!CloneSpotBroken({-69.0f, -6.8f, -203.5f}, partner));       // 2 m behind: fine
     CHECK(CloneSpotBroken({0.2f, -0.3f, 0.1f}, partner));              // at the world origin (10-20 07:20)
+    CHECK(SpotSane(partner));                                          // a real spot
+    CHECK(!SpotSane({-55105.9f, 5.0e34f, 4.2e12f}));                    // sent mid-reload (10-21 07:31, crashed PC B)
+    CHECK(!SpotSane({std::nanf(""), 0.f, 0.f}));
+    CHECK(!SpotSane({0.f, INFINITY, 0.f}));
     CHECK(CloneSpotBroken({-67.6f, -290.0f, -205.0f}, partner));      // falling out of the world
     CHECK(NearOrigin({0, 0, 0}) && !NearOrigin(partner));
 }

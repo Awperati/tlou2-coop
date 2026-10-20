@@ -102,6 +102,13 @@ inline void CameraLocatorFor(const Vec3& herPos, float yaw, float out[8], float 
 // Broken clone positions (10-20 07:20): a spot within 1 m of the world origin is an unset transform, and a clone
 // more than 50 m from her partner is falling or stuck, not walking behind.
 inline bool NearOrigin(const Vec3& p) { return std::fabs(p.x) < 1.f && std::fabs(p.y) < 1.f && std::fabs(p.z) < 1.f; }
+// A spot the other PC sent while its player was reloading (10-21 07:31, PC A jumping to a section): 4e12 m out.
+// Snapping her there crashed PC B 7 s later (game assert "LengthSqr(start) < Sqr(1e10f)", MeshRayCaster::CastRayJob).
+// Levels stay well inside 100 km; anything past that, or not a number, is no spot.
+inline bool SpotSane(const Vec3& p) {
+    auto ok = [](float v) { return std::isfinite(v) && std::fabs(v) < 100000.f; };
+    return ok(p.x) && ok(p.y) && ok(p.z);
+}
 inline bool CloneSpotBroken(const Vec3& clone, const Vec3& partner) {
     float dx = clone.x - partner.x, dy = clone.y - partner.y, dz = clone.z - partner.z;
     return NearOrigin(clone) || dx * dx + dy * dy + dz * dz > 50.f * 50.f;
