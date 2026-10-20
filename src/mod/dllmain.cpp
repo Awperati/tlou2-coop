@@ -132,6 +132,24 @@ static bool HandleToggle(const std::string& line, GameBridge& b) {
     return false;
 }
 
+// Combat rules (core/combat.h), [combat] in coop.ini and the "combat" command.
+static CombatRules g_combatRules;
+static bool HandleCombatCommand(const std::string& line) {
+    if (line != "combat" && line.rfind("combat ", 0) != 0) return false;
+    struct R { const char* name; bool CombatRules::* flag; };
+    static const R kRules[] = {{"friendlyfire", &CombatRules::friendlyFire}, {"clonetakes", &CombatRules::cloneTakesDamage}, {"clonedeals", &CombatRules::cloneDealsDamage}};
+    for (const auto& r : kRules) {
+        std::string n = std::string("combat ") + r.name;
+        if (line == n + " on" || line == n + " off") { g_combatRules.*(r.flag) = line == n + " on"; SetCombatRules(g_combatRules); }
+    }
+    if (line == "combat log all") SetAttackLogAll(true);
+    if (line == "combat log players") SetAttackLogAll(false);
+    uint32_t c[4]; AttackCounts(c);
+    Log("combat: friendly fire %s, clone takes damage %s, clone deals damage %s; attacks allowed %u, dropped: clone hit %u, friendly fire %u, clone's hits %u",
+        g_combatRules.friendlyFire ? "on" : "off", g_combatRules.cloneTakesDamage ? "on" : "off", g_combatRules.cloneDealsDamage ? "on" : "off", c[0], c[1], c[2], c[3]);
+    return true;
+}
+
 void CoopMain() {
     const std::wstring dir = ModDir();
     Ini cfg, rosterIni, offsets;
@@ -237,6 +255,10 @@ void CoopMain() {
     bridge.cloneKickJumpProbes_ = cfg.getBool("clone", "KickJumpProbes", true);
     bridge.cloneFaceLead_ = cfg.getFloat("clone", "FaceLead", 0.15f);
     bridge.cloneGestureSync_ = cfg.getBool("clone", "GestureSync", true);
+    g_combatRules.friendlyFire = cfg.getBool("combat", "FriendlyFire", false);
+    g_combatRules.cloneTakesDamage = cfg.getBool("combat", "CloneTakesDamage", false);
+    g_combatRules.cloneDealsDamage = cfg.getBool("combat", "CloneDealsDamage", false);
+    SetCombatRules(g_combatRules);
     {   // [clone] FaceForce = stored | globals (on, true) | off (false, no): core/faceforce.h
         auto ffm = ParseFaceForce(cfg.get("clone", "FaceForce", "stored"));
         bridge.cloneFaceForce_ = ffm.force; bridge.cloneFaceStored_ = ffm.stored;
@@ -539,6 +561,10 @@ void CoopMain() {
             for (const auto& d : bridge.TakeDamageOut()) session.SendEnemyDamage(d);
         }
         if (auto picked = TakePickedUp(); !picked.empty()) bridge.QueueNamePickups(std::move(picked));
+        {   // attack hook records (friendly fire): logged twice a second
+            static ULONGLONG atkAt = 0;
+            if (now - atkAt > 500) { atkAt = now; uint32_t lost = 0; if (auto recs = TakeAttackRecords(&lost); !recs.empty() || lost) bridge.QueueLogAttacks(std::move(recs), lost); }
+        }
         // Our own player's visible-mesh set (hood up/down and the like): tell the other PC when it changes.
         static ULONGLONG maskAt = 0; static uint32_t lastMask = ~0u; static int lastCount = -2;
         if (cloneEnabled && session.connected() && (now - maskAt > 1000 || resendMask)) {
@@ -733,7 +759,7 @@ void CoopMain() {
                 for (auto& raw : SplitList(text, '\n')) {
                     std::string line = Lower(Trim(raw));
                     Log("command: %s", line.c_str());
-                    if (HandleToggle(line, bridge)) {}   // "<switch> on|off" for the simple clone switches
+                    if (HandleToggle(line, bridge) || HandleCombatCommand(line)) {}   // "<switch> on|off" for the simple clone switches
                     else if (line == "teleport") cmdTeleport = true;
                     else if (line == "modules") LogInputModules();
                     else if (line == "inputstats") InputLogStats();

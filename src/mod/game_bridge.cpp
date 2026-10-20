@@ -175,6 +175,8 @@ bool GameBridge::Init(const Ini& ini) {
         // Second-player safety, installed at start: a reload with player 1 alive left the camera
         // assist running for it and the game crashed (07:44).
         if (ini.getBool("engine", "second_player_hooks", true)) { UserIdHookInstall(BuildRva(0x133EC60)); CamAssistHookInstall(BuildRva(0x8215E0)); CamPickHookInstall(BuildRva(0xC5A3B0)); LevelListenerHooksInstall(BuildRva(0x1A4D870), BuildRva(0x1A4E210)); EdgeLogoutHookInstall(BuildRva(0xA83F30), BuildRva(0x1C129D0)); ActiveUpdateHookInstall(BuildRva(0xAD61E0)); CommandGroupHooksInstall(BuildRva(0x15B6C90), BuildRva(0x15B6D70)); PickupHookInstall(BuildRva(0x88FBF0)); CloneAimHooksInstall(BuildRva(0xC6E800), BuildRva(0xC6F020)); }
+        // Friendly fire and the clone's hits (core/combat.h): every attack judged by its two ends.
+        if (ini.getBool("engine", "attack_hooks", true)) AttackHooksInstall(BuildRva(0x3921E0), BuildRva(0x392070), BuildRva(0xB7AF30), BuildRva(0x133D360));
         if (ini.getBool("engine", "print_hook", true)) PrintHookInstall(BuildRva(0x156B280), BuildRva(0x1240C70));
     }
     Log("bridge: engine teleport %s", engineTeleport_ ? "ready" : "unavailable");
@@ -2227,6 +2229,28 @@ void GameBridge::QueueNamePickups(std::vector<uintptr_t> procs) {
             pickupOut_.push_back({Fnv1a(name), name});
             Log("pickup: '%s' taken here, telling the other PC", name.c_str());
         }
+    }, true);
+}
+void GameBridge::QueueLogAttacks(std::vector<AttackRecord> recs, uint32_t droppedFromRing) {
+    RunOnGameFiber([recs, droppedFromRing] {
+        static const char* kHook[3] = {"send", "post", "player"};
+        struct Line { AttackRecord a; int n; };
+        std::vector<Line> lines;
+        for (const auto& a : recs) {
+            bool merged = false;
+            for (auto& l : lines)
+                if (l.a.hook == a.hook && l.a.victim == a.victim && l.a.attacker == a.attacker && l.a.type == a.type &&
+                    l.a.attackerType == a.attackerType && l.a.verdict == a.verdict && l.a.victimProc == a.victimProc) { ++l.n; merged = true; break; }
+            if (!merged && lines.size() < 12) lines.push_back({a, 1});
+        }
+        for (const auto& l : lines) {
+            const auto& a = l.a;
+            std::string vn = a.victimProc ? ProcessName(a.victimProc) : std::string("-");
+            std::string an = a.attackerProc ? ProcessName(a.attackerProc) : std::string("-");
+            Log("attack: %s, '%s' (player %d) -> '%s' (player %d), kind %u, attacker type %016llx, x%d: %s", kHook[a.hook < 3 ? a.hook : 0],
+                an.c_str(), a.attacker, vn.c_str(), a.victim, a.type, static_cast<unsigned long long>(a.attackerType), l.n, VerdictName(a.verdict));
+        }
+        if (droppedFromRing) Log("attack: %u records lost (ring full)", droppedFromRing);
     }, true);
 }
 std::vector<std::pair<uint64_t, std::string>> GameBridge::TakePickupOut() { std::lock_guard lk(enemyMu_); return std::exchange(pickupOut_, {}); }

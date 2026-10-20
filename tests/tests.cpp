@@ -19,6 +19,7 @@
 #include "core/teleport.h"
 #include "core/traversal.h"
 #include "core/viewmodel.h"
+#include "core/combat.h"
 #include <cstdio>
 #include <thread>
 #include <windows.h>
@@ -1028,6 +1029,75 @@ static void TestYawLimiter() {
     CHECK(std::fabs(r1 - 100 * deg) < 1e-5f);                                            // back to free
 }
 
+// Friendly fire (owner 10-21: PC B's molotov burned the clone of PC A's Ellie on PC B only).
+static void TestCombatRules() {
+    const CombatRules def;
+    // On each PC: 0 = our player, 1 = the clone, -1 = an enemy or other non-player.
+    CHECK(JudgeAttack(def, 1, 0) == AttackVerdict::DropCloneVictim);     // PC B: Dina's molotov at Ellie's clone
+    CHECK(JudgeAttack(def, 1, -1) == AttackVerdict::DropCloneVictim);    // an enemy shoots the clone: her own PC owns her health
+    CHECK(JudgeAttack(def, 0, 1) == AttackVerdict::DropFriendlyFire);    // PC A: the clone's molotov / bullet / melee at Ellie
+    CHECK(JudgeAttack(def, -1, 1) == AttackVerdict::DropCloneAttacker);  // the clone hits an enemy: counted on her own PC
+    CHECK(JudgeAttack(def, -1, 0) == AttackVerdict::Allow);              // our player hits an enemy
+    CHECK(JudgeAttack(def, 0, -1) == AttackVerdict::Allow);              // an enemy hits our player
+    CHECK(JudgeAttack(def, 0, 0) == AttackVerdict::Allow);               // our own molotov at our feet still hurts
+    CHECK(JudgeAttack(def, -1, -1) == AttackVerdict::Allow);             // enemies among themselves
+    CHECK(JudgeAttack(def, 1, 1) == AttackVerdict::DropCloneVictim);
+    // No player 1 (clone mode off): nothing resolves to 1, nothing is dropped.
+    for (int v : {-1, 0}) for (int a : {-1, 0}) CHECK(JudgeAttack(def, v, a) == AttackVerdict::Allow);
+    // Switches.
+    CombatRules ff; ff.friendlyFire = true;
+    CHECK(JudgeAttack(ff, 0, 1) == AttackVerdict::Allow && JudgeAttack(ff, 1, 0) == AttackVerdict::DropCloneVictim);
+    CombatRules takes; takes.cloneTakesDamage = true;
+    CHECK(JudgeAttack(takes, 1, 0) == AttackVerdict::Allow && JudgeAttack(takes, 0, 1) == AttackVerdict::DropFriendlyFire);
+    CombatRules deals; deals.cloneDealsDamage = true;
+    CHECK(JudgeAttack(deals, -1, 1) == AttackVerdict::Allow && JudgeAttack(deals, 0, 1) == AttackVerdict::DropFriendlyFire);
+    // The owner's molotov on both PCs: Dina (PC B's player 0) throws at Ellie. On PC B Ellie is the clone,
+    // on PC A (once throws are mirrored) Dina is the clone. Neither PC lets a point of damage through.
+    struct Pc { int ellie, dina; } pcA{0, 1}, pcB{1, 0};
+    for (Pc pc : {pcA, pcB}) CHECK(JudgeAttack(def, pc.ellie, pc.dina) != AttackVerdict::Allow);
+    // ... and Ellie can't hurt Dina either way round.
+    for (Pc pc : {pcA, pcB}) CHECK(JudgeAttack(def, pc.dina, pc.ellie) != AttackVerdict::Allow);
+}
+
+// Enemy health stays the same on both PCs when each hit counts on the shooter's PC only. Host = PC A,
+// partner = PC B. A partner hit is seen on PC B (health drop), reported to the host (EnemyDamage) and
+// applied there; the host's hits apply on PC A and reach PC B in EnemyStates. Each shot also lands
+// on the shooter's clone on the other PC; JudgeAttack decides whether that copy counts.
+static void TestCombatEnemyConsistency() {
+    auto run = [](const CombatRules& r) {
+        float host = 100.f, partner = 100.f;
+        struct Shot { bool byHost; float dmg; } shots[] = {{false, 30.f}, {true, 25.f}, {false, 20.f}};
+        for (const auto& s : shots) {
+            // On the shooter's PC the shooter is player 0; on the other PC the same shot comes from the clone.
+            float& own = s.byHost ? host : partner;
+            float& other = s.byHost ? partner : host;
+            if (JudgeAttack(r, -1, 0) == AttackVerdict::Allow) own -= s.dmg;
+            if (JudgeAttack(r, -1, 1) == AttackVerdict::Allow) other -= s.dmg;   // the clone's copy
+            if (!s.byHost) host -= s.dmg;          // partner's report to the host
+            partner = host;                        // EnemyStates: the host's value wins
+        }
+        return host;
+    };
+    CHECK(std::fabs(run(CombatRules{}) - 25.f) < 1e-3f);                       // 100 - 30 - 25 - 20
+    CombatRules twice; twice.cloneDealsDamage = true;
+    CHECK(run(twice) < 25.f - 1.f);                                           // without the drop hits count twice
+}
+
+static void TestAttackRing() {
+    AttackRing<4> ring;
+    AttackRecord a; a.type = 1;
+    for (int i = 0; i < 6; ++i) { a.type = static_cast<uint32_t>(i); ring.Push(a); }
+    CHECK(ring.dropped == 2);   // full at 4: the newest are dropped, never the hooks blocked
+    AttackRecord o; int n = 0; uint32_t last = 99;
+    while (ring.Pop(o)) { CHECK(n == 0 || o.type == last + 1); last = o.type; ++n; }
+    CHECK(n == 4 && last == 3);
+    ring.Push(a); CHECK(ring.Pop(o) && o.type == 5 && !ring.Pop(o));
+    AttackRecord quiet; CHECK(!AttackWorthLogging(quiet));          // enemy on enemy, allowed
+    quiet.victim = 0; CHECK(AttackWorthLogging(quiet));             // anything at our player
+    AttackRecord drop; drop.verdict = AttackVerdict::DropCloneAttacker; CHECK(AttackWorthLogging(drop));
+    CHECK(std::string(VerdictName(AttackVerdict::DropFriendlyFire)).find("friendly") != std::string::npos);
+}
+
 int main() {
     TestProtocolRoundTrip();
     TestShots();
@@ -1065,6 +1135,9 @@ int main() {
     TestViewmodelTransform();
     TestClampYaw();
     TestYawLimiter();
+    TestCombatRules();
+    TestCombatEnemyConsistency();
+    TestAttackRing();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

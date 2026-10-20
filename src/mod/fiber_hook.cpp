@@ -1052,6 +1052,120 @@ bool PickupHookInstall(uintptr_t target) {
 }
 std::vector<uintptr_t> TakePickedUp() { std::lock_guard lk(g_pickMu); return std::exchange(g_picked, {}); }
 
+// Friendly fire and the clone's hits (core/combat.h). Every attack is an "attack" event with an
+// AttackInfo: SendAttack (sub_1403921E0) and PostAttack (sub_140392070) take (AttackInfo*, target
+// Process*); Player::HandleAttackEvent (sub_140B7AF30; player, event, AttackInfo*) receives them for
+// players. The attacker is the AttackInfo's handle at +8 {node, id} (node+8 = process, valid while
+// process+148 == id), else the process sending it (sub_14133D360), as both senders resolve it.
+// A process is a Player when its type id (+72) is 0x333DC56DDFFD8EA0; its index is at +21800.
+namespace {
+using SendAttackFn = uint64_t (*)(uint64_t info, uint64_t target);
+using HandleAttackFn = void (*)(uint64_t player, uint64_t event, uint64_t info);
+using CurProcFn = uintptr_t (*)();
+constexpr uint64_t kPlayerTypeId = 0x333DC56DDFFD8EA0ull;
+uint8_t* g_atkTramp[3] = {};
+uint8_t g_atkSaved0[15], g_atkSaved1[15], g_atkSaved2[16];
+uintptr_t g_atkTarget[3] = {};
+CurProcFn g_curProc = nullptr;
+std::atomic<bool> g_atkOn{false};
+std::atomic<bool> g_atkLogAll{false};
+std::atomic<bool> g_ruleFriendly{false}, g_ruleCloneTakes{false}, g_ruleCloneDeals{false};
+std::atomic<uint32_t> g_atkCounts[4] = {};   // by AttackVerdict
+std::mutex g_atkMu;
+AttackRing<64> g_atkRing;
+
+uintptr_t AttackerOf(uint64_t info) {
+    __try {
+        uintptr_t node = *reinterpret_cast<uintptr_t*>(info + 8);
+        uint32_t id = *reinterpret_cast<uint32_t*>(info + 16);
+        if (node && id) {
+            uintptr_t p = *reinterpret_cast<uintptr_t*>(node + 8);
+            if (p && *reinterpret_cast<uint32_t*>(p + 148) == id) return p;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+    return 0;
+}
+int PlayerIndexOfProc(uintptr_t p, uint64_t* typeOut) {
+    if (!p) return -1;
+    __try {
+        uint64_t type = *reinterpret_cast<uint64_t*>(p + 72);
+        if (typeOut) *typeOut = type;
+        if (type != kPlayerTypeId) return -1;
+        int i = *reinterpret_cast<int*>(p + 21800);
+        return i >= 0 && i < 4 ? i : -1;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+}
+uint32_t AttackTypeOf(uint64_t info) {
+    __try { return *reinterpret_cast<uint32_t*>(info + 24); } __except (EXCEPTION_EXECUTE_HANDLER) { return 0xFFFFFFFF; }
+}
+// True: let the attack through.
+bool JudgeHere(int hook, uint64_t info, uintptr_t victimProc, bool senderFallback) {
+    if (!g_atkOn.load() || !info) return true;
+    uintptr_t atk = AttackerOf(info);
+    if (!atk && senderFallback && g_curProc) atk = g_curProc();
+    AttackRecord a;
+    a.hook = static_cast<uint8_t>(hook);
+    a.attackerProc = atk; a.victimProc = victimProc;
+    a.attacker = static_cast<int8_t>(PlayerIndexOfProc(atk, &a.attackerType));
+    a.victim = static_cast<int8_t>(PlayerIndexOfProc(victimProc, nullptr));
+    a.type = AttackTypeOf(info);
+    CombatRules r{g_ruleFriendly.load(), g_ruleCloneTakes.load(), g_ruleCloneDeals.load()};
+    a.verdict = JudgeAttack(r, a.victim, a.attacker);
+    ++g_atkCounts[static_cast<int>(a.verdict)];
+    if (g_atkLogAll.load() ? true : AttackWorthLogging(a)) { std::lock_guard lk(g_atkMu); g_atkRing.Push(a); }
+    return a.verdict == AttackVerdict::Allow;
+}
+uint64_t HookedSendAttack(uint64_t info, uint64_t target) {
+    if (!JudgeHere(0, info, target, true)) return 0;   // "not handled", as Event::Send says for no target
+    return reinterpret_cast<SendAttackFn>(g_atkTramp[0])(info, target);
+}
+uint64_t HookedPostAttack(uint64_t info, uint64_t target) {
+    if (!JudgeHere(1, info, target, true)) return 0;
+    return reinterpret_cast<SendAttackFn>(g_atkTramp[1])(info, target);
+}
+void HookedHandleAttack(uint64_t player, uint64_t event, uint64_t info) {
+    // The receiver: the attack already left its sender (the attacker fallback would be wrong here).
+    if (!JudgeHere(2, info, player, false)) return;
+    reinterpret_cast<HandleAttackFn>(g_atkTramp[2])(player, event, info);
+}
+} // namespace
+bool AttackHooksInstall(uintptr_t sendAttack, uintptr_t postAttack, uintptr_t handleAttack, uintptr_t curProc) {
+    g_curProc = reinterpret_cast<CurProcFn>(curProc);
+    // mov [rsp+18h],rbx; push rbp; push rsi; push rdi; sub rsp,180h
+    static const uint8_t ex0[15] = {0x48, 0x89, 0x5C, 0x24, 0x18, 0x55, 0x56, 0x57, 0x48, 0x81, 0xEC, 0x80, 0x01, 0x00, 0x00};
+    // mov [rsp+10h],rbx; mov [rsp+18h],rbp; mov [rsp+20h],rsi
+    static const uint8_t ex1[15] = {0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C, 0x24, 0x18, 0x48, 0x89, 0x74, 0x24, 0x20};
+    // mov [rsp+20h],rbx; push rbp; push rsi; push rdi; push r12; push r13; push r14; push r15
+    static const uint8_t ex2[16] = {0x48, 0x89, 0x5C, 0x24, 0x20, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57};
+    const uintptr_t tg[3] = {sendAttack, postAttack, handleAttack};
+    const uint8_t* ex[3] = {ex0, ex1, ex2};
+    const size_t n[3] = {sizeof(ex0), sizeof(ex1), sizeof(ex2)};
+    uint8_t* sv[3] = {g_atkSaved0, g_atkSaved1, g_atkSaved2};
+    void* hk[3] = {reinterpret_cast<void*>(&HookedSendAttack), reinterpret_cast<void*>(&HookedPostAttack), reinterpret_cast<void*>(&HookedHandleAttack)};
+    const char* names[3] = {"SendAttack", "PostAttack", "Player::HandleAttackEvent"};
+    int ok = 0;
+    for (int i = 0; i < 3; ++i) {
+        if (g_atkTarget[i]) { ++ok; continue; }
+        if (!tg[i]) continue;
+        if (InstallTrampoline(tg[i], ex[i], n[i], hk[i], sv[i], g_atkTramp[i])) { g_atkTarget[i] = tg[i]; ++ok; }
+        else Log("attack hook: %s prologue changed, not hooking", names[i]);
+    }
+    g_atkOn = ok > 0;
+    Log("attack hooks: %d of 3 hooked (friendly fire and the clone's hits judged per attack)", ok);
+    return ok == 3;
+}
+void SetCombatRules(const CombatRules& r) { g_ruleFriendly = r.friendlyFire; g_ruleCloneTakes = r.cloneTakesDamage; g_ruleCloneDeals = r.cloneDealsDamage; }
+void SetAttackLogAll(bool on) { g_atkLogAll = on; }
+std::vector<AttackRecord> TakeAttackRecords(uint32_t* droppedOut) {
+    std::vector<AttackRecord> out;
+    std::lock_guard lk(g_atkMu);
+    AttackRecord a;
+    while (g_atkRing.Pop(a)) out.push_back(a);
+    if (droppedOut) { *droppedOut = g_atkRing.dropped; g_atkRing.dropped = 0; }
+    return out;
+}
+void AttackCounts(uint32_t out[4]) { for (int i = 0; i < 4; ++i) out[i] = g_atkCounts[i].load(); }
+
 // Clone aim without a camera (2026-10-19). Player aim rays come from the player's camera manager
 // (index Player+21800 / +21796) through sub_141B1AFB0 + unprojection; camera manager 1 has no live
 // camera, so player 1's aim read back a constant direction and the aim override did nothing. Two
@@ -1524,6 +1638,12 @@ void FiberHookRemove() {
     if (g_pushTarget) { RemoveTrampoline(g_pushTarget, g_pushSaved, sizeof(g_pushSaved)); g_pushTarget = 0; }
     if (g_popTarget) { RemoveTrampoline(g_popTarget, g_popSaved, sizeof(g_popSaved)); g_popTarget = 0; }
     if (g_pickTarget2) { RemoveTrampoline(g_pickTarget2, g_pickSaved2, sizeof(g_pickSaved2)); g_pickTarget2 = 0; }
+    g_atkOn = false;
+    {
+        uint8_t* sv[3] = {g_atkSaved0, g_atkSaved1, g_atkSaved2};
+        const size_t n[3] = {sizeof(g_atkSaved0), sizeof(g_atkSaved1), sizeof(g_atkSaved2)};
+        for (int i = 0; i < 3; ++i) if (g_atkTarget[i]) { RemoveTrampoline(g_atkTarget[i], sv[i], n[i]); g_atkTarget[i] = 0; }
+    }
     if (g_aimDirTarget) { RemoveTrampoline(g_aimDirTarget, g_aimDirSaved, sizeof(g_aimDirSaved)); g_aimDirTarget = 0; }
     if (g_aimRayTarget) { RemoveTrampoline(g_aimRayTarget, g_aimRaySaved, sizeof(g_aimRaySaved)); g_aimRayTarget = 0; }
     if (g_addTarget) { RemoveTrampoline(g_addTarget, g_addSaved, sizeof(g_addSaved)); g_addTarget = 0; }

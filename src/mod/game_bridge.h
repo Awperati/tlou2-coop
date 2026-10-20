@@ -8,6 +8,7 @@
 #include "core/protocol.h"
 #include "core/clonedrive.h"
 #include "core/traversal.h"
+#include "core/combat.h"
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -179,6 +180,8 @@ public:
     void ApplyEnemyDamage(const EnemyDamage& d);
     std::vector<EnemyDamage> TakeDamageOut();
     void QueueNamePickups(std::vector<uintptr_t> procs);
+    // Attack records from the attack hooks (core/combat.h): named on the game fiber and logged, alike ones merged.
+    void QueueLogAttacks(std::vector<AttackRecord> recs, uint32_t droppedFromRing);
     std::vector<std::pair<uint64_t, std::string>> TakePickupOut();
     void QueuePickupCheck(uint64_t sid, const std::string& name, bool despawn);
     std::vector<std::pair<uint64_t, std::string>> pickupOut_;
