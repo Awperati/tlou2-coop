@@ -93,6 +93,11 @@ void SetCombatRules(const CombatRules& r);
 void SetAttackLogAll(bool on);   // also record attacks between non-players (research)
 std::vector<AttackRecord> TakeAttackRecords(uint32_t* dropped);
 void AttackCounts(uint32_t out[4]);   // totals by AttackVerdict since load
+// Own throws (core/weaponsync.h): FastGrenadeController::Release (rva 0xB8D9A0) and the throw-object launch
+// (0xD1E150) count throws per player index (0 or 1).
+bool ThrowHooksInstall(uintptr_t release, uintptr_t launch);
+uint32_t PlayerThrows(int index);
+void ThrowHookHits(uint32_t& release, uint32_t& launch);   // raw hook calls (any player), research
 // Reload-proof trampoline memory: the same slot for the same hooked address in every instance.
 uint8_t* TrampolineSlot(uintptr_t target);
 size_t TrampolineSlotsUsed();

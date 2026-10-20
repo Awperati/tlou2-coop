@@ -93,6 +93,11 @@ struct PlayerState {
     // The sender's player state machine state (name id, FNV-1a: kState*, traversal.h; 0 = unknown). The other PC
     // copies jumps, ledge climbs, ladders and dodges from it (2026-10-20).
     uint64_t state = 0;
+    // The weapon the sender holds (get-player-weapon-id; the aimed throwable while one is up; 0 = none) and
+    // how many throws its own player made this session (core/weaponsync.h). The other PC's clone draws the
+    // same weapon and throws when the count goes up (2026-10-21).
+    uint64_t weapon = 0;
+    uint32_t throws = 0;
 };
 
 // Stick for the clone's joypad slot from a wanted world direction. The engine turns a slot

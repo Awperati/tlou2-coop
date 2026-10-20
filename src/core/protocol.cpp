@@ -68,6 +68,7 @@ void Write(Writer& w, const PlayerState& s) {
     w.f32(s.aimYaw); w.f32(s.aimPitch);
     w.u64(s.gesture);
     w.u64(s.state);
+    w.u64(s.weapon); w.u32(s.throws); w.u32(0);
 }
 bool Read(Reader& r, PlayerState& s) {
     s.tick = r.u32(); s.pos = r.vec(); s.vel = r.vec(); s.yaw = r.f32(); s.pitch = r.f32();
@@ -82,6 +83,8 @@ bool Read(Reader& r, PlayerState& s) {
     if (r.ok() && r.remaining() >= 8) { s.aimYaw = r.f32(); s.aimPitch = r.f32(); } else { s.aimYaw = s.aimPitch = 0; }
     s.gesture = (r.ok() && r.remaining() >= 8) ? r.u64() : 0;
     s.state = (r.ok() && r.remaining() >= 8) ? r.u64() : 0;
+    s.weapon = (r.ok() && r.remaining() >= 8) ? r.u64() : 0;
+    if (r.ok() && r.remaining() >= 8) { s.throws = r.u32(); r.u32(); } else s.throws = 0;
     return r.ok();
 }
 

@@ -123,7 +123,7 @@ static bool HandleToggle(const std::string& line, GameBridge& b) {
         {"standturn", &GameBridge::cloneStandTurn_}, {"animlog", &GameBridge::cloneAnimLog_},
         {"facetrace", &GameBridge::faceTrace_}, {"gesturesync", &GameBridge::cloneGestureSync_},
         {"gesturelog", &GameBridge::gestureLog_}, {"lookanswer", &GameBridge::cloneLookAnswer_},
-        {"catchup", &GameBridge::cloneCatchUp_},
+        {"catchup", &GameBridge::cloneCatchUp_}, {"weaponactions", &GameBridge::cloneWeaponActions_},
     };
     for (const auto& t : kToggles) {
         std::string n = t.name;
@@ -255,6 +255,7 @@ void CoopMain() {
     bridge.cloneKickJumpProbes_ = cfg.getBool("clone", "KickJumpProbes", true);
     bridge.cloneFaceLead_ = cfg.getFloat("clone", "FaceLead", 0.15f);
     bridge.cloneGestureSync_ = cfg.getBool("clone", "GestureSync", true);
+    bridge.cloneWeaponActions_ = cfg.getBool("clone", "WeaponActions", true);
     g_combatRules.friendlyFire = cfg.getBool("combat", "FriendlyFire", false);
     g_combatRules.cloneTakesDamage = cfg.getBool("combat", "CloneTakesDamage", false);
     g_combatRules.cloneDealsDamage = cfg.getBool("combat", "CloneDealsDamage", false);
@@ -378,6 +379,7 @@ void CoopMain() {
             bridge.QueueAutoBody(bodyLook);
         }
         bridge.SetCloneMove(s.moveX, s.moveZ, s.padHeld, &s.pos, s.yaw, (s.flags & kMoving) != 0, s.stance, s.aimYaw, s.aimPitch, s.flags, s.state);
+        bridge.SetCloneWeapon(s.weapon, s.throws, s.state);
         bridge.SetCloneGesture(s.gesture);
         if (!cloneOnAtStart && !bridge.cloneDrive_) bridge.DrivePuppet(slot, s);   // clone mode never puppets the story companion
     };

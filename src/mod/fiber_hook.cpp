@@ -1166,6 +1166,58 @@ std::vector<AttackRecord> TakeAttackRecords(uint32_t* droppedOut) {
 }
 void AttackCounts(uint32_t out[4]) { for (int i = 0; i < 4; ++i) out[i] = g_atkCounts[i].load(); }
 
+// Own throws (core/weaponsync.h): FastGrenadeController::Release (sub_140B8D9A0; ctl+280 = the player; it sends
+// grenade-player-aim/arc/blindfire-thrown) and the throw-object launch (sub_140D1E150, called from
+// PlayerThrowObjectController::ThrowAction; it emits the thrown ProjectileProcess). Each counts a throw for the
+// player whose update runs it (t_updatingPlayer), or else the grenade controller's player. One throw that passes
+// through both within 300 ms counts once.
+namespace {
+using ReleaseFn = uint64_t (*)(uint64_t ctl, float a2);   // its second argument comes in xmm1
+using LaunchFn = uint64_t (*)(uint64_t self, uint64_t a2);
+uint8_t* g_relTramp = nullptr; uint8_t* g_lchTramp = nullptr;
+uint8_t g_relSaved[12], g_lchSaved[12];
+uintptr_t g_relTarget = 0, g_lchTarget = 0;
+std::atomic<uint32_t> g_throws[2] = {};
+std::atomic<unsigned long long> g_lastThrowAt[2] = {};
+std::atomic<uint32_t> g_throwHits[2] = {};   // per hook, research
+void CountThrow(int idx, int hook) {
+    ++g_throwHits[hook];
+    if (idx < 0 || idx > 1) return;
+    unsigned long long now = GetTickCount64();
+    if (now - g_lastThrowAt[idx].load() < 300) return;
+    g_lastThrowAt[idx] = now;
+    ++g_throws[idx];
+}
+uint64_t HookedRelease(uint64_t ctl, float a2) {
+    int idx = t_updatingPlayer;
+    if (idx < 0) { uintptr_t pl = 0; __try { pl = *reinterpret_cast<uintptr_t*>(ctl + 280); } __except (EXCEPTION_EXECUTE_HANDLER) {} idx = PlayerIndexOfProc(pl, nullptr); }
+    CountThrow(idx, 0);
+    return reinterpret_cast<ReleaseFn>(g_relTramp)(ctl, a2);
+}
+uint64_t HookedLaunch(uint64_t self, uint64_t a2) {
+    CountThrow(t_updatingPlayer, 1);
+    return reinterpret_cast<LaunchFn>(g_lchTramp)(self, a2);
+}
+} // namespace
+bool ThrowHooksInstall(uintptr_t release, uintptr_t launch) {
+    // mov rax,rsp; mov [rax+10h],rbx; mov [rax+18h],rsi; push rdi
+    static const uint8_t exR[12] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x10, 0x48, 0x89, 0x70, 0x18, 0x57};
+    // mov rax,rsp; mov [rax+18h],rbx; push rbp; push rsi; push rdi; push r12
+    static const uint8_t exL[12] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x58, 0x18, 0x55, 0x56, 0x57, 0x41, 0x54};
+    if (!g_relTarget && release) {
+        if (InstallTrampoline(release, exR, sizeof(exR), reinterpret_cast<void*>(&HookedRelease), g_relSaved, g_relTramp)) g_relTarget = release;
+        else Log("throw hook: FastGrenadeController::Release prologue changed, not hooking");
+    }
+    if (!g_lchTarget && launch) {
+        if (InstallTrampoline(launch, exL, sizeof(exL), reinterpret_cast<void*>(&HookedLaunch), g_lchSaved, g_lchTramp)) g_lchTarget = launch;
+        else Log("throw hook: throw-object launch prologue changed, not hooking");
+    }
+    Log("throw hooks: grenade release %s, thrown-object launch %s", g_relTarget ? "hooked" : "NOT hooked", g_lchTarget ? "hooked" : "NOT hooked");
+    return g_relTarget && g_lchTarget;
+}
+uint32_t PlayerThrows(int index) { return index >= 0 && index < 2 ? g_throws[index].load() : 0; }
+void ThrowHookHits(uint32_t& release, uint32_t& launch) { release = g_throwHits[0].load(); launch = g_throwHits[1].load(); }
+
 // Clone aim without a camera (2026-10-19). Player aim rays come from the player's camera manager
 // (index Player+21800 / +21796) through sub_141B1AFB0 + unprojection; camera manager 1 has no live
 // camera, so player 1's aim read back a constant direction and the aim override did nothing. Two
@@ -1644,6 +1696,8 @@ void FiberHookRemove() {
         const size_t n[3] = {sizeof(g_atkSaved0), sizeof(g_atkSaved1), sizeof(g_atkSaved2)};
         for (int i = 0; i < 3; ++i) if (g_atkTarget[i]) { RemoveTrampoline(g_atkTarget[i], sv[i], n[i]); g_atkTarget[i] = 0; }
     }
+    if (g_relTarget) { RemoveTrampoline(g_relTarget, g_relSaved, sizeof(g_relSaved)); g_relTarget = 0; }
+    if (g_lchTarget) { RemoveTrampoline(g_lchTarget, g_lchSaved, sizeof(g_lchSaved)); g_lchTarget = 0; }
     if (g_aimDirTarget) { RemoveTrampoline(g_aimDirTarget, g_aimDirSaved, sizeof(g_aimDirSaved)); g_aimDirTarget = 0; }
     if (g_aimRayTarget) { RemoveTrampoline(g_aimRayTarget, g_aimRaySaved, sizeof(g_aimRaySaved)); g_aimRayTarget = 0; }
     if (g_addTarget) { RemoveTrampoline(g_addTarget, g_addSaved, sizeof(g_addSaved)); g_addTarget = 0; }

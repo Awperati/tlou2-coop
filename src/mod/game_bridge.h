@@ -9,6 +9,7 @@
 #include "core/clonedrive.h"
 #include "core/traversal.h"
 #include "core/combat.h"
+#include "core/weaponsync.h"
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -101,6 +102,8 @@ public:
     ShotCounter shotCounter_;
     std::atomic<bool> firing_{false}, firingQueued_{false};
     std::atomic<float> aimYaw_{0}, aimPitch_{0};   // our aim direction (PollFiring)
+    std::atomic<uint64_t> ownWeapon_{0};            // our weapon in hand, or the aimed throwable (PollFiring)
+    uint32_t lastThrowsLogged_ = 0;
     std::atomic<float> cloneAimYaw_{0}, cloneAimPitch_{0};   // the other player's, for the clone
     bool cloneAimOverride_ = true;   // [clone] AimOverride: point the clone's camera with the aim override
     bool cloneAimSet_ = false;
@@ -232,6 +235,9 @@ public:
     void TickPadMirror();
     bool padMirror_ = false;
     // clonedrive on|off: the other player's stick drives player 1 (slot 3).
+    // Weapon actions (core/weaponsync.h): the partner's weapon, own-throw count and state, from their PlayerState.
+    void SetCloneWeapon(uint64_t weapon, uint32_t throws, uint64_t state);
+    bool cloneWeaponActions_ = true;            // [clone] WeaponActions: aim, fire, throws, melee and weapon copied
     void SetCloneMove(float x, float z, uint64_t held = 0, const Vec3* pos = nullptr, float yaw = 0, bool moving = false, int stance = -1, float aimYaw = 0, float aimPitch = 0, uint8_t flags = 0, uint64_t state = 0);
     std::atomic<bool> cloneAimingFlag_{false}, cloneFiringFlag_{false};
     // Stance sync ([clone] StanceSync): crouch is a toggle, so passing the B button through let the
@@ -249,6 +255,12 @@ public:
     JumpDetector jumpDet_;
     JumpFromState jumpState_;              // jump from the own player's "Jump" state (speed is the fallback)
     TraversalCopy traversal_;
+    WeaponPress weaponPress_;                   // throw (RT) and melee (X) presses for the clone
+    WeaponEquip weaponEquip_;                   // her weapon follows the partner's (script-context task only)
+    std::atomic<uint64_t> partnerWeapon_{0};
+    std::atomic<bool> equipBusy_{false};
+    unsigned long long equipAt_ = 0;
+    void QueueCloneEquip();
     bool cloneTraversal_ = false;
     uint32_t lastCamFaults_ = 0;
     unsigned long long lastBadSpotLog_ = 0;   // SetCloneMove: a broken spot from the other PC (SpotSane)
