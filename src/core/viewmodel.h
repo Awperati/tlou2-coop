@@ -88,6 +88,38 @@ inline Mat34 ViewmodelAlong(const float eye[3], const float fwd[3], float k, flo
     return r;
 }
 
+// Head-turn limit (2026-10-20, owner: "when vaulting ... the head can only be rotated where Ellie's
+// body is directionally placed in, like a 65 degree plane"). Yaw of a locator whose forward is its
+// local +z (the engine's camera and player locators): atan2(fx, fz), radians.
+inline float YawOfQuat(const float q[4]) {
+    float fx = 2 * (q[0] * q[2] + q[3] * q[1]), fz = 1 - 2 * (q[0] * q[0] + q[1] * q[1]);
+    return std::atan2(fx, fz);
+}
+
+inline float WrapPi(float a) {
+    const float pi = 3.14159265f;
+    while (a > pi) a -= 2 * pi;
+    while (a < -pi) a += 2 * pi;
+    return a;
+}
+
+// Turns camera quaternion q about world up so its yaw stays within maxYaw of bodyYaw. Pitch and
+// roll are kept (q' = yawRotation * q). Returns how far it turned q (0 when it was inside).
+inline float ClampYaw(float q[4], float bodyYaw, float maxYaw) {
+    float d = WrapPi(YawOfQuat(q) - bodyYaw);
+    float turn = 0;
+    if (d > maxYaw) turn = maxYaw - d;
+    else if (d < -maxYaw) turn = -maxYaw - d;
+    if (turn == 0) return 0;
+    float sy = std::sin(turn / 2), cy = std::cos(turn / 2);   // r = (0, sy, 0, cy); q' = r * q
+    float x = q[0], y = q[1], z = q[2], w = q[3];
+    q[0] = cy * x + sy * z;
+    q[1] = cy * y + sy * w;
+    q[2] = cy * z - sy * x;
+    q[3] = cy * w - sy * y;
+    return turn;
+}
+
 // k for a viewmodel field of view (degrees, both horizontal or both vertical).
 inline float FovRatio(float worldFovDeg, float viewFovDeg) {
     const float d = 3.14159265f / 360.f;

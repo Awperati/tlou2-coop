@@ -894,6 +894,39 @@ static void TestViewmodelTransform() {
     CHECK(std::fabs(w1[0] - w2[0]) < 1e-4f && std::fabs(w1[1] - w2[1]) < 1e-4f && std::fabs(w1[2] - w2[2]) < 1e-4f);
 }
 
+// Head-turn limit: the camera's yaw is held within the limit of the body's facing; pitch is kept.
+static void TestClampYaw() {
+    using namespace coop::vm;
+    const float deg = 3.14159265f / 180.f;
+    auto camQuat = [](float yaw, float pitch, float q[4]) {   // forward (cos p sin y, sin p, cos p cos y)
+        float a = -pitch;   // about x: +z goes to (0, -sin a, cos a)
+        float qy[4] = {0, std::sin(yaw / 2), 0, std::cos(yaw / 2)}, qx[4] = {std::sin(a / 2), 0, 0, std::cos(a / 2)};
+        q[0] = qy[3] * qx[0] + qy[0] * qx[3] + qy[1] * qx[2] - qy[2] * qx[1];
+        q[1] = qy[3] * qx[1] - qy[0] * qx[2] + qy[1] * qx[3] + qy[2] * qx[0];
+        q[2] = qy[3] * qx[2] + qy[0] * qx[1] - qy[1] * qx[0] + qy[2] * qx[3];
+        q[3] = qy[3] * qx[3] - qy[0] * qx[0] - qy[1] * qx[1] - qy[2] * qx[2];
+    };
+    auto pitchOf = [](const float q[4]) { return std::asin(2 * (q[1] * q[2] - q[3] * q[0])); };   // forward y
+    float q[4];
+    camQuat(10 * deg, 20 * deg, q);
+    CHECK(std::fabs(YawOfQuat(q) - 10 * deg) < 1e-4f);
+    CHECK(std::fabs(pitchOf(q) - 20 * deg) < 1e-4f);
+    CHECK(ClampYaw(q, 0, 65 * deg) == 0);                                  // inside: untouched
+    camQuat(150 * deg, -30 * deg, q);                                       // looking back over the right shoulder
+    float t = ClampYaw(q, 40 * deg, 65 * deg);
+    CHECK(std::fabs(t + 45 * deg) < 1e-3f);
+    CHECK(std::fabs(YawOfQuat(q) - 105 * deg) < 1e-3f);                     // body 40 + 65
+    CHECK(std::fabs(pitchOf(q) + 30 * deg) < 1e-3f);                        // pitch kept
+    camQuat(-170 * deg, 0, q);                                              // across the +-180 seam
+    ClampYaw(q, 170 * deg, 65 * deg);                                       // -170 is 20 deg from 170: inside
+    CHECK(std::fabs(WrapPi(YawOfQuat(q) + 170 * deg)) < 1e-3f);
+    camQuat(60 * deg, 0, q);
+    ClampYaw(q, 170 * deg, 65 * deg);                                       // 110 deg off: to 170 - 65
+    CHECK(std::fabs(YawOfQuat(q) - 105 * deg) < 1e-3f);
+    float n = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
+    CHECK(std::fabs(n - 1) < 1e-4f);
+}
+
 int main() {
     TestProtocolRoundTrip();
     TestShots();
@@ -928,6 +961,7 @@ int main() {
     TestArriveStick();
     TestCatchUpModes();
     TestViewmodelTransform();
+    TestClampYaw();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
