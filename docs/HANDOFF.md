@@ -120,6 +120,27 @@ Not bugs (owner confirmed):
 - Check: `gesturelog on` on both PCs, wait ~1 min standing: each `gesture: player 0 layer 1 <id>` on PC B should
   be followed on PC A by `clonegesture: ... <id> ... started` and `gesture: player 1 layer 1 <id>`.
 
+### 4.2c Section sync (owner request 10-21; works live)
+- Each PC saves the story sections its player has been in (`tlou2-coop\explored.txt`, `world|task` lines; delete it to
+  reset) and sends its section (kWorldSection world event) on change and every 10 s. If the partner's section differs
+  for 5 s: "Your partner is in a different section of the game. Press F9 to go to their section." An explored
+  section (or an earlier chapter) goes on one press. Anything else first asks "This area is beyond anywhere you've
+  explored before. Do you still wish to continue?" and needs a second press. `[sync] SectionSync`, `SectionKey`.
+  Logic: src/core/sections.h (ExploredLog, SectionPrompt), TestSections.
+- The jump is the game's own `task-play-debug!` (rva 0xD61500, a deferred task play from the task's start). Ids =
+  FNV-1a 64 of the chapter world without `world-` and of the task name.
+- Before the jump the clone is removed (`kill-entity 'player-2'`); clone mode respawns her once our player is back.
+  While apart, the partner's clone is hidden and not driven or snapped. After our own jump the partner is dressed
+  again in their character's look, and the story companion is made passive again.
+- Crashes fixed on the way (all 10-21):
+  - The player respawned while the clone was alive: assert at rva 0x12541C4 (6ce7826).
+  - The clone was snapped to a 4e12 m spot that the other PC sent mid-reload: assert in MeshRayCaster (94a23f5,
+    `SpotSane`).
+  - A pause-menu load with the clone alive hit a broken nearby-edge list in NotifyFeatureDbLogout (a3df6a4, guard
+    hook). It has not been hit since; look for `edge logout: dropped` in the log.
+- Commands: `joinpartner` (same as the key), `gotosection <chapter> <task>`, `sectionids`.
+- Open: a menu load (chapter select, load save) does not remove the clone first. Only the edge guard covers it.
+
 ### 4.3 Pickups to "mixed"
 - Live check that runtime pickup names match level-data names and classes (log line `pickup: '<name>' is a <class>`).
   Then ask the owner before switching `[sync] Pickups` from `log`.
@@ -172,7 +193,10 @@ Not bugs (owner confirmed):
 - Raw pad 0x824C860 (0x540 each): sticks +0x00/+0x08, masks +0x518/+0x520/+0x528 (A 20, B 80, LB 100, Y 10, X 40,
   LT 200, RT 2000), triggers +0x4F0/+0x4F4. Raw->slot copy sub_14158F710 (hooked, slot 3 = clone).
 - Camera managers: 2 (GetGlobal sub_141B1B2B0); manager 1 has no live camera. Aim: sub_140C6E800 direction, sub_140C6F020 ray.
-- Guards: level listener add/remove (0x1A4D870/0x1A4E210), ActionCommandManager push/pop (0x15B6C90/0x15B6D70).
+- Guards: level listener add/remove (0x1A4D870/0x1A4E210), ActionCommandManager push/pop (0x15B6C90/0x15B6D70),
+  NearbyEdgeMgr::NotifyFeatureDbLogout 0xA83F30 (edge list +0xF0 in frame memory, swapped each frame in 0xA842A0).
+- Tasks: task-get-current 0xD61110, -world-id 0xD61380, -node-id 0xD611A0, -symbol 0xD612F0, task-find 0xD60F60,
+  task-play-debug! 0xD61500 (queues sub_141C46890).
 - Looks: sub_140DBB470 queues a pending look; draw control sub_141AFD810, show sub_141484610(dc, -1, 0, meshMask),
   hide sub_14147ECD0; meshes count dc+20, entries *(dc+8) x 912 bytes, visible bits +900, name id +0x18.
   Cloth props: inventory Player+11264 (SafePropObject).
