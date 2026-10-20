@@ -28,6 +28,7 @@
 //                     with a <fov> degree field of view and s times nearer the camera
 //   joints all | joints <a> <b> | joints arms   which of her joints the change applies to
 //   armroot clavicle|shoulder   where the arm set starts (default clavicle)
+//   reloadhold <x> <y> <z>  extra hold offset while she reloads (default 0 0.15 0.05), eased in and out
 //   hold <x> <y> <z>  move the arms and gun by this much in camera axes first (right, up, forward, m)
 //   dof <scale> | dof game   near (foreground) blur while the viewmodel is on (default 0 = sharp);
 //                     "game" leaves it to the game
@@ -132,6 +133,18 @@ std::atomic<float> g_vmFov{0.f};
 // the gun are first moved by this much in camera axes (right, up, forward; metres), then drawn as
 // the viewmodel. Seam at the clavicles, which sit outside the view.
 std::atomic<float> g_holdX{0.f}, g_holdY{0.f}, g_holdZ{0.f};
+// Reloads (tester: reload animations visible too). Her reload pose drops the gun toward the hip, out of
+// view. While she reloads (player-is-reloading?, rva 0xC9E3A0: (*(Player+12152))->vtable[72/8]() != 0)
+// the hold offset gains this extra lift, eased in and out at 5 per second.
+std::atomic<float> g_reloadX{0.f}, g_reloadY{0.15f}, g_reloadZ{0.05f};
+float g_reloadBlend = 0.f;                 // 0..1, her hook's thread only
+LARGE_INTEGER g_reloadLast{}, g_qpf{};
+std::atomic<bool> g_reloading{false};
+// Traversal (tester: on ladders "Ellie doesn't grab the bars properly"). Her hands must stay on the rungs,
+// ledges and ropes, so the viewmodel eases out (to her real arms) while she is on a ladder, hangs, shimmies,
+// ropes, ziplines, swims or climbs up, and eases back in after, at 6 per second.
+std::atomic<bool> g_traversal{false};
+float g_vmBlend = 1.f;   // 1 = full viewmodel, 0 = her real arms; her hook's thread only
 // Anchor (owner 12:59: looking far up, an arm filled the view). The game's aim pose pitches her spine
 // and arms only part of the way, so the arms drift against the view. With the anchor on, the arms and
 // gun are carried rigidly with the camera as they sat against her chest (spined) at calibration:
@@ -365,7 +378,8 @@ bool FrameChange(uintptr_t proc, uintptr_t ctx, const float* mats, vm::Mat34& ou
             }
             if (g_anchorOk) anchor = vm::Mul(camT, vm::Mul(g_anchorC, vm::InverseAffine(chest)));
         }
-        float hx = g_holdX.load(), hy = g_holdY.load(), hz = g_holdZ.load();
+        float hx = g_holdX.load() + g_reloadBlend * g_reloadX.load(), hy = g_holdY.load() + g_reloadBlend * g_reloadY.load(),
+              hz = g_holdZ.load() + g_reloadBlend * g_reloadZ.load();
         if (hx != 0 || hy != 0 || hz != 0) {
             float x = cq[0], y = cq[1], z = cq[2], w = cq[3];
             float right[3] = {1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)};   // local +x
@@ -419,7 +433,26 @@ void OnPlayerJoints(uintptr_t proc, uintptr_t fg) {
             g_dump.eyeOk = EyeNow(ctx, mats, g_dump.eye);
             g_dumpWanted = false; g_dumpReady = true;
         }
+        // Reloading? (the native player-is-reloading?: needs the item controller at Player+12128)
+        bool reloading = false;
+        if (*reinterpret_cast<uintptr_t*>(proc + 12128)) {
+            uintptr_t rc = *reinterpret_cast<uintptr_t*>(proc + 12152);
+            if (rc) reloading = reinterpret_cast<uint8_t (*)(uintptr_t)>(*reinterpret_cast<uintptr_t*>(*reinterpret_cast<uintptr_t*>(rc) + 72))(rc) != 0;
+        }
+        g_reloading = reloading;
+        LARGE_INTEGER now; QueryPerformanceCounter(&now);
+        float dt = g_reloadLast.QuadPart ? static_cast<float>(now.QuadPart - g_reloadLast.QuadPart) / static_cast<float>(g_qpf.QuadPart) : 0.f;
+        g_reloadLast = now;
+        if (dt > 0.1f) dt = 0.1f;
+        g_reloadBlend += (reloading ? 1.f : -1.f) * 5.f * dt;
+        g_reloadBlend = g_reloadBlend < 0.f ? 0.f : g_reloadBlend > 1.f ? 1.f : g_reloadBlend;
+        g_vmBlend += (g_traversal.load(std::memory_order_relaxed) ? -1.f : 1.f) * 6.f * dt;
+        g_vmBlend = g_vmBlend < 0.f ? 0.f : g_vmBlend > 1.f ? 1.f : g_vmBlend;
         f.valid = g_mode.load() != kOff && FrameChange(proc, ctx, mats, f.world);
+        if (f.valid && g_mode.load() == kView && g_vmBlend < 1.f) {
+            if (g_vmBlend <= 0.f) f.valid = false;   // her real arms
+            else { vm::Mat34 id = vm::Identity34(); for (int i = 0; i < 12; ++i) f.world.m[i] = id.m[i] + g_vmBlend * (f.world.m[i] - id.m[i]); }
+        }
     }
     g_frameIdx.store(next, std::memory_order_release);
 }
@@ -620,7 +653,7 @@ std::atomic<float> g_outExcess{-1000.f};  // after a clamp: how far the built ca
 std::atomic<float> g_lockMargin{12.f}, g_engageRate{180.f}, g_releaseRate{300.f};
 vm::YawLimiter g_limiter;
 SRWLOCK g_limiterLock = SRWLOCK_INIT;
-LARGE_INTEGER g_limiterLast{}, g_qpf{};
+LARGE_INTEGER g_limiterLast{};
 
 // Depth of field (owner 12:54: the arms are out of focus). The game blurs what is near the camera; the
 // viewmodel is near it on purpose. The render setting "post:dof-foreground-blur-scale" gets an
@@ -655,7 +688,7 @@ void ApplyDof() {
 // change. The held gun's meshes get +902 cleared while the viewmodel draws it in first person, and set
 // again after; test whether +902 is the shadow mask. Applied here, on the camera thread.
 constexpr uintptr_t kHideMesh = 0x147ED80, kShowMesh = 0x14846D0;
-std::atomic<bool> g_gunShadowOff{true};
+std::atomic<bool> g_gunShadowOff{false};   // off: the +902 mask hid the gun itself (tester 21:33), it is not the shadow mask
 std::atomic<uintptr_t> g_shadowWanted{0};   // weapon process whose gun shadow should be off now (0 = none)
 uintptr_t g_shadowDone = 0;                 // the weapon we changed (camera thread only)
 void SetMeshesSecondMask(uintptr_t proc, bool on) {
@@ -735,7 +768,7 @@ const struct { uint64_t id; const char* name; bool lock; } kStates[] = {
     // Unnamed: follows every Jump/Fall before Move (owner's vaults 12:18-12:22), so the landing of a vault.
     {0xDC08B4AA178A64D9ull, "Land?", true},
     {0xB05F8BDC266380CDull, "Death", false}, {0xD049237343C44E47ull, "Dead", false}, {0xFCBE98DF5B4A65E8ull, "Ragdoll", false},
-    {0x386C9402B2567A3Bull, "Scripted", false}, {0x1F0D05EB8A0E0F3Full, "Inventory", false},
+    {0x386C9402B2567A3Bull, "Scripted", false}, {0x1F0D05EB8A0E0F3Full, "Inventory", false}, {0x9565553D163FC92Aull, "Workbench?", false},
 };
 // Third person for scripted moves (tester: "when Ellie is doing an animation such as a crawl through a
 // wallscape, doing a death animation, some sort of plot animation, always put the camera back into
@@ -750,6 +783,8 @@ const uint64_t kThirdPersonStates[] = {
     0x386C9402B2567A3Bull,   // Scripted
     0x1F0D05EB8A0E0F3Full,   // Inventory: the backpack (tester: show Ellie taking off her backpack and opening it;
                              // the game's own animation plays in third person)
+    0x9565553D163FC92Aull,   // the workbench (unnamed; 10-25 s at a time in the tester's 21:12-21:32 logs)
+    0x16948826BF750B89ull,   // Ladder (tester: "do the same for climbing ladders")
 };
 bool StateThirdPerson(uint64_t id) { for (uint64_t t : kThirdPersonStates) if (t == id) return true; return false; }
 
@@ -984,6 +1019,12 @@ void Handle(const std::string& line) {
         g_skel = nullptr;   // rebuilt by the poll thread
         Log("cmd: arm set starts at the %s", g_armFromShoulder.load() ? "shoulders" : "clavicles");
     }
+    else if (c == "reloadhold") {
+        float x = 0, y = 0, z = 0;
+        sscanf_s(line.c_str(), "%*s %f %f %f", &x, &y, &z);
+        g_reloadX = x; g_reloadY = y; g_reloadZ = z;
+        Log("cmd: extra hold while reloading: right %.2f, up %.2f, forward %.2f m", x, y, z);
+    }
     else if (c == "hold") {
         float x = 0, y = 0, z = 0;
         sscanf_s(line.c_str(), "%*s %f %f %f", &x, &y, &z);
@@ -1075,7 +1116,7 @@ DWORD WINAPI Main(void*) {
     uint64_t lastHits = 0, lastSeg = 0, lastWeaponHits = 0, lastClamped = 0, lastCalls = 0, lastRope = 0;
     bool lastLocked = false, lastFp = false;
     uint64_t offSince = 0, lastToggle = 0;
-    bool weTurnedOff = false;
+    bool weTurnedOff = false, lastReload = false;
     for (;;) {
         uintptr_t proc = PlayerProcess0(), fg = 0;
         if (proc) ReadMem(proc + 0x1C0, fg);
@@ -1120,6 +1161,10 @@ DWORD WINAPI Main(void*) {
         uint64_t anim = proc ? AnimStateId(proc) : 0;
         bool climbing = AnimClimbing(anim);
         bool locked = StateLocks(st) || climbing;
+        g_traversal = climbing || st == 0x16948826BF750B89ull /* Ladder */ || st == 0x6503256C2DE2745Cull /* Edge */ ||
+                      st == 0x6A1BC0BFDD271822ull /* WallShimmy */ || st == 0x30D1FD450727A3CBull /* LedgeDrop */ ||
+                      st == 0x9ACB4182871CE5A3ull /* FreeRope */ || st == 0x3B3CDD9BE9F96F46ull /* Zipline */ ||
+                      st == 0xCF0D3D2518907C4Dull /* Swim */;
         // Automatic third person: off when a scripted move starts with first person on, back on when it ends.
         bool wantTp = g_autoTp.load() && StateThirdPerson(st);
         if (wantTp && !weTurnedOff && g_fpOn.load() && GetTickCount64() - lastToggle > 1000) {
@@ -1142,6 +1187,8 @@ DWORD WINAPI Main(void*) {
         }
         uintptr_t wp = g_weaponProc.load();
         g_weaponProcSeen = wp;
+        bool rl = g_reloading.load();
+        if (rl != lastReload) { Log("reload: %s", rl ? "started" : "done"); lastReload = rl; }
         g_shadowWanted = g_gunShadowOff.load() && g_mode.load() == kView && g_fpOn.load() && wp ? wp : 0;
         if (wp != lastWeapon) {
             uint32_t nm = 0; uintptr_t wfg = g_weaponFg.load(), wskel = 0;
