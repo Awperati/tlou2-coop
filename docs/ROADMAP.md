@@ -1467,3 +1467,42 @@ unit test that joins a client through the relay and passes a PlayerState and a r
   faults are caught. New (not live): with `traversal on`, her jump probes are kicked each tick (KickJumpProbes).
 - Live check (owner idle, both games in front): `traversal on` on PC B, jump once on PC A in open ground: PC B logs
   `clonetraversal: Jump`, no `broken spot` line, clonedrift stays under 4 m. Then near a ledge. `traversal off` to back out.
+
+## Combat between the players: friendly fire off, weapon actions on the clone (2026-10-21, static RE; not yet live)
+Owner 10-21 ~07:15: Dina (PC B) threw a molotov at Ellie. PC A: no molotov, no damage. PC B: the clone of Ellie burned.
+Each PC runs its own fight, so the rule is the same on both PCs (core/combat.h, `JudgeAttack`):
+
+| Victim \ attacker | our player (0) | the clone (1) | enemy / other |
+|---|---|---|---|
+| our player (0) | allowed (own molotov) | dropped: friendly fire | allowed |
+| the clone (1) | dropped: her real PC owns her health | dropped | dropped |
+| enemy / other | allowed | dropped: counts on her own PC (enemy sync carries it) | allowed |
+
+- Engine: every attack is an "attack" event (sid 0x41431F2BBDC5FD3D) with an AttackInfo (ctor sub_140391A90; +24 kind,
+  +2408 weapon id for kind 1). Senders: SendAttack sub_1403921E0 and PostAttack sub_140392070, both (AttackInfo*, target
+  Process*). Receiver for players: Player::HandleAttackEvent sub_140B7AF30 (player, event, AttackInfo*).
+- Attacker = AttackInfo+8/+16 handle {node, id} (node+8 = process, valid while process+148 == id), else the sending
+  process (sub_14133D360). Bullets: ProjectileProcess::FillAttackInfo (sub_1411B4090) copies the projectile's owner
+  (proj+0x6C0). Explosions: ProcessExplosion::ApplyDamageToObject (sub_1403D97A0) checks the handle is a Player (kill
+  count). Flame balls (sub_14114AF50, kinds 2 and 4, PostAttack) use the owner process passed in. Molotov ground fire
+  still to see live: the `attack:` log names the attacker of every attack touching a player.
+- Player = process type id (+72) 0x333DC56DDFFD8EA0; index +21800.
+- Not used: set-player-invincible 0x423A00 sets one flag for every Player (both). character-set-invincibility 0x2102570
+  (health system Character+1552, vtable +304; level 4 = the cheat's), set-object-damage-scale 0x422D40 (asserts on
+  remote players and scale 0), net-set-friendly-fire-enabled 0x9C2820 (byte 0x40748B0, read only while the net is
+  active, byte 0x407AD1B).
+- Hooks (offsets.ini `attack_hooks`, removed on reload). `[combat] FriendlyFire / CloneTakesDamage / CloneDealsDamage`
+  (all false). Command `combat [friendlyfire|clonetakes|clonedeals on|off] [log all|players]` prints counts.
+- Weapon actions (core/weaponsync.h, `[clone] WeaponActions`, default on): PlayerState carries the weapon in hand
+  (get-player-weapon-id 0xC8F1D0, or player-get-aimed-grenade 0xC9B110 while a throwable is up) and an own-throw count
+  (hooks on FastGrenadeController::Release 0xB8D9A0 and the throw-object launch 0xD1E150; `throw_hooks`). The clone gets
+  the weapon (give-player-weapon 0xC8F870) and draws it (player-instant-draw-weapon-by-name 0xC9DA80) through the
+  GetPlayer override; a new throw holds RT 150 ms, entering "Melee" (FNV 0xB78DFC2E510485DB) holds X 150 ms; the
+  partner's aim/fire state flags now pass whatever [clone] Buttons says.
+- Factions leftovers seen on the way: SendNetEventEmitThrownProjectileProcess sub_1409FC980 (thrown projectile sync,
+  callers gated on the net-active byte), player-select-grenade 0xCA1BB0 (slot index), throw-grenade 0x64DC90,
+  spawn-explosion 0x425810, add-flame-by-radius 0x396260.
+- Live checks (owner idle, nothing forced to the front): (1) PC B throws a molotov at the clone of Ellie: PC B logs
+  `attack: ... -> 'player-2' (player 1) ...: dropped (the clone takes no hits here)` and she does not burn; (2) PC A logs
+  `cloneweapon: the other player threw` and its clone throws; any hit on Ellie logs `dropped (friendly fire)`;
+  (3) a partner kill: enemy health the same on both PCs (`enemies:` lines), no `mirrored shot` restores needed.

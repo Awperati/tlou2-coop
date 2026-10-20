@@ -21,6 +21,7 @@ Full findings log: [ROADMAP.md](ROADMAP.md). Player guide: [PLAYING.md](PLAYING.
 | Body | 8 meshes and 3 cloth props match PC B's own Dina. Owner: torso and arms back (14:0x) |
 | Hood | Owner: "Ellie hood is great" |
 | Aim | Seen on video: she aims where PC B aims. Shots untested live |
+| Combat | Built 10-21, not yet live: no friendly fire on either PC (attack hooks, core/combat.h); the clone takes no hits and her hits count only on her own PC; her weapon, throws (RT) and melee (X) follow the partner (core/weaponsync.h). ROADMAP "Combat between the players" |
 | Jump, ledge, ladder, dodge, ledge drop | Deployed 05:56 (dbe37e2/49806e9/4b63c04): the partner's state machine state is sent; entering Jump/Edge/Ladder/Evade/LedgeDrop presses A/A/Y/LB/B on her, gated by her own state. Ropes and ziplines follow out of the jump. Not yet seen live: owner's six checks in [patches/traversal-wiring.md](patches/traversal-wiring.md) section 4 |
 | Idle gestures (nose wipe etc.) | Built and tested (64bf822, 832dfcb): partner's layer-1 gesture played once on her. Live end-to-end not seen |
 | Pickups | Removal built behind `[sync] Pickups` (default `log` = report only); rules checked against Seattle level data. Open: live name check, and a removed pickup returns after a checkpoint restart on that PC (ROADMAP M6) |
@@ -178,5 +179,7 @@ Not bugs (owner confirmed):
   Cloth props: inventory Player+11264 (SafePropObject).
 - Restarts: GameRestartCheckpoint 0x105F4E0, GameRestartEncounter 0x105F8F0, task-restart-from-continue 0x427500.
 - Pickups: ProcessPickup::PickedUp::Enter 0x88FBF0; entity-exists? 0xD3BA00; kill-entity 0xD4BB40.
+- Attacks: SendAttack 0x3921E0, PostAttack 0x392070 (AttackInfo*, target), Player::HandleAttackEvent 0xB7AF30; attacker = AttackInfo+8/+16 handle. Player type id +72 0x333DC56DDFFD8EA0.
+- Weapons: get-player-weapon-id 0xC8F1D0, player-get-aimed-grenade 0xC9B110, player-instant-draw-weapon-by-name 0xC9DA80; grenade release 0xB8D9A0.
 - Natives: get/set-object-health 0x40F7A0/0x4230A0, npc-kill 0x63D260, npc-make-aware-of 0x63DDD0,
   c-spawn-npc 0x626240, give-player-weapon 0xC8F870, camera-get-dir-through-reticle 0x407A70.
