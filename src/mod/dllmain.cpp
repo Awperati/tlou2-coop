@@ -1010,6 +1010,11 @@ void CoopMain() {
                     else if (line == "faceptrs") Log("faceptrs:%s", FacePtrs().c_str());
                     else if (line == "joinpartner") { sectionCmdPress = true; Log("section: joinpartner (same as pressing the section key)"); }
                     else if (line == "sectionids") bridge.QueueReadSectionIds();
+                    else if (line.rfind("gotosection ", 0) == 0) {   // gotosection <chapter without world-> <task>: test jump
+                        std::istringstream gs(line.substr(12)); std::string ch, tk; gs >> ch >> tk;
+                        auto fnv = [](const std::string& t) { uint64_t h = 0xcbf29ce484222325ull; for (unsigned char c : t) { h ^= c; h *= 0x100000001b3ull; } return h; };
+                        if (!ch.empty() && !tk.empty()) { Log("section: gotosection '%s' / '%s'", ch.c_str(), tk.c_str()); bridge.QueueJumpToSection(fnv(ch), fnv(tk)); }
+                    }
                     else if (line.rfind("facelead ", 0) == 0) { bridge.cloneFaceLead_ = static_cast<float>(atof(line.c_str() + 9)); Log("facelead: %.2f s", bridge.cloneFaceLead_); }
                     else if (line.rfind("gesturedirect ", 0) == 0) bridge.QueueGestureDirect(1, std::stoull(line.substr(14), nullptr, 16));   // gesturedirect <0xid>: on player 1
                     else if (line.rfind("gestureev ", 0) == 0) {   // gestureev <0xid> [layer] [simple]: event straight to player 1
