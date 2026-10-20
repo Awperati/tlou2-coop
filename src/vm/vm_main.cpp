@@ -142,7 +142,8 @@ vm::Mat34 g_anchorC{};
 bool g_anchorOk = false;                  // arms: viewmodel field of view (0 = use g_a as k)
 std::atomic<int> g_j0{0}, g_j1{100000};
 std::atomic<bool> g_armFromShoulder{false}, g_weaponOn{true};
-std::atomic<bool> g_slingOn{true};   // objects sharing the held weapon's locator (the sling) follow it
+std::atomic<bool> g_slingOn{true};
+uintptr_t g_weaponProcSeen = 0;   // the held weapon as the poll thread last saw it   // objects sharing the held weapon's locator (the sling) follow it
 std::atomic<uintptr_t> g_proc{0};      // player 0's process
 std::atomic<uintptr_t> g_fg{0};        // player 0's FgAnimData (Process+0x1C0)
 std::atomic<uintptr_t> g_cam{0};       // camera manager 0: final camera position +0x130, rotation +0x140, fov +0x160
@@ -648,8 +649,35 @@ void ApplyDof() {
     Log("dof: %s", w == 1 ? "near blur 0 and depth of field off while the viewmodel is on" : "left to the game");
 }
 
+// Shadow of the moved gun (tester: "make the chunky fake double arms not cast a shadow"). Each mesh of a
+// draw control has two visibility masks: +900 (the main view; the first-person mod clears it for the
+// head) and +902, which IDrawControl::HideMesh/ShowMesh (rva 0x147ED80 / 0x14846D0, last argument 1)
+// change. The held gun's meshes get +902 cleared while the viewmodel draws it in first person, and set
+// again after; test whether +902 is the shadow mask. Applied here, on the camera thread.
+constexpr uintptr_t kHideMesh = 0x147ED80, kShowMesh = 0x14846D0;
+std::atomic<bool> g_gunShadowOff{true};
+std::atomic<uintptr_t> g_shadowWanted{0};   // weapon process whose gun shadow should be off now (0 = none)
+uintptr_t g_shadowDone = 0;                 // the weapon we changed (camera thread only)
+void SetMeshesSecondMask(uintptr_t proc, bool on) {
+    __try {
+        uintptr_t dc = *reinterpret_cast<uintptr_t*>(proc + 0x1B0);
+        if (!dc) return;
+        uint32_t count = *reinterpret_cast<uint32_t*>(dc + 20);
+        for (uint32_t i = 0; i < count && i < 64; ++i)
+            reinterpret_cast<uint64_t (*)(uintptr_t, uint64_t, int, char)>(Rva(on ? kShowMesh : kHideMesh))(dc, i, -1, 1);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { g_faults.fetch_add(1); }
+}
+void ApplyGunShadow() {
+    uintptr_t want = g_shadowWanted.load(std::memory_order_relaxed);
+    if (want == g_shadowDone) return;
+    if (g_shadowDone && g_shadowDone == g_weaponProcSeen) SetMeshesSecondMask(g_shadowDone, true);   // put the old one back if it is still the held one
+    g_shadowDone = 0;
+    if (want) { SetMeshesSecondMask(want, false); g_shadowDone = want; }
+}
+
 uint64_t HookedCamSet(uintptr_t out, uintptr_t in, float a, float b, float c, float d) {
     g_camCalls.fetch_add(1, std::memory_order_relaxed);
+    ApplyGunShadow();
     if (g_dofWanted.load(std::memory_order_relaxed) >= 0) ApplyDof();
     uintptr_t proc = g_proc.load(std::memory_order_relaxed);
     float deg = g_lockDeg.load();
@@ -707,7 +735,7 @@ const struct { uint64_t id; const char* name; bool lock; } kStates[] = {
     // Unnamed: follows every Jump/Fall before Move (owner's vaults 12:18-12:22), so the landing of a vault.
     {0xDC08B4AA178A64D9ull, "Land?", true},
     {0xB05F8BDC266380CDull, "Death", false}, {0xD049237343C44E47ull, "Dead", false}, {0xFCBE98DF5B4A65E8ull, "Ragdoll", false},
-    {0x386C9402B2567A3Bull, "Scripted", false},
+    {0x386C9402B2567A3Bull, "Scripted", false}, {0x1F0D05EB8A0E0F3Full, "Inventory", false},
 };
 // Third person for scripted moves (tester: "when Ellie is doing an animation such as a crawl through a
 // wallscape, doing a death animation, some sort of plot animation, always put the camera back into
@@ -720,6 +748,8 @@ const uint64_t kThirdPersonStates[] = {
     0xFCBE98DF5B4A65E8ull,   // Ragdoll
     0x41912A19C979556Eull,   // Igc (in-game cutscene)
     0x386C9402B2567A3Bull,   // Scripted
+    0x1F0D05EB8A0E0F3Full,   // Inventory: the backpack (tester: show Ellie taking off her backpack and opening it;
+                             // the game's own animation plays in third person)
 };
 bool StateThirdPerson(uint64_t id) { for (uint64_t t : kThirdPersonStates) if (t == id) return true; return false; }
 
@@ -885,6 +915,34 @@ bool PressToggle() {
     return true;
 }
 
+// Research: log a draw control's meshes (IDrawControl at Process+0x1B0: meshes at *(dc+8), 912 bytes
+// each, count *(dc+20); view mask byte +900, second mask +902) and any name string a mesh entry points to.
+std::string PrintableAt(uintptr_t a) {
+    char buf[48] = {};
+    if (!a || !ReadMem(a, buf)) return "";
+    int n = 0;
+    while (n < 47 && buf[n] && (isalnum(static_cast<unsigned char>(buf[n])) || buf[n] == '-' || buf[n] == '_' || buf[n] == '.')) ++n;
+    return n >= 4 && !buf[n] ? std::string(buf, n) : "";
+}
+void LogMeshes(uintptr_t proc, const char* who) {
+    uintptr_t dc = 0, arr = 0; uint32_t count = 0;
+    if (!proc || !ReadMem(proc + 0x1B0, dc) || !dc || !ReadMem(dc + 8, arr) || !arr || !ReadMem(dc + 20, count) || count > 64) { Log("meshes %s: none", who); return; }
+    for (uint32_t i = 0; i < count; ++i) {
+        uintptr_t e = arr + 912ull * i;
+        uint8_t m900 = 0, m902 = 0; ReadMem(e + 900, m900); ReadMem(e + 902, m902);
+        std::string names;
+        for (uint32_t q = 0; q < 114 && names.size() < 200; ++q) {
+            uintptr_t v = 0;
+            if (!ReadMem(e + 8ull * q, v)) break;
+            std::string t = PrintableAt(v);
+            if (!t.empty()) { char o[16]; snprintf(o, sizeof(o), " +%u:", q * 8); names += o; names += t; }
+            uintptr_t w = 0;   // one level deeper (a name inside a pointed-to object)
+            if (names.size() < 200 && v && ReadMem(v, w)) { std::string t2 = PrintableAt(w); if (!t2.empty()) { char o[20]; snprintf(o, sizeof(o), " +%u->:", q * 8); names += o; names += t2; } }
+        }
+        Log("meshes %s %u: view mask %02x, second mask %02x;%s", who, i, m900, m902, names.c_str());
+    }
+}
+
 // ---- commands -------------------------------------------------------------------------------------
 void LogDump() {
     const Dump& d = g_dump;
@@ -935,6 +993,8 @@ void Handle(const std::string& line) {
     else if (c == "anchor") { g_anchorOn = w != "off"; Log("cmd: arms anchored to the camera: %s", g_anchorOn.load() ? "on" : "off"); }
     else if (c == "calibrate") { g_calibWanted = true; Log("cmd: anchor recalibrates on the next frame"); }
     else if (c == "sling") { g_ropeOn = g_slingOn = w != "off"; Log("cmd: rifle sling %s", g_slingOn.load() ? "follows the weapon" : "left alone"); }
+    else if (c == "meshes") { LogMeshes(g_proc.load(), "player"); LogMeshes(g_weaponProc.load(), "weapon"); }
+    else if (c == "gunshadow") { g_gunShadowOff = w == "off"; Log("cmd: held gun shadow %s in first person", g_gunShadowOff.load() ? "off" : "on"); }
     else if (c == "autotp") { g_autoTp = w != "off"; Log("cmd: third person during crawls, deaths and cutscenes: %s", g_autoTp.load() ? "on" : "off"); }
     else if (c == "weapon") { g_weaponOn = w != "off"; Log("cmd: held weapon %s", g_weaponOn.load() ? "follows" : "left alone"); }
     else if (c == "off") { g_mode = kOff; if (g_dofAuto.load()) g_dofWanted = 0; Log("cmd: off"); }
@@ -1081,6 +1141,8 @@ DWORD WINAPI Main(void*) {
             lastState = st; lastLocked = locked; lastFp = g_fpOn.load();
         }
         uintptr_t wp = g_weaponProc.load();
+        g_weaponProcSeen = wp;
+        g_shadowWanted = g_gunShadowOff.load() && g_mode.load() == kView && g_fpOn.load() && wp ? wp : 0;
         if (wp != lastWeapon) {
             uint32_t nm = 0; uintptr_t wfg = g_weaponFg.load(), wskel = 0;
             if (wfg && ReadMem(wfg + 0x28, wskel) && wskel) ReadMem(wskel + 0x44, nm);
