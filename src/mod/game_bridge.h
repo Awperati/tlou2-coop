@@ -351,7 +351,7 @@ public:
     unsigned long long lastAmmoTopUp_ = 0, combatShotAskedAt_ = 0, combatReloadAskedAt_ = 0, combatDrawAskedAt_ = 0, combatThrowAskedAt_ = 0;
     uint64_t combatDrawAsked_ = 0;
     static unsigned long long GetTickCount64Ms();
-    // combattest aim|fire|melee|draw|holster|reload|grenade [n|id] [ms]: drive the clone's combat without the partner.
+    // combattest aim|fire|melee|draw|holster|reload|clip|grenade [n|id] [ms]: drive the clone's combat without the partner.
     void CombatTest(const std::string& kind, uint64_t arg, unsigned ms) {
         std::lock_guard lk(combatMu_);
         combatTestKind_ = kind; combatTestWeapon_ = arg; combatTestLeft_ = kind == "fire" || kind == "melee" ? static_cast<int>(arg ? arg : 1) : 1;

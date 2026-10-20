@@ -2610,6 +2610,7 @@ void GameBridge::TickCombat() {
             if (combatTestKind_ == "draw" && combatTestLeft_ > 0) { a.draw = combatTestWeapon_; combatTestLeft_ = 0; }
             if (combatTestKind_ == "holster" && combatTestLeft_ > 0) { a.holster = true; combatTestLeft_ = 0; }
             if (combatTestKind_ == "reload" && combatTestLeft_ > 0) { a.reload = true; combatTestLeft_ = 0; }
+            if (combatTestKind_ == "clip" && combatTestLeft_ > 0) { a.setClip = static_cast<int>(combatTestWeapon_); combatTestLeft_ = 0; Log("combattest: her clip %d -> %d", her.clip, a.setClip); }
             if (combatTestKind_ == "grenade" && combatTestLeft_ > 0) { a.selectGrenade = combatTestWeapon_; combatTestLeft_ = 0; }
         }
         // Latency (the owner's 0.3 s): from asking her to the clone's own reading showing it.
