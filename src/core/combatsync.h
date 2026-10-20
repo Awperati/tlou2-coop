@@ -136,7 +136,13 @@ struct CombatReplay {
         a.aim = (p.flags & (kCombatAim | kCombatAimThrow)) != 0;
         // Weapon in hand: the partner's. Not while she is already switching; a refused draw is retried after
         // drawRetryMs (the event lands on her next update, and a switch takes ~0.5-1 s).
-        if (p.weapon && clone.weapon != p.weapon && !clone.switching && now >= nextDrawAt_) { a.draw = p.weapon; nextDrawAt_ = now + drawRetryMs; }
+        // Only for a reason: the partner just drew it (owed until she holds it), aims, shoots or reloads, or she holds
+        // another weapon. Both games put an idle weapon away after ~10 s on their own (live 10-21 08:04: hers at 9.6 s,
+        // theirs at 10.4 s); redrawing whenever she put hers away first had her draw it again for a second.
+        if (p.weapon != lastPartnerWeapon_) { drawOwed_ = p.weapon != 0; lastPartnerWeapon_ = p.weapon; }
+        if (p.weapon && clone.weapon == p.weapon) drawOwed_ = false;
+        bool drawReason = drawOwed_ || a.aim || pendingShots_ || shots || reloads || (p.flags & kCombatReload) || clone.weapon != 0;
+        if (p.weapon && clone.weapon != p.weapon && drawReason && !clone.switching && now >= nextDrawAt_) { a.draw = p.weapon; nextDrawAt_ = now + drawRetryMs; }
         else if (!p.weapon && clone.weapon && !a.aim && !(p.flags & kCombatSwitch) && !clone.switching && now >= nextDrawAt_) { a.holster = true; nextDrawAt_ = now + drawRetryMs; }
         if (p.grenade && p.grenade != lastGrenade_) { a.selectGrenade = p.grenade; }
         lastGrenade_ = p.grenade;
@@ -166,7 +172,8 @@ struct CombatReplay {
 private:
     CombatWire seen_; bool have_ = false;
     int pendingShots_ = 0, pendingThrows_ = 0, pendingSwings_ = 0;
-    uint64_t lastGrenade_ = 0;
+    uint64_t lastGrenade_ = 0, lastPartnerWeapon_ = 0;
+    bool drawOwed_ = false;
     unsigned long long nextDrawAt_ = 0, nextClipAt_ = 0, triggerUntil_ = 0, triggerFreeAt_ = 0, meleeUntil_ = 0, meleeFreeAt_ = 0;
 };
 

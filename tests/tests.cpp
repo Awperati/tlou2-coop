@@ -666,6 +666,12 @@ static void TestCombatSync() {
         a = hold.Update(1033, h, hh, true); CHECK(a.triggerUntil > 1033 && a.setClip < 0);
         a = hold.Update(1133, h, hh, true); CHECK(a.setClip < 0);
         a = hold.Update(1700, h, hh, true); CHECK(a.setClip == 4);          // she never fired: back in line with the partner
+        // Her game put the idle weapon away before the partner's did: no redraw until the partner uses it again.
+        CombatReplay idle; CombatWire iw; iw.weapon = pistol; iw.clip = 5; CombatReading ih; ih.weapon = 0; ih.clip = -1;
+        a = idle.Update(1000, iw, ih, true); CHECK(a.draw == pistol);          // the partner holds it: drawn once
+        ih.weapon = pistol; ih.clip = 5; a = idle.Update(1500, iw, ih, true); CHECK(!a.draw);
+        ih.weapon = 0; ih.clip = -1; a = idle.Update(9600, iw, ih, true); CHECK(!a.draw && !a.holster);   // she put it away herself
+        iw.flags = kCombatAim; a = idle.Update(12000, iw, ih, true); CHECK(a.draw == pistol);   // the partner aims again
         // Throwable selection follows the partner's aimed grenade once per change.
         CombatReplay g; CombatWire gw; gw.grenade = molotov; a = g.Update(1000, gw, her, true); CHECK(a.selectGrenade == molotov);
         a = g.Update(1033, gw, her, true); CHECK(a.selectGrenade == 0);
