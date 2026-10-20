@@ -2595,10 +2595,13 @@ void GameBridge::TickCombat() {
         // input with the game behind other windows) and how fast her body answers.
         if (now < combatTestUntil_) {
             std::lock_guard lk(combatMu_);
+            a = CombatActions{};   // the test alone drives her (no draw/holster from the partner's state meanwhile)
+            cloneCombatAim_ = false; cloneTriggerUntil_ = 0; cloneMeleeUntil_ = 0;
             if (combatTestKind_ == "aim" || combatTestKind_ == "fire") cloneCombatAim_ = true;
             if (combatTestKind_ == "fire" && now >= combatTestNextAt_ && combatTestLeft_ > 0) {
                 combatTestNextAt_ = now + 500; --combatTestLeft_; cloneTriggerUntil_ = now + 70; combatShotAskedAt_ = now;
-                Log("combattest: RT press (clip %d, %d left)", her.clip, combatTestLeft_);
+                auto aimByte = Read<uint8_t>(p1 + 19632 + 0x294);   // NdPlayerJoypad aim held (sub_140BE5860)
+                Log("combattest: RT press (clip %d, %d left; her joypad aim byte %d, game in front %d, slot copies %u)", her.clip, combatTestLeft_, aimByte ? *aimByte : -1, GameWindowFocused() ? 1 : 0, CloneRawHits());
             }
             if (combatTestKind_ == "melee" && now >= combatTestNextAt_ && combatTestLeft_ > 0) { combatTestNextAt_ = now + 700; --combatTestLeft_; cloneMeleeUntil_ = now + 100; Log("combattest: X press"); }
             if (combatTestKind_ == "draw" && combatTestLeft_ > 0) { a.draw = combatTestWeapon_; combatTestLeft_ = 0; }
