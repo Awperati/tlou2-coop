@@ -1283,9 +1283,14 @@ void CoopMain() {
             } else bridge.QueueCloneMeshPoll();
         }
         if (cloneStage && now >= cloneAt) {
-            if (cloneStage == 1 && bridge.PlayerSlotHeld(1)) {   // spawning into it froze PC A (08:04:57)
-                static ULONGLONG heldLog = 0;
-                if (now - heldLog > 10000) { heldLog = now; Log("clone: player 1's slot still holds a removed clone; waiting for a level load before spawning"); }
+            // A removed clone's handle stays in player 1's table entry, also after a level load (PC B 10:11, the
+            // spawn then works). Spawning 0.5 s after a kill, while she was still being torn down, faulted and
+            // froze PC A (08:04:57). So wait 5 s from first seeing the held entry.
+            static ULONGLONG heldSince = 0;
+            bool held = cloneStage == 1 && bridge.PlayerSlotHeld(1);
+            if (!held) heldSince = 0; else if (!heldSince) heldSince = now;
+            if (held && now - heldSince < 5000) {
+                Log("clone: player 1's slot still holds a removed clone; spawning in %llu s", (5000 - (now - heldSince)) / 1000 + 1);
                 cloneAt = now + 1000;
             }
             else if (cloneStage == 1) {
