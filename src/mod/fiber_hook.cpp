@@ -1336,14 +1336,18 @@ std::atomic<float> g_rawX{0}, g_rawY{0}, g_rawRX{0}, g_rawRY{0};
 std::atomic<uint64_t> g_rawHeld{0};
 std::atomic<uint32_t> g_rawHits{0};
 uint64_t HookedRawCopy(uint64_t slot, uint64_t raw, uint64_t idx) {
-    if (g_rawOn.load() && static_cast<uint32_t>(idx) == 3 && raw) {
+    // Slot 3 is the clone's: she never gets this PC's own raw pad. With the drive off (partner in another section,
+    // link down) the copy is a neutral pad; it used to fall through to raw pad 0, so the hidden clone aimed, swung
+    // and dodged with the host's own LT / X / LB (PC A 10-21 10:18, crash in FindMeleeMove at rva 0xE3E817 seconds after).
+    if (static_cast<uint32_t>(idx) == 3 && raw && g_rawTarget) {
+        bool on = g_rawOn.load();
         alignas(16) static thread_local uint8_t buf[0x540];
         bool ok = false;
         __try { std::memcpy(buf, reinterpret_cast<void*>(raw), sizeof(buf)); ok = true; } __except (EXCEPTION_EXECUTE_HANDLER) {}
         if (ok) {
-            float x = g_rawX.load(), y = g_rawY.load();
+            float x = on ? g_rawX.load() : 0.f, y = on ? g_rawY.load() : 0.f;
             for (int off : {0x00, 0x10}) { std::memcpy(buf + off, &x, 4); std::memcpy(buf + off + 4, &y, 4); }
-            float rx = g_rawRX.load(), ry = g_rawRY.load();   // right stick: the clone's camera (aim turn)
+            float rx = on ? g_rawRX.load() : 0.f, ry = on ? g_rawRY.load() : 0.f;   // right stick: the clone's camera (aim turn)
             for (int off : {0x08, 0x18}) std::memcpy(buf + off, &rx, 4);
             for (int off : {0x0C, 0x1C}) std::memcpy(buf + off, &ry, 4);
             // Button masks: +0x518 pressed this frame, +0x520 released, +0x528 held (sub_140399320).
@@ -1351,7 +1355,7 @@ uint64_t HookedRawCopy(uint64_t slot, uint64_t raw, uint64_t idx) {
             static thread_local uint64_t prevHeld = 0;
             // Bit 63 is set on every live pad (padbits log, 10:52); keep the base pad's value.
             uint64_t base = 0; std::memcpy(&base, buf + 0x528, 8);
-            uint64_t held = g_rawHeld.load() | (base & 0x8000000000000000ull);
+            uint64_t held = (on ? g_rawHeld.load() : 0) | (base & 0x8000000000000000ull);
             uint64_t pressed = held & ~prevHeld, released = prevHeld & ~held;
             std::memset(buf + 0x518, 0, 0x20);
             std::memcpy(buf + 0x518, &pressed, 8); std::memcpy(buf + 0x520, &released, 8); std::memcpy(buf + 0x528, &held, 8);
