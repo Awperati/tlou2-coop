@@ -2740,10 +2740,12 @@ void GameBridge::TickCombat() {
             if (a.fire) { CombatNative(0xC987F0); combatShotAskedAt_ = now; Log("combatsync: clone fires at her reticle (engine)"); }   // player-fire-weapon-at-reticle
             SetPlayerOverride(0);
         }
-        bool trig = a.triggerUntil > now;
-        if (trig && !combatShotAskedAt_ && her.clip >= 0) { combatShotAskedAt_ = now; Log("combatsync: RT for a partner shot (clip %d, owed %d)", her.clip, combatReplay_.PendingShots()); }
-        else if (trig && her.clip < 0 && !combatThrowAskedAt_) { combatThrowAskedAt_ = now; combatThrowPressAt_ = now; Log("combatsync: RT for a partner throw"); }
-        if (!trig) combatThrowAskedAt_ = 0;
+        // One line per new press (10:14 live: a press still held after her round left was logged again, and the
+        // next "fired" was timed from it).
+        bool newPress = a.triggerUntil > now && a.triggerUntil != lastTriggerUntil_;
+        lastTriggerUntil_ = a.triggerUntil;
+        if (newPress && her.clip >= 0) { combatShotAskedAt_ = now; Log("combatsync: RT for a partner shot (clip %d, owed %d)", her.clip, combatReplay_.PendingShots()); }
+        else if (newPress) { combatThrowPressAt_ = now; Log("combatsync: RT for a partner throw"); }
         if (combatShotAskedAt_ && now - combatShotAskedAt_ > 2000) { Log("combat: clone did not fire within 2 s of the trigger (clip %d)", her.clip); combatShotAskedAt_ = 0; }
         if (combatReloadAskedAt_ && now - combatReloadAskedAt_ > 2000) { Log("combat: clone did not start reloading within 2 s"); combatReloadAskedAt_ = 0; }
     });

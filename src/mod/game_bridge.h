@@ -366,6 +366,7 @@ public:
     unsigned long long lastAmmoTopUp_ = 0, combatShotAskedAt_ = 0, combatReloadAskedAt_ = 0, combatDrawAskedAt_ = 0, combatThrowAskedAt_ = 0;
     uint64_t combatDrawAsked_ = 0;
     uint32_t cloneThrowsSeen_ = 0; unsigned long long combatThrowPressAt_ = 0;
+    unsigned long long lastTriggerUntil_ = 0;
     bool throwHooks_ = false;               // the throw hooks are in: own throws come from them (PlayerThrows)
     static unsigned long long GetTickCount64Ms();
     // combattest aim|fire|melee|draw|holster|reload|clip|grenade [n|id] [ms]: drive the clone's combat without the partner.
