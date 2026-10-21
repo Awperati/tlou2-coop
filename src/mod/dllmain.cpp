@@ -647,8 +647,9 @@ void CoopMain() {
         }
         if (pressMode) { if (pressed && !prevPressed) toggled = !toggled; prevPressed = pressed; pressed = toggled; }
 
-        // No teleport prompt while a cinematic plays: it owns the characters.
-        if (self && session.connected() && !bridge.InCinematic()) {
+        // No teleport prompt while a cinematic plays: it owns the characters. None while the partner is in another
+        // section either: their spot is in a level we don't have (the F9 section jump is the way there).
+        if (self && session.connected() && !bridge.InCinematic() && !bridge.cloneApart_.load()) {
             TeleportController::Inputs in;
             in.dt = dt;
             in.selfPos = self->pos;

@@ -437,6 +437,7 @@ static void TestSections() {
     CHECK(!p.Update(t += 200, tower, arrive, SectionWhere::Explored, false) && p.state() == SectionPrompt::State::Offer);
     CHECK(p.Update(t += 500, tower, arrive, SectionWhere::Explored, true) && p.target().sameAs(arrive));
     CHECK(!p.Update(t += 6000, tower, arrive, SectionWhere::Explored, false) && p.state() == SectionPrompt::State::Hidden);  // not again
+    CHECK(!p.Update(t += 100, tower, arrive, SectionWhere::Explored, true));   // taken already: no second jump
     // Unexplored: first press asks, second press goes; no answer to the question goes back to the offer.
     SectionPrompt q; t = 100000;
     q.Update(t, tower, theater, SectionWhere::Unexplored, false);
@@ -455,6 +456,11 @@ static void TestSections() {
     CHECK(d.state() == SectionPrompt::State::Hidden);
     d.Update(t += 60000, tower, arrive, SectionWhere::Explored, false);
     CHECK(d.state() == SectionPrompt::State::Hidden);
+    // The key still works after the offer timed out: explored goes at once.
+    { SectionPrompt e = d; CHECK(e.Update(t + 1, tower, arrive, SectionWhere::Explored, true)); }
+    // Unexplored asks first (10-21 10:16: the press after the timeout did nothing).
+    { SectionPrompt e = d; CHECK(!e.Update(t + 1, tower, arrive, SectionWhere::Unexplored, true) && e.state() == SectionPrompt::State::Confirm);
+      CHECK(e.Update(t + 2, tower, arrive, SectionWhere::Unexplored, true)); }
     d.Update(t += 100, tower, patrol, SectionWhere::Explored, false);
     d.Update(t += 5000, tower, patrol, SectionWhere::Explored, false);
     CHECK(d.state() == SectionPrompt::State::Offer && d.target().sameAs(patrol));

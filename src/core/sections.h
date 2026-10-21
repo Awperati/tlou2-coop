@@ -120,7 +120,8 @@ private:
 //   Hidden -> (partner elsewhere, steady for settleMs) -> Offer
 //   Offer + key: Explored -> Go;  Unexplored -> Confirm
 //   Confirm + key (within confirmMs) -> Go;  Confirm timeout -> Offer
-//   Offer unanswered for offerMs -> Hidden, and that partner section is not offered again until it changes.
+//   Offer unanswered for offerMs -> Hidden, and that partner section is not offered again until it changes;
+//   the key still works then (owner test 10-21 10:16: a press after the offer timed out did nothing).
 class SectionPrompt {
 public:
     enum class State { Hidden, Offer, Confirm };
@@ -129,11 +130,16 @@ public:
     // Returns true once when the player chose to go (the caller starts the jump).
     bool Update(unsigned long long now, const Section& mine, const Section& partner, SectionWhere where, bool keyPressed) {
         bool differs = partner.valid() && mine.valid() && !mine.sameAs(partner);
-        if (!differs) { state_ = State::Hidden; differSince_ = 0; declined_ = {}; return false; }
-        if (!partner.sameAs(target_)) { target_ = partner; differSince_ = now; state_ = State::Hidden; declined_ = {}; }
+        if (!differs) { state_ = State::Hidden; differSince_ = 0; declined_ = {}; expired_ = false; return false; }
+        if (!partner.sameAs(target_)) { target_ = partner; differSince_ = now; state_ = State::Hidden; declined_ = {}; expired_ = false; }
         where_ = where;
         switch (state_) {
         case State::Hidden:
+            if (keyPressed && expired_) {   // the offer timed out, the player asks anyway
+                expired_ = false;
+                if (where == SectionWhere::Unexplored) { state_ = State::Confirm; since_ = now; return false; }
+                return true;
+            }
             if (!declined_.valid() && now - differSince_ >= settleMs) { state_ = State::Offer; since_ = now; }
             return false;
         case State::Offer:
@@ -141,10 +147,10 @@ public:
                 if (where == SectionWhere::Unexplored) { state_ = State::Confirm; since_ = now; return false; }
                 state_ = State::Hidden; declined_ = target_; return true;
             }
-            if (now - since_ >= offerMs) { state_ = State::Hidden; declined_ = target_; }
+            if (now - since_ >= offerMs) { state_ = State::Hidden; declined_ = target_; expired_ = true; }
             return false;
         case State::Confirm:
-            if (keyPressed) { state_ = State::Hidden; declined_ = target_; return true; }
+            if (keyPressed) { state_ = State::Hidden; declined_ = target_; expired_ = false; return true; }
             if (now - since_ >= confirmMs) { state_ = State::Offer; since_ = now; }
             return false;
         }
@@ -153,12 +159,13 @@ public:
     State state() const { return state_; }
     const Section& target() const { return target_; }
     // The partner moved on again: offer the new section (also clears a decline).
-    void Reset() { state_ = State::Hidden; differSince_ = 0; target_ = {}; declined_ = {}; }
+    void Reset() { state_ = State::Hidden; differSince_ = 0; target_ = {}; declined_ = {}; expired_ = false; }
 
 private:
     State state_ = State::Hidden;
     Section target_, declined_;
     SectionWhere where_ = SectionWhere::Unknown;
+    bool expired_ = false;   // the last offer timed out unanswered (not taken)
     unsigned long long differSince_ = 0, since_ = 0;
 };
 
