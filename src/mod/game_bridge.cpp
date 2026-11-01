@@ -3164,13 +3164,13 @@ void GameBridge::TickCloneDrive() {
             bool broken = have && cp && tn >= jumpGraceUntil_ && CloneSpotBroken(*cp, tgt);
             if (have && cp && tn >= jumpGraceUntil_ && !NearOrigin(tgt) && tn > cloneFixAt_ && tn - cloneFixAt_ > (broken ? 250u : 2000u)) {
                 float d = Distance(*cp, tgt);
-                if (broken) { cloneFixAt_ = tn; bool ok = engineTeleport(p, tgt, tyaw); Log("clonedrive: broken spot (%.0f m off, at %.1f %.1f %.1f), snapped at once: %s", d, cp->x, cp->y, cp->z, ok ? "sent" : "FAILED"); }
+                if (broken) { cloneFixAt_ = tn; bool ok = engineTeleport(p, tgt, tyaw); Log("clonedrive: broken spot (%.0f m off, at %.1f %.1f %.1f, target y %.1f), snapped at once: %s", d, cp->x, cp->y, cp->z, tgt.y, ok ? "sent" : "FAILED"); }
                 else {
                 bool still = cloneStillSince_ && tn - cloneStillSince_ > 1000;
                 if (d > 4.f || (still && d > 1.5f)) {
                     cloneFixAt_ = tn;
                     bool ok = engineTeleport(p, tgt, tyaw);
-                    Log("clonedrive: drift %.1f m%s, snapped to the other player's spot: %s", d, still ? " (standing)" : "", ok ? "sent" : "FAILED");
+                    Log("clonedrive: drift %.1f m%s (her y %.1f, target y %.1f), snapped to the other player's spot: %s", d, still ? " (standing)" : "", cp->y, tgt.y, ok ? "sent" : "FAILED");
                 }
                 }
             }
