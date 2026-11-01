@@ -420,6 +420,7 @@ public:
     void QueueReadSectionIds();
     void QueueJumpToSection(uint64_t a, uint64_t b);   // task-play-debug!(a, b, 0): the task from its start
     std::atomic<uint64_t> sectionFindA_{0}, sectionFindB_{0};
+    std::atomic<unsigned long long> levelChangeAt_{0};   // tick of the last level package add/remove
     std::atomic<bool> cloneApart_{false};   // the partner is in another section: don't drive or snap her there
     std::mutex sectionMu_;
     std::string sectionIdsTask_;

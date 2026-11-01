@@ -247,6 +247,9 @@ void CoopMain() {
     // [clone] Buttons: hex mask of the partner's held buttons the clone gets. Measured on PC B
     // (padbits, 2026-10-18): A 0x20 (jump), B 0x80 (crouch), LB 0x100 (sprint). Only movement
     // buttons belong here; item/weapon buttons crashed the game with two players.
+    // Spawning player 1 starts the game's HUD2 for her; a level load in flight made its widget lookup read null
+    // (PC B 09:37:35 crash). Wait this long after the last level package change, and while the partner is in another section.
+    const unsigned cloneSpawnQuietMs = static_cast<unsigned>(std::max(0.f, cfg.getFloat("clone", "SpawnQuietSeconds", 8.f)) * 1000.f);
     bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
     bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
     bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
@@ -1289,9 +1292,17 @@ void CoopMain() {
             // spawn then works). Spawning 0.5 s after a kill, while she was still being torn down, faulted and
             // froze PC A (08:04:57). So wait 5 s from first seeing the held entry.
             static ULONGLONG heldSince = 0;
-            bool held = cloneStage == 1 && bridge.PlayerSlotHeld(1);
+            static bool spawnDeferred = false;
+            ULONGLONG sinceLevel = bridge.levelChangeAt_ ? now - bridge.levelChangeAt_ : ~0ull;
+            const bool busy = cloneStage == 1 && (sinceLevel < cloneSpawnQuietMs || bridge.cloneApart_.load());
+            if (busy) {
+                if (!spawnDeferred) { spawnDeferred = true; Log("clone: spawn deferred (%s)", bridge.cloneApart_.load() ? "the partner is in another section" : "a level load changed packages less than the quiet time ago"); }
+                cloneAt = now + 500;
+            } else if (cloneStage == 1 && spawnDeferred) { spawnDeferred = false; Log("clone: level quiet for %llu ms and same section, spawning", sinceLevel == ~0ull ? 0ull : static_cast<unsigned long long>(sinceLevel)); }
+            bool held = !busy && cloneStage == 1 && bridge.PlayerSlotHeld(1);
             if (!held) heldSince = 0; else if (!heldSince) heldSince = now;
-            if (held && now - heldSince < 5000) {
+            if (busy) {}
+            else if (held && now - heldSince < 5000) {
                 Log("clone: player 1's slot still holds a removed clone; spawning in %llu s", (5000 - (now - heldSince)) / 1000 + 1);
                 cloneAt = now + 1000;
             }

@@ -1084,7 +1084,7 @@ void GameBridge::PollLevels() {
     for (uint64_t old : levels_)
         if (std::find(ids.begin(), ids.end(), old) == ids.end()) { ++nRem; if (removed.size() < 600) removed += " " + levelName(old, 0); }
     if (levels_.empty()) Log("level: %zu packages loaded at start", ids.size());
-    else if (nAdd || nRem) Log("level: +%d [%s ] -%d [%s ] now %zu", nAdd, added.c_str(), nRem, removed.c_str(), ids.size());
+    else if (nAdd || nRem) { levelChangeAt_ = GetTickCount64(); Log("level: +%d [%s ] -%d [%s ] now %zu", nAdd, added.c_str(), nRem, removed.c_str(), ids.size()); }
     levels_ = std::move(ids);
 }
 
