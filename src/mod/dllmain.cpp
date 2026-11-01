@@ -273,7 +273,7 @@ void CoopMain() {
     }
     bridge.cloneStandTurnStep_ = cfg.getFloat("clone", "StandTurnStep", 0.f);
     bridge.cloneStandTurnMs_ = static_cast<unsigned>(cfg.getInt("clone", "StandTurnMs", 80));
-    bridge.cloneStandTurnToBody_ = Lower(cfg.get("clone", "StandTurnTo", "camera")) == "body";
+    bridge.cloneStandTurnToBody_ = Lower(cfg.get("clone", "StandTurnTo", "body")) == "body";
     bridge.cloneLookAnswer_ = cfg.getBool("clone", "LookAnswer", false);
     bridge.cloneThetaFromMotion_ = cfg.getBool("clone", "ThetaFromMotion", true);
     bridge.cloneFaceSync_ = cfg.getBool("clone", "FaceSync", false);
