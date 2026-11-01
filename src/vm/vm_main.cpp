@@ -569,7 +569,34 @@ bool IsWeaponPart(uintptr_t ctx, uintptr_t wfg) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
+// Survey during reloads (tester 21:35: the gun is invisible while reloading): objects whose snapshot is
+// made within 1 m of the held weapon while she reloads, with their main-view mask, to find what the
+// reload draws instead.
+struct NearObj { uintptr_t fg; uint32_t n; float d; };
+NearObj g_near[16];
+std::atomic<int> g_nearCount{0};
+SRWLOCK g_nearLock = SRWLOCK_INIT;
+void SurveyNear(uintptr_t ctx, uintptr_t fg) {
+    __try {
+        uintptr_t wfg = g_weaponFg.load(std::memory_order_relaxed), pfg = g_playerFg.load(std::memory_order_relaxed);
+        if (!wfg || fg == pfg) return;
+        auto* r = *reinterpret_cast<float**>(ctx + 0x50);
+        if (!r) return;
+        const float* wl = reinterpret_cast<const float*>(wfg + 0x1D0);
+        float dx = r[12] - wl[12], dy = r[13] - wl[13], dz = r[14] - wl[14], d = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > 1.0f) return;
+        uint32_t n = *reinterpret_cast<uint32_t*>(*reinterpret_cast<uintptr_t*>(ctx + 0x10) + 0x44);
+        AcquireSRWLockExclusive(&g_nearLock);
+        int c = g_nearCount.load(), i = 0;
+        for (; i < c; ++i) if (g_near[i].fg == fg) { if (d < g_near[i].d) g_near[i].d = d; break; }
+        if (i == c && c < 16) { g_near[c] = {fg, n, d}; g_nearCount = c + 1; }
+        ReleaseSRWLockExclusive(&g_nearLock);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
 uint64_t HookedSnapshot(uintptr_t ctx) {
+    if (ctx && g_reloading.load(std::memory_order_relaxed) && !*reinterpret_cast<volatile uintptr_t*>(ctx + 0x78))
+        SurveyNear(ctx, *reinterpret_cast<uintptr_t*>(ctx + 0x18));
     if (ctx && !*reinterpret_cast<volatile uintptr_t*>(ctx + 0x78) && g_mode.load(std::memory_order_relaxed) != kOff) {
         uintptr_t fg = *reinterpret_cast<uintptr_t*>(ctx + 0x18);
         bool player = fg && fg == g_playerFg.load(std::memory_order_relaxed);
@@ -1164,7 +1191,10 @@ DWORD WINAPI Main(void*) {
         g_traversal = climbing || st == 0x16948826BF750B89ull /* Ladder */ || st == 0x6503256C2DE2745Cull /* Edge */ ||
                       st == 0x6A1BC0BFDD271822ull /* WallShimmy */ || st == 0x30D1FD450727A3CBull /* LedgeDrop */ ||
                       st == 0x9ACB4182871CE5A3ull /* FreeRope */ || st == 0x3B3CDD9BE9F96F46ull /* Zipline */ ||
-                      st == 0xCF0D3D2518907C4Dull /* Swim */;
+                      st == 0xCF0D3D2518907C4Dull /* Swim */ ||
+                      // Unnamed states of the tester's rope scene (21:37:37, 21:37:45: "rope is invisible in first
+                      // person"): carrying / throwing the rope. Her real hands hold it, so the viewmodel eases out.
+                      st == 0xF799D8E185917370ull || st == 0xA349D6B71975DD72ull;
         // Automatic third person: off when a scripted move starts with first person on, back on when it ends.
         bool wantTp = g_autoTp.load() && StateThirdPerson(st);
         if (wantTp && !weTurnedOff && g_fpOn.load() && GetTickCount64() - lastToggle > 1000) {
@@ -1188,7 +1218,19 @@ DWORD WINAPI Main(void*) {
         uintptr_t wp = g_weaponProc.load();
         g_weaponProcSeen = wp;
         bool rl = g_reloading.load();
-        if (rl != lastReload) { Log("reload: %s", rl ? "started" : "done"); lastReload = rl; }
+        if (rl != lastReload) {
+            Log("reload: %s", rl ? "started" : "done");
+            if (!rl) {
+                AcquireSRWLockExclusive(&g_nearLock);
+                int c = g_nearCount.exchange(0);
+                uintptr_t wfg = g_weaponFg.load();
+                for (int i = 0; i < c; ++i)
+                    Log("  during the reload, near the weapon: anim data %p%s, %u matrices, %.2f m", reinterpret_cast<void*>(g_near[i].fg),
+                        g_near[i].fg == wfg ? " (the held weapon)" : "", g_near[i].n, g_near[i].d);
+                ReleaseSRWLockExclusive(&g_nearLock);
+            }
+            lastReload = rl;
+        }
         g_shadowWanted = g_gunShadowOff.load() && g_mode.load() == kView && g_fpOn.load() && wp ? wp : 0;
         if (wp != lastWeapon) {
             uint32_t nm = 0; uintptr_t wfg = g_weaponFg.load(), wskel = 0;

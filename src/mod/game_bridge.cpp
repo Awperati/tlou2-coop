@@ -2918,6 +2918,19 @@ void GameBridge::TickCloneDrive() {
         }
         float mx = cloneMoveX_, mz = cloneMoveZ_;
         if (GetTickCount64() - cloneMoveAt_ > 500) mx = mz = 0;   // no news from the other PC: stand still
+        // Their stick is held while their body has not moved for 1 s (11-02 09:27: PC B's Dina stood still with a stale
+        // world stick of 0.47 for 57 s; PC A's clone walked one way, 138 deg off her body). Stand still then; a walk
+        // that really starts sets their moving flag within 0.5 s.
+        {
+            bool tmovNow; { std::lock_guard lk(cloneMu_); tmovNow = cloneTargetMoving_; }
+            ULONGLONG tq = GetTickCount64();
+            if (tmovNow || !cloneHasTarget_) cloneNotMovingAt_ = 0;
+            else if (!cloneNotMovingAt_) cloneNotMovingAt_ = tq;
+            if ((mx != 0 || mz != 0) && cloneNotMovingAt_ && tq - cloneNotMovingAt_ > 1000) {
+                if (tq - lastStaleStickLog_ > 5000) { lastStaleStickLog_ = tq; Log("clonedrive: their stick %.2f %.2f held but their body stood still %llu ms: ignored", mx, mz, tq - cloneNotMovingAt_); }
+                mx = mz = 0;
+            }
+        }
         // Catch-up ([clone] CatchUp): while the other player moves, pull her stick toward their
         // reported spot and sprint when she is 0.8 m+ behind (core CloneCatchUp, unit-tested).
         bool catchSprint = false;
