@@ -17,6 +17,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace coop {
@@ -85,6 +86,8 @@ public:
     void QueuePlayerVisible(bool visible, bool quiet = false);
     int WalkSubtreeSetVisible(uintptr_t root, bool visible, bool quiet = false);
     std::vector<uint32_t> playerAttachIds_;
+    std::unordered_map<uint32_t, int> attachOwner_;   // attachable id -> 0 Dina, 1 player, 2 clone
+    uint64_t hideSig_ = 0;
     std::atomic<int> stance_{0};          // 0 stand, 1 crouch, 2 prone
     std::atomic<bool> aiming_{false}, stanceQueued_{false};
     int lastDemeanor_ = -1;
@@ -148,6 +151,7 @@ public:
     bool aimingNow_ = false;
     // Make every attachable in the world visible again (undo a bad hide).
     void QueueShowAllAttachables();
+    void QueueAttachOwners();
     // Show every attachable within 2.5 m of the companion and her own meshes; log names.
     void QueueShowCompanion(bool visible = true, float radius = 2.5f, bool quiet = false);
     // load-level / is-level-loaded? on a package name (e.g. dina-player-skel), logged.

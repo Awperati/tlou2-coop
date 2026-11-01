@@ -786,6 +786,7 @@ void CoopMain() {
                     else if (line == "selfpuppet off") { selfPuppet = false; bridge.ReleasePuppet(); bridge.QueuePlayerVisible(true); SetSelfPuppetMarker(dir, false); Log("selfpuppet: off"); }
                     else if (line == "showplayer") bridge.QueuePlayerVisible(true);
                     else if (line == "showall") bridge.QueueShowAllAttachables();
+                    else if (line == "attachowners") bridge.QueueAttachOwners();
                     else if (line == "showcompanion") bridge.QueueShowCompanion();
                     else if (line.rfind("openfiles", 0) == 0) {
                         // Read-only: which files this process has open (e.g. mounted .psarc archives).

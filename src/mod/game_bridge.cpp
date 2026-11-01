@@ -1579,7 +1579,102 @@ int SafeWalk(uintptr_t walk, uintptr_t mgr, uintptr_t root, WalkState* st) {
     __try { reinterpret_cast<WalkFn>(walk)(mgr, root, &VisibilityVisitor, reinterpret_cast<uintptr_t>(st), 0); return 1; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
+int SafeWalk(uintptr_t walk, uintptr_t mgr, uintptr_t root, WalkState*, WalkCb cb, uintptr_t ctx) {
+    __try { reinterpret_cast<WalkFn>(walk)(mgr, root, cb, ctx, 0); return 1; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
 } // namespace
+
+namespace {
+// Hide the real Dina's attachables by owner. The objects store no owner handle (attachowners, 2026-11-02), but each
+// sits on its owner: cloth exactly on the character, held gear and the mask within about 1.3 m. An object belongs to
+// the nearest of Dina, the player and the clone; ambiguous ones stay as they are, so the player's own cloth is safe.
+struct OwnerHide {
+    Vec3 pos[3]; bool has[3];       // 0 Dina, 1 player, 2 clone
+    std::unordered_map<uint32_t, int>* cache;
+    int seen = 0, hid = 0, kept = 0, skipped = 0;
+    std::string* names; uint64_t sig = 0;
+};
+char OwnerHideVisitor(uintptr_t proc, uintptr_t ctx) {
+    auto* st = reinterpret_cast<OwnerHide*>(ctx);
+    if (!proc) return 1;
+    ++st->seen;
+    auto p = Read<Vec3>(proc + 0x130);
+    auto id = Read<uint32_t>(proc + 148);
+    if (!p || !id) return 1;
+    float d[3];
+    for (int i = 0; i < 3; ++i) d[i] = st->has[i] ? Distance(*p, st->pos[i]) : 1e9f;
+    int nr = 0;
+    for (int i = 1; i < 3; ++i) if (d[i] < d[nr]) nr = i;
+    float second = 1e9f;
+    for (int i = 0; i < 3; ++i) if (i != nr && d[i] < second) second = d[i];
+    int owner = -1;
+    if (d[nr] < 0.05f) owner = nr;                                   // cloth: exactly on its character
+    else if (d[nr] < 1.8f && second - d[nr] > 0.5f) owner = nr;    // clear
+    auto c = st->cache->find(*id);
+    if (owner >= 0) (*st->cache)[*id] = owner;
+    else if (c != st->cache->end()) owner = c->second;                   // seen clearly before
+    else if (d[nr] < 1.8f && nr == 0 && second - d[nr] > 0.2f) owner = 0;
+    if (owner != 0) { if (owner > 0) ++st->kept; else if (d[nr] < 1.8f) ++st->skipped; return 1; }
+    if (SafeSetObjectVisible(proc, false) == 1) {
+        ++st->hid;
+        st->sig = st->sig * 1099511628211ull + *id;
+        if (st->names && st->names->size() < 300) *st->names += " " + ProcessName(proc) + "@" + std::to_string(int(d[0] * 100) / 100.0f).substr(0, 4);
+    }
+    return 1;
+}
+} // namespace
+
+namespace {
+// attachowners: for every attachable, report where it sits and which offsets hold a pointer (or a
+// pointer to a struct holding one) to Dina, the player or the clone. Research for the owner link.
+struct OwnerScan { uintptr_t who[3]; const char* tag[3]; uint32_t ids[3]; int n; };
+char OwnerVisitor(uintptr_t proc, uintptr_t ctx) {
+    auto* sc = reinterpret_cast<OwnerScan*>(ctx);
+    if (!proc) return 1;
+    ++sc->n;
+    std::string hits;
+    for (uint32_t off = 0; off < 0x300 && hits.size() < 400; off += 8) {
+        auto v = Read<uintptr_t>(proc + off);
+        if (!v || !*v) continue;
+        for (int i = 0; i < 3; ++i) {
+            if (!sc->who[i]) continue;
+            if (*v == sc->who[i]) { hits += " +" + std::to_string(off) + "=" + sc->tag[i]; continue; }
+            if (*v < 0x10000) continue;
+            for (uint32_t o2 = 0; o2 < 0x100; o2 += 8) {
+                auto w = Read<uintptr_t>(*v + o2);
+                if (w && *w == sc->who[i]) { hits += " +" + std::to_string(off) + "->+" + std::to_string(o2) + "=" + sc->tag[i]; break; }
+            }
+        }
+    }
+    auto id = Read<uint32_t>(proc + 148);
+    auto p = Read<Vec3>(proc + 0x130);
+    Log("attachowners: %s id %u pos %.1f %.1f %.1f:%s", ProcessName(proc).c_str(), id ? *id : 0, p ? p->x : 0.f, p ? p->y : 0.f,
+        p ? p->z : 0.f, hits.c_str());
+    return 1;
+}
+} // namespace
+
+void GameBridge::QueueAttachOwners() {
+    RunOnGameFiber([this] {
+        uintptr_t walk = BuildRva(0x1448C10);
+        auto mgr = componentTable_ ? Read<uintptr_t>(componentTable_ + 19 * 8) : std::nullopt;
+        uintptr_t b = findBuddyOnFiber();
+        if (!walk || !mgr || !*mgr || !b) return;
+        OwnerScan sc{{b, follow(player_), PlayerProcess(1)}, {"dina", "player", "clone"}, {}, 0};
+        for (int i = 0; i < 3; ++i) {
+            auto p = sc.who[i] ? Read<Vec3>(sc.who[i] + offPos_) : std::nullopt;
+            Log("attachowners: %s %llx pos %.1f %.1f %.1f", sc.tag[i], static_cast<unsigned long long>(sc.who[i]), p ? p->x : 0.f, p ? p->y : 0.f, p ? p->z : 0.f);
+        }
+        for (uint32_t off : {512u, 528u}) {
+            auto r = Read<uintptr_t>(*mgr + off);
+            if (!r || !*r) continue;
+            Log("attachowners: list +%u", off);
+            __try { reinterpret_cast<WalkFn>(walk)(*mgr, *r, &OwnerVisitor, reinterpret_cast<uintptr_t>(&sc), 0); }
+            __except (EXCEPTION_EXECUTE_HANDLER) { Log("attachowners: walk faulted"); }
+        }
+    }, true);
+}
 
 int GameBridge::WalkSubtreeSetVisible(uintptr_t root, bool visible, bool quiet) {
     uintptr_t walk = BuildRva(0x1448C10);
@@ -3880,17 +3975,9 @@ void GameBridge::QueueShowCompanion(bool visible, float radius, bool quiet) {
         if (!b || !walk || !mgr || !*mgr) return;
         auto bp = Read<Vec3>(b + offPos_);
         if (!bp) return;
-        // Hiding: skip the radius walk while the player is close. It would catch the player's
-        // own cloth (that once hid Dina's jacket for good).
-        // Same for the clone (player 1): it caught her cloth, and her torso and arms went missing again
-        // after reloads (owner 13:5x; each reload ran playershow, then this hid her 3 cloth objects).
-        if (!visible) {
-            uintptr_t pl = follow(player_);
-            auto pp = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
-            if (!pp || Distance(*pp, *bp) < radius + 1.5f) radius = 0.f;
-            uintptr_t p1 = PlayerProcess(1);
-            if (auto cp = p1 ? Read<Vec3>(p1 + offPos_) : std::nullopt; cp && Distance(*cp, *bp) < radius + 1.5f) radius = 0.f;
-        }
+        // Showing keeps the old radius walk. Hiding goes by owner (OwnerHide below), so the player's and the
+        // clone's own cloth and gear are never caught, however close Dina stands.
+        if (!visible) radius = 0.f;
         int body = SafeSetObjectVisible(b, visible);
         std::string names;
         int n = 0;
@@ -3902,6 +3989,33 @@ void GameBridge::QueueShowCompanion(bool visible, float radius, bool quiet) {
             a.ids = nullptr;
             SafeWalk(walk, *mgr, *r, &a);
             n += a.count;
+        }
+        if (!visible) {
+            OwnerHide oh{};
+            std::string hidNames;
+            oh.names = &hidNames;
+            oh.cache = &attachOwner_;
+            oh.has[0] = true; oh.pos[0] = *bp;
+            uintptr_t pl = follow(player_), p1 = PlayerProcess(1);
+            auto pp = pl ? Read<Vec3>(pl + offPos_) : std::nullopt;
+            auto cp = p1 ? Read<Vec3>(p1 + offPos_) : std::nullopt;
+            if (pp) { oh.has[1] = true; oh.pos[1] = *pp; }
+            if (cp) { oh.has[2] = true; oh.pos[2] = *cp; }
+            if (attachOwner_.size() > 4096) attachOwner_.clear();
+            if (pp) {   // without the player's spot we cannot tell whose gear it is: hide nothing
+                for (uint32_t off : {512u, 528u}) {
+                    auto r = Read<uintptr_t>(*mgr + off);
+                    if (!r || !*r) continue;
+                    SafeWalk(walk, *mgr, *r, reinterpret_cast<WalkState*>(nullptr), &OwnerHideVisitor, reinterpret_cast<uintptr_t>(&oh));
+                }
+            }
+            n = oh.hid;
+            if (oh.sig != hideSig_ || !quiet) {
+                hideSig_ = oh.sig;
+                Log("hidecompanion: owner walk: %d seen, %d hidden as Dina's, %d kept (player/clone), %d too close to tell:%s",
+                    oh.seen, oh.hid, oh.kept, oh.skipped, hidNames.c_str());
+            }
+            quiet = true;   // the line above replaces the old one
         }
         // Her own prop inventory, if NPCs keep one at the same offset as the player.
         auto inv = Read<uintptr_t>(b + 11264);
