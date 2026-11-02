@@ -127,6 +127,7 @@ static bool HandleToggle(const std::string& line, GameBridge& b) {
         {"combatlog", &GameBridge::combatLog_}, {"weaponactions", &GameBridge::cloneWeaponActions_},
         {"strafeforce", &GameBridge::cloneStrafeForce_}, {"strafewrite", &GameBridge::cloneStrafeWrite_}, {"aimhold", &GameBridge::cloneAimHold_}, {"aimturn", &GameBridge::cloneAimTurn_}, {"aimstick", &GameBridge::cloneAimStick_},
     };
+    if (line == "facepartner") { b.QueueFacePartner(); return true; }
     if (line == "collisiontest") { b.StartCollisionTest(); return true; }
     if (line == "clonerespawn") { b.QueueKillClone(); b.cloneRespawnReq_ = true; Log("clonerespawn: player 1 removed, spawning her again (debug)"); return true; }
     for (const auto& t : kToggles) {

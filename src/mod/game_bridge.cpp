@@ -1675,6 +1675,23 @@ bool GameBridge::PartnerFar() {
 
 void GameBridge::StartCollisionTest() { collMin_ = 1e9f; collTestUntil_ = GetTickCount64() + 10000; Log("collisiontest: measuring for 10 s"); }
 
+// Collision test helper: the left-stick value that walks this PC's own player straight at her clone. Stick forward
+// walks along the camera, so the stick angle is the bearing to the clone minus the camera yaw (aimYaw_, read from the
+// camera's reticle ray every 100 ms). Nothing is moved; send the logged line to cmd.txt.
+void GameBridge::QueueFacePartner() {
+    RunOnGameFiber([this] {
+        uintptr_t p0 = PlayerProcess(0), p1 = PlayerProcess(1);
+        auto me = p0 ? Read<Vec3>(p0 + offPos_) : std::nullopt;
+        auto cl = p1 ? Read<Vec3>(p1 + offPos_) : std::nullopt;
+        if (!me || !cl) { Log("facepartner: no player 0 or no clone"); return; }
+        float dx = cl->x - me->x, dz = cl->z - me->z, dist = std::sqrt(dx * dx + dz * dz);
+        float cam = aimYaw_.load(), rel = std::atan2(dx, dz) - cam;
+        int sx = static_cast<int>(std::sin(rel) * 32767.f), sy = static_cast<int>(std::cos(rel) * 32767.f);
+        Log("facepartner: clone %.2f m away, bearing %.2f, camera yaw %.2f; walk at her: stick l %d %d %d", dist, std::atan2(dx, dz), cam, sx, sy,
+            static_cast<int>(std::clamp(dist / 2.f, 0.5f, 6.f) * 1000.f));
+    }, true);
+}
+
 void GameBridge::QueueKillClone() { RemoveCloneForLoad(99); }
 
 void GameBridge::QueueAttachOwners() {

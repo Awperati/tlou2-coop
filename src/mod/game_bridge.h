@@ -157,6 +157,7 @@ public:
     float cloneFarMetres_ = 150.f;
     bool partnerFar_ = false;
     void StartCollisionTest();
+    void QueueFacePartner();
     unsigned long long collTestUntil_ = 0, lastClosePosLog_ = 0;
     float collMin_ = 1e9f;
     void QueueKillClone();   // debug: kill-entity 'player-2' (clonerespawn)
