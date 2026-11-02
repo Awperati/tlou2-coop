@@ -2957,9 +2957,13 @@ void GameBridge::TickCloneDrive() {
         // Facing ([clone] FaceSync, 2026-10-19): she walked the right way but faced the wrong way
         // (user). Her body turns with her idle camera, so set her rotation to the other player's
         // facing (their body yaw; while aiming, their aim yaw), written around her own update each frame.
-        if (cloneFaceSync_ && offRot_ && cloneHasTarget_) {
+        // Aiming and standing (11-02 10:32 puppet test): her aim controller keeps turning her body back to this PC's own
+        // camera heading (-0.91 in every run), so a turn lasted one second. Write her rotation after each of her own
+        // updates, like FaceSync does, while she aims without a stick: nothing is sent to the game, so no state reset.
+        bool aimHold = cloneAimHold_ && (cloneAimingFlag_.load() || cloneCombatAim_.load() || (cloneHeld_.load() & 0x200)) && mx * mx + mz * mz < 0.0025f;
+        if ((cloneFaceSync_ || aimHold) && offRot_ && cloneHasTarget_) {
             float want; { std::lock_guard lk(cloneMu_); want = cloneTargetYaw_; }
-            if (cloneAimingFlag_.load() || (cloneHeld_.load() & 0x200)) want = cloneAimYaw_.load();
+            if (cloneAimingFlag_.load() || cloneCombatAim_.load() || (cloneHeld_.load() & 0x200)) want = cloneAimYaw_.load();
             ActiveUpdateHookInstall(BuildRva(0xAD61E0));
             SetCloneFacing(true, want, offRot_);
         } else SetCloneFacing(false, 0, 0);

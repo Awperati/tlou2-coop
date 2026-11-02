@@ -300,10 +300,11 @@ public:
     unsigned long long stanceBUntil_ = 0, stanceNextAt_ = 0;
     Vec3 cloneTarget_; float cloneTargetYaw_ = 0; bool cloneTargetMoving_ = false, cloneHasTarget_ = false;
     unsigned long long cloneFixAt_ = 0, cloneStillSince_ = 0, cloneNotMovingAt_ = 0, lastStaleStickLog_ = 0, cloneStickOnAt_ = 0, lastStrafeLog_ = 0, lastAimTurnAt_ = 0, lastAimTurnLog_ = 0;
-    bool cloneAimTurn_ = true;   // [clone] AimTurn: ONE same-spot turn when they start aiming off-heading (stepping resets her aim state)
+    bool cloneAimHold_ = true;   // [clone] AimHold: while they aim and she stands, write her body yaw = their aim yaw each frame
+    bool cloneAimTurn_ = false;  // [clone] AimTurn: ONE same-spot turn when they start aiming off-heading (stepping resets her aim state)
     bool aimPrevNow_ = false, aimTurnedThisAim_ = false;
     unsigned long long lastAimStickLog_ = 0;
-    bool cloneAimStick_ = true;  // [clone] AimStick: right-stick turn to their aim yaw also with the aim override on
+    bool cloneAimStick_ = false;  // [clone] AimStick: right-stick turn to their aim yaw also with the aim override on
     float aimStickSign_ = 1.f;
     unsigned long long aimSignCheckAt_ = 0;
     float lastAimSignErr_ = 0.f;
