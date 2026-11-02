@@ -251,7 +251,7 @@ void CoopMain() {
     // buttons belong here; item/weapon buttons crashed the game with two players.
     // Spawning player 1 starts the game's HUD2 for her; a level load in flight made its widget lookup read null
     // (PC B 09:37:35 crash). Wait this long after the last level package change, and while the partner is in another section.
-    const unsigned cloneSpawnQuietMs = static_cast<unsigned>(std::max(0.f, cfg.getFloat("clone", "SpawnQuietSeconds", 8.f)) * 1000.f);
+    const unsigned cloneSpawnQuietMs = static_cast<unsigned>(std::max(0.f, cfg.getFloat("clone", "SpawnQuietSeconds", 20.f)) * 1000.f);
     bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
     bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
     bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
