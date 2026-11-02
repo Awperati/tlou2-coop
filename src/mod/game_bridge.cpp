@@ -1668,8 +1668,8 @@ bool GameBridge::PartnerFar() {
     auto me = p0 ? Read<Vec3>(p0 + offPos_) : std::nullopt;
     if (!have || !me || !SpotSane(tgt) || !SpotSane(*me)) return partnerFar_;
     float d = Distance(tgt, *me);
-    bool far = partnerFar_ ? d > cloneFarMetres_ * 0.67f : d > cloneFarMetres_;
-    if (far != partnerFar_) { partnerFar_ = far; Log("clone: partner is %.0f m from this PC's player: %s", d, far ? "another area, clone hidden, not driven or spawned" : "close again"); }
+    bool isFar = partnerFar_ ? d > cloneFarMetres_ * 0.67f : d > cloneFarMetres_;
+    if (isFar != partnerFar_) { partnerFar_ = isFar; Log("clone: partner is %.0f m from this PC's player: %s", d, isFar ? "another area, clone hidden, not driven or spawned" : "close again"); }
     return partnerFar_;
 }
 
