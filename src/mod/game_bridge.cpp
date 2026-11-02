@@ -3142,7 +3142,7 @@ void GameBridge::TickCloneDrive() {
                 if (tmov && cloneFaceStored_ && !herIdle && (mx * mx + mz * mz) > 0.04f) {
                     float walkDir = std::atan2(mx, mz);
                     strafing = std::fabs(std::remainder(tyaw - walkDir, 6.2831853f)) > 0.6f;
-                    if (strafing && tn - lastStrafeLog_ > 2000) { lastStrafeLog_ = tn; Log("cloneface: partner strafes (body %.2f, walk %.2f): facing forced while she walks", tyaw, walkDir); }
+                    if (strafing && tn - lastStrafeLog_ > 500) { lastStrafeLog_ = tn; Log("cloneface: partner strafes (body %.2f, walk %.2f): facing forced while she walks; she %.2f, her stick %.2f %.2f, weapon-drawn %d", tyaw, walkDir, YawFromQuat(*q), wx ? *wx : 0.f, wz ? *wz : 0.f, cloneCombatAim_.load() ? 1 : 0); }
                 }
                 bool faceNow = cloneFaceForce_ && (herIdle || strafing) && (cloneFaceStored_ || tn - localMoveAt_ > 500);
                 SetCloneFaceDir(p, faceNow, std::sin(look), std::cos(look));
