@@ -3054,15 +3054,27 @@ void GameBridge::TickCloneDrive() {
             reinterpret_cast<void (*)(unsigned)>(BuildRva(0x7FA650))(1);
             cloneAimSet_ = false;
         }
-        if (!cloneAimOverride_ && aimNow && cloneHasTarget_ && offRot_) {
+        // Right stick turns her camera, and her aiming body follows it (no teleport: a teleport knocked her out of the
+        // aim state and redrew the weapon 10-20 times a second, owner 11-02 10:26). With the aim override on, her aim
+        // vector is already right; the stick only brings her body round to their aim yaw. If the error grows while the
+        // stick is pushed, the sign is wrong for this camera and flips itself (logged).
+        if (aimNow && cloneHasTarget_ && offRot_ && (!cloneAimOverride_ || cloneAimStick_)) {
             float want; { std::lock_guard lk(cloneMu_); want = cloneTargetYaw_; }
+            if (cloneAimOverride_) want = cloneAimYaw_.load();
             if (auto q = Read<Quat>(p + offRot_)) {
                 float err = std::remainder(want - YawFromQuat(*q), 6.2831853f);
-                if (std::fabs(err) > 0.03f) rx = std::clamp(cloneAimSign_ * err * 1.5f, -1.f, 1.f);
+                if (std::fabs(err) > 0.05f) rx = std::clamp(aimStickSign_ * err * (cloneAimOverride_ ? 2.5f : 1.5f), -1.f, 1.f);
                 unsigned long long tl = GetTickCount64();
+                if (tl - aimSignCheckAt_ >= 600) {
+                    if (aimSignCheckAt_ && std::fabs(lastAimSignErr_) > 0.2f && std::fabs(rx) > 0.3f && std::fabs(err) > std::fabs(lastAimSignErr_) + 0.1f) {
+                        aimStickSign_ = -aimStickSign_;
+                        Log("cloneaim: error grew %.2f -> %.2f with the stick pushed, stick sign now %+.0f", lastAimSignErr_, err, aimStickSign_);
+                    }
+                    aimSignCheckAt_ = tl; lastAimSignErr_ = err;
+                }
                 if (tl - lastAimLog_ > 1000) { lastAimLog_ = tl; Log("cloneaim: facing error %.2f rad, right stick %.2f", err, rx); }
             }
-        }
+        } else aimSignCheckAt_ = 0;
         if (RawCopyHookInstall(BuildRva(0x158F710))) { SetCloneRawStick(true, sx, sy); SetCloneRawRightStick(rx, 0.f); SetCloneRawButtons(held); }
         auto src = Read<uint8_t>(slot + 0x14C);
         uint8_t zero = 0;
