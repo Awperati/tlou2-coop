@@ -1657,6 +1657,22 @@ char OwnerVisitor(uintptr_t proc, uintptr_t ctx) {
 }
 } // namespace
 
+// The partner's reported spot is far from this PC's own player: another area or level (11-02 11:30: B stood in the
+// tunnels at -423 / 38 while A's spot was -67 / -205, sections said "same", and the clone teleported into the void and
+// fell 300 m, again every 19 s). Hysteresis: far above [clone] FarMetres, near again below two thirds of it.
+bool GameBridge::PartnerFar() {
+    if (cloneFarMetres_ <= 0.f) return false;
+    Vec3 tgt; bool have;
+    { std::lock_guard lk(cloneMu_); tgt = cloneTarget_; have = cloneHasTarget_; }
+    uintptr_t p0 = PlayerProcess(0);
+    auto me = p0 ? Read<Vec3>(p0 + offPos_) : std::nullopt;
+    if (!have || !me || !SpotSane(tgt) || !SpotSane(*me)) return partnerFar_;
+    float d = Distance(tgt, *me);
+    bool far = partnerFar_ ? d > cloneFarMetres_ * 0.67f : d > cloneFarMetres_;
+    if (far != partnerFar_) { partnerFar_ = far; Log("clone: partner is %.0f m from this PC's player: %s", d, far ? "another area, clone hidden, not driven or spawned" : "close again"); }
+    return partnerFar_;
+}
+
 void GameBridge::QueueKillClone() { RemoveCloneForLoad(99); }
 
 void GameBridge::QueueAttachOwners() {
@@ -2922,6 +2938,7 @@ void GameBridge::TickCloneDrive() {
         }
         float mx = cloneMoveX_, mz = cloneMoveZ_;
         if (GetTickCount64() - cloneMoveAt_ > 500) mx = mz = 0;   // no news from the other PC: stand still
+        if (!(std::fabs(mx) <= 2.f && std::fabs(mz) <= 2.f)) mx = mz = 0;   // garbage while their game loads (11-02: -687, 1.3e33)
         // Their stick is held while their body has not moved for 1 s (11-02 09:27: PC B's Dina stood still with a stale
         // world stick of 0.47 for 57 s; PC A's clone walked one way, 138 deg off her body). Stand still then; a walk
         // that really starts sets their moving flag within 0.5 s.

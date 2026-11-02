@@ -284,6 +284,7 @@ void CoopMain() {
     bridge.cloneAimOverride_ = cfg.getBool("clone", "AimOverride", true);
     bridge.cloneAimTurn_ = cfg.getBool("clone", "AimTurn", false);
     bridge.cloneAimHold_ = cfg.getBool("clone", "AimHold", true);
+    bridge.cloneFarMetres_ = cfg.getFloat("clone", "FarMetres", 150.f);
     bridge.cloneStrafeWrite_ = cfg.getBool("clone", "StrafeWrite", true);
     bridge.cloneAimStick_ = cfg.getBool("clone", "AimStick", false);
     bridge.aimStickSign_ = bridge.cloneAimSign_;
@@ -726,7 +727,7 @@ void CoopMain() {
             bool press = (keyDown && !sectionKeyPrev) || sectionCmdPress;
             sectionKeyPrev = keyDown; sectionCmdPress = false;
             SectionWhere where = explored.Classify(mySection, partnerSection);
-            bool apart = partnerSection.valid() && mySection.valid() && !partnerSection.sameAs(mySection);
+            bool apart = (partnerSection.valid() && mySection.valid() && !partnerSection.sameAs(mySection)) || bridge.PartnerFar();
             if (apart != bridge.cloneApart_.load()) {
                 bridge.cloneApart_ = apart;
                 Log("section: %s", apart ? "partner in another section: their clone hidden and not driven here" : "same section again: clone back");
