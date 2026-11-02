@@ -300,6 +300,7 @@ public:
     unsigned long long stanceBUntil_ = 0, stanceNextAt_ = 0;
     Vec3 cloneTarget_; float cloneTargetYaw_ = 0; bool cloneTargetMoving_ = false, cloneHasTarget_ = false;
     unsigned long long cloneFixAt_ = 0, cloneStillSince_ = 0, cloneNotMovingAt_ = 0, lastStaleStickLog_ = 0, cloneStickOnAt_ = 0, lastStrafeLog_ = 0, lastAimTurnAt_ = 0, lastAimTurnLog_ = 0;
+    bool cloneStrafeForce_ = true;   // force her facing while she walks when they strafe (toggle: strafeforce on|off)
     bool cloneAimHold_ = true;   // [clone] AimHold: while they aim and she stands, write her body yaw = their aim yaw each frame
     bool cloneAimTurn_ = false;  // [clone] AimTurn: ONE same-spot turn when they start aiming off-heading (stepping resets her aim state)
     bool aimPrevNow_ = false, aimTurnedThisAim_ = false;

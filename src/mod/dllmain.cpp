@@ -125,6 +125,7 @@ static bool HandleToggle(const std::string& line, GameBridge& b) {
         {"gesturelog", &GameBridge::gestureLog_}, {"lookanswer", &GameBridge::cloneLookAnswer_},
         {"catchup", &GameBridge::cloneCatchUp_}, {"combatsync", &GameBridge::cloneCombat_},
         {"combatlog", &GameBridge::combatLog_}, {"weaponactions", &GameBridge::cloneWeaponActions_},
+        {"strafeforce", &GameBridge::cloneStrafeForce_}, {"aimhold", &GameBridge::cloneAimHold_}, {"aimturn", &GameBridge::cloneAimTurn_}, {"aimstick", &GameBridge::cloneAimStick_},
     };
     for (const auto& t : kToggles) {
         std::string n = t.name;
