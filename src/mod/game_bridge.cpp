@@ -1656,6 +1656,8 @@ char OwnerVisitor(uintptr_t proc, uintptr_t ctx) {
 }
 } // namespace
 
+void GameBridge::QueueKillClone() { RemoveCloneForLoad(99); }
+
 void GameBridge::QueueAttachOwners() {
     RunOnGameFiber([this] {
         uintptr_t walk = BuildRva(0x1448C10);
