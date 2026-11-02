@@ -252,6 +252,7 @@ void CoopMain() {
     // Spawning player 1 starts the game's HUD2 for her; a level load in flight made its widget lookup read null
     // (PC B 09:37:35 crash). Wait this long after the last level package change, and while the partner is in another section.
     const unsigned cloneSpawnQuietMs = static_cast<unsigned>(std::max(0.f, cfg.getFloat("clone", "SpawnQuietSeconds", 20.f)) * 1000.f);
+    const bool cloneSpawnWaitTask = cfg.getBool("clone", "SpawnWaitTask", true);   // also wait SpawnQuietSeconds after the last story task change
     bridge.cloneStanceSync_ = cfg.getBool("clone", "StanceSync", true);
     bridge.cloneCatchUp_ = cfg.getBool("clone", "CatchUp", true);
     bridge.cloneCatchUpSprint_ = cfg.getBool("clone", "CatchUpSprint", false);
@@ -1302,9 +1303,10 @@ void CoopMain() {
             static ULONGLONG heldSince = 0;
             static bool spawnDeferred = false;
             ULONGLONG sinceLevel = bridge.levelChangeAt_ ? now - bridge.levelChangeAt_ : ~0ull;
-            const bool busy = cloneStage == 1 && (sinceLevel < cloneSpawnQuietMs || bridge.cloneApart_.load());
+            ULONGLONG sinceTask = bridge.taskChangeAt_ ? now - bridge.taskChangeAt_ : ~0ull;
+            const bool busy = cloneStage == 1 && (sinceLevel < cloneSpawnQuietMs || (cloneSpawnWaitTask && sinceTask < cloneSpawnQuietMs) || bridge.cloneApart_.load());
             if (busy) {
-                if (!spawnDeferred) { spawnDeferred = true; Log("clone: spawn deferred (%s)", bridge.cloneApart_.load() ? "the partner is in another section" : "a level load changed packages less than the quiet time ago"); }
+                if (!spawnDeferred) { spawnDeferred = true; Log("clone: spawn deferred (%s)", bridge.cloneApart_.load() ? "the partner is in another section" : "a level load or task change is less than the quiet time ago"); }
                 cloneAt = now + 500;
             } else if (cloneStage == 1 && spawnDeferred) { spawnDeferred = false; Log("clone: level quiet for %llu ms and same section, spawning", sinceLevel == ~0ull ? 0ull : static_cast<unsigned long long>(sinceLevel)); }
             bool held = !busy && cloneStage == 1 && bridge.PlayerSlotHeld(1);

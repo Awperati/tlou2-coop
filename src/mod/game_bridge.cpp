@@ -1177,6 +1177,7 @@ void GameBridge::PollTasks() {
     if (name.empty() || name == taskName_) return;
     chapterChanged_ = !chapterWorld_.empty() && !world.empty() && world != chapterWorld_;
     if (uintptr_t pl = follow(player_)) if (auto p = Read<Vec3>(pl + offPos_)) taskStartPos_ = *p;
+    taskChangeAt_ = GetTickCount64();
     Log("task: %s (%s, %s)%s", name.c_str(), world.c_str(), day.c_str(), chapterChanged_ ? " CHAPTER CHANGE" : "");
     taskName_ = name;
     if (!world.empty()) chapterWorld_ = world;
