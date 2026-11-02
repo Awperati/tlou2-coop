@@ -152,6 +152,7 @@ public:
     // Make every attachable in the world visible again (undo a bad hide).
     void QueueShowAllAttachables();
     void QueueAttachOwners();
+    std::atomic<bool> cloneRespawnReq_{false};
     void QueueKillClone();   // debug: kill-entity 'player-2' (clonerespawn)
     // Show every attachable within 2.5 m of the companion and her own meshes; log names.
     void QueueShowCompanion(bool visible = true, float radius = 2.5f, bool quiet = false);

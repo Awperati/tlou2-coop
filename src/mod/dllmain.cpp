@@ -127,6 +127,7 @@ static bool HandleToggle(const std::string& line, GameBridge& b) {
         {"combatlog", &GameBridge::combatLog_}, {"weaponactions", &GameBridge::cloneWeaponActions_},
         {"strafeforce", &GameBridge::cloneStrafeForce_}, {"strafewrite", &GameBridge::cloneStrafeWrite_}, {"aimhold", &GameBridge::cloneAimHold_}, {"aimturn", &GameBridge::cloneAimTurn_}, {"aimstick", &GameBridge::cloneAimStick_},
     };
+    if (line == "clonerespawn") { b.QueueKillClone(); b.cloneRespawnReq_ = true; Log("clonerespawn: player 1 removed, spawning her again (debug)"); return true; }
     for (const auto& t : kToggles) {
         std::string n = t.name;
         if (line == n + " on" || line == n + " off") { b.*(t.flag) = line == n + " on"; Log("%s: %s", t.name, b.*(t.flag) ? "on" : "off"); return true; }
@@ -989,7 +990,6 @@ void CoopMain() {
                     }
                     // redress: the fresh-spawn dressing on the existing clone. A look equal to the current one
                     // is ignored by the game (sub_140DBB490 compares with Player+384), so go through Ellie first.
-                    else if (line == "clonerespawn") { bridge.QueueKillClone(); cloneStage = 1; cloneAt = GetTickCount64() + 1500; Log("clonerespawn: player 1 removed, spawning her again (debug)"); }
                     else if (line == "redress") { bridge.QueuePlayerLook(1, "ellie-seattle"); redressAt = GetTickCount64() + 2500; Log("redress: Ellie first, then '%s'", cloneLook.c_str()); }
                     else if (line.rfind("playerjoy ", 0) == 0) {   // playerjoy <index> <joypad>
                         std::istringstream pj(line.substr(10)); unsigned idx = 1; int jp = 0; pj >> idx >> jp;
@@ -1294,6 +1294,7 @@ void CoopMain() {
                 bodyPollUntil = 0;
             } else bridge.QueueCloneMeshPoll();
         }
+        if (bridge.cloneRespawnReq_.exchange(false)) { cloneStage = 1; cloneAt = now + 1500; }
         if (cloneStage && now >= cloneAt) {
             // A removed clone's handle stays in player 1's table entry, also after a level load (PC B 10:11, the
             // spawn then works). Spawning 0.5 s after a kill, while she was still being torn down, faulted and
