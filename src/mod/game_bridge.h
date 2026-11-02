@@ -156,6 +156,9 @@ public:
     bool PartnerFar();        // reported spot > [clone] FarMetres from this PC's own player
     float cloneFarMetres_ = 150.f;
     bool partnerFar_ = false;
+    void StartCollisionTest();
+    unsigned long long collTestUntil_ = 0, lastClosePosLog_ = 0;
+    float collMin_ = 1e9f;
     void QueueKillClone();   // debug: kill-entity 'player-2' (clonerespawn)
     // Show every attachable within 2.5 m of the companion and her own meshes; log names.
     void QueueShowCompanion(bool visible = true, float radius = 2.5f, bool quiet = false);

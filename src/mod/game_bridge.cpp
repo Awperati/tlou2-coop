@@ -1673,6 +1673,8 @@ bool GameBridge::PartnerFar() {
     return partnerFar_;
 }
 
+void GameBridge::StartCollisionTest() { collMin_ = 1e9f; collTestUntil_ = GetTickCount64() + 10000; Log("collisiontest: measuring for 10 s"); }
+
 void GameBridge::QueueKillClone() { RemoveCloneForLoad(99); }
 
 void GameBridge::QueueAttachOwners() {
@@ -3131,6 +3133,18 @@ void GameBridge::TickCloneDrive() {
             auto cp = Read<Vec3>(p + offPos_);
             // Measurement (2026-10-19): the clone's distance from the other player's reported spot, every
             // 0.5 s while they move, to size the walking error before any prediction work.
+            // Collision measurement (11-02): own player and her clone, 2 Hz while within 5 m; `collisiontest` keeps the minimum for 10 s.
+            if (cp) if (uintptr_t p0c = PlayerProcess(0)) if (auto me = Read<Vec3>(p0c + offPos_)) {
+                float dd = Distance(*me, *cp);
+                if (dd < 5.f && tn - lastClosePosLog_ > 500) {
+                    lastClosePosLog_ = tn;
+                    Log("clonepos: own (%.2f %.2f %.2f) partner (%.2f %.2f %.2f) dist %.2f", me->x, me->y, me->z, cp->x, cp->y, cp->z, dd);
+                }
+                if (collTestUntil_) {
+                    if (dd < collMin_) collMin_ = dd;
+                    if (tn >= collTestUntil_) { collTestUntil_ = 0; Log("collisiontest: minimum distance %.2f m over 10 s (< 0.4 = not solid)", collMin_); }
+                }
+            }
             if (have && cp && tmov && tn - lastErrLog_ > 500) {
                 lastErrLog_ = tn;
                 Log("clonedrift: %.2f m behind the reported spot (moving)", Distance(*cp, tgt));
