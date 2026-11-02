@@ -3130,6 +3130,19 @@ void GameBridge::TickCloneDrive() {
                 }
                 bool faceNow = cloneFaceForce_ && (herIdle || strafing) && (cloneFaceStored_ || tn - localMoveAt_ > 500);
                 SetCloneFaceDir(p, faceNow, std::sin(look), std::cos(look));
+                // Aiming partner (11-02 10:09 puppet test): the aim override points her arms and aim queries along their
+                // aim, but her body stayed at its old heading (2.44 rad off) until the aim ended, because the aim
+                // controller ignores the facing force. Turn her body to their aim yaw in short teleport steps (same spot,
+                // the game's own teleport) every 80 ms: ~2.5 rad/s, smooth enough, no pose change of the arms.
+                if (cloneAimTurn_ && aimNow && tn - cloneFixAt_ > 300) {
+                    float aimErr = std::remainder(cloneAimYaw_.load() - mine, 6.2831853f);
+                    if (std::fabs(aimErr) > 0.12f && tn - lastAimTurnAt_ >= 80) {
+                        lastAimTurnAt_ = tn;
+                        float to = mine + std::clamp(aimErr, -0.2f, 0.2f);
+                        bool ok = engineTeleport(p, *cp, to);
+                        if (tn - lastAimTurnLog_ > 1000) { lastAimTurnLog_ = tn; Log("cloneface: aiming, body %.2f -> %.2f (their aim %.2f): %s", mine, to, cloneAimYaw_.load(), ok ? "sent" : "FAILED"); }
+                    }
+                }
                 // Game-driven facing ([clone] FaceForce): her movement controller's desired facing = target.
                 // Target = their body yaw (12:19: with the camera yaw she strafed while their body turned to walk).
 

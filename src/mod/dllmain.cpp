@@ -279,6 +279,7 @@ void CoopMain() {
     bridge.cloneFaceSync_ = cfg.getBool("clone", "FaceSync", false);
     bridge.cloneAimSign_ = cfg.getFloat("clone", "AimSign", 1.f);
     bridge.cloneAimOverride_ = cfg.getBool("clone", "AimOverride", true);
+    bridge.cloneAimTurn_ = cfg.getBool("clone", "AimTurn", true);
     bridge.cloneAimOrder_ = cfg.getInt("clone", "AimOrder", 0);
     bridge.cloneAimYawSign_ = cfg.getFloat("clone", "AimYawSign", 1.f);
     bridge.cloneAimPitchSign_ = cfg.getFloat("clone", "AimPitchSign", -1.f);

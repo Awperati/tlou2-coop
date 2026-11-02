@@ -299,7 +299,8 @@ public:
     std::atomic<int> cloneWantStance_{-1};
     unsigned long long stanceBUntil_ = 0, stanceNextAt_ = 0;
     Vec3 cloneTarget_; float cloneTargetYaw_ = 0; bool cloneTargetMoving_ = false, cloneHasTarget_ = false;
-    unsigned long long cloneFixAt_ = 0, cloneStillSince_ = 0, cloneNotMovingAt_ = 0, lastStaleStickLog_ = 0, cloneStickOnAt_ = 0, lastStrafeLog_ = 0;
+    unsigned long long cloneFixAt_ = 0, cloneStillSince_ = 0, cloneNotMovingAt_ = 0, lastStaleStickLog_ = 0, cloneStickOnAt_ = 0, lastStrafeLog_ = 0, lastAimTurnAt_ = 0, lastAimTurnLog_ = 0;
+    bool cloneAimTurn_ = true;   // [clone] AimTurn: turn her body to their aim yaw while they aim
     std::mutex cloneMu_;
     std::atomic<uint64_t> cloneHeld_{0};
     Vec3 plotEndPos_; float plotEndYaw_ = 0; std::atomic<bool> plotEndReady_{false};   // host: send the partner here
