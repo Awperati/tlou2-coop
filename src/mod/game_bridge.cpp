@@ -3072,7 +3072,7 @@ void GameBridge::TickCloneDrive() {
                     }
                     aimSignCheckAt_ = tl; lastAimSignErr_ = err;
                 }
-                if (tl - lastAimLog_ > 1000) { lastAimLog_ = tl; Log("cloneaim: facing error %.2f rad, right stick %.2f", err, rx); }
+                if (tl - lastAimStickLog_ > 1000) { lastAimStickLog_ = tl; Log("cloneaim: facing error %.2f rad, right stick %.2f (sign %+.0f)", err, rx, aimStickSign_); }
             }
         } else aimSignCheckAt_ = 0;
         if (RawCopyHookInstall(BuildRva(0x158F710))) { SetCloneRawStick(true, sx, sy); SetCloneRawRightStick(rx, 0.f); SetCloneRawButtons(held); }
@@ -3146,14 +3146,21 @@ void GameBridge::TickCloneDrive() {
                 // aim, but her body stayed at its old heading (2.44 rad off) until the aim ended, because the aim
                 // controller ignores the facing force. Turn her body to their aim yaw in short teleport steps (same spot,
                 // the game's own teleport) every 80 ms: ~2.5 rad/s, smooth enough, no pose change of the arms.
-                if (cloneAimTurn_ && aimNow && tn - cloneFixAt_ > 300) {
-                    float aimErr = std::remainder(cloneAimYaw_.load() - mine, 6.2831853f);
-                    if (std::fabs(aimErr) > 0.12f && tn - lastAimTurnAt_ >= 80) {
-                        lastAimTurnAt_ = tn;
-                        float to = mine + std::clamp(aimErr, -0.2f, 0.2f);
-                        bool ok = engineTeleport(p, *cp, to);
-                        if (tn - lastAimTurnLog_ > 1000) { lastAimTurnLog_ = tn; Log("cloneface: aiming, body %.2f -> %.2f (their aim %.2f): %s", mine, to, cloneAimYaw_.load(), ok ? "sent" : "FAILED"); }
+                // Single-shot version (the stepping one reset her aim state 10-20 times a second): one same-spot turn to
+                // their aim yaw when the aim starts and her body is > 0.5 rad off, another only if it is > 0.8 rad off
+                // again later, at least 1.5 s apart.
+                {
+                    bool aimEdge = aimNow && !aimPrevNow_;
+                    aimPrevNow_ = aimNow;
+                    if (cloneAimTurn_ && aimNow && tn - cloneFixAt_ > 300 && tn - lastAimTurnAt_ >= 1500) {
+                        float aimErr = std::remainder(cloneAimYaw_.load() - mine, 6.2831853f);
+                        if (std::fabs(aimErr) > (aimEdge || !aimTurnedThisAim_ ? 0.5f : 0.8f)) {
+                            lastAimTurnAt_ = tn; aimTurnedThisAim_ = true;
+                            bool ok = engineTeleport(p, *cp, cloneAimYaw_.load());
+                            Log("cloneface: aiming, one turn of the body %.2f -> %.2f (error %.2f): %s", mine, cloneAimYaw_.load(), aimErr, ok ? "sent" : "FAILED");
+                        }
                     }
+                    if (!aimNow) aimTurnedThisAim_ = false;
                 }
                 // Game-driven facing ([clone] FaceForce): her movement controller's desired facing = target.
                 // Target = their body yaw (12:19: with the camera yaw she strafed while their body turned to walk).
