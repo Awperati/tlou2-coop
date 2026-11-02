@@ -1997,9 +1997,10 @@ int SafeBuildSpawnInfo(uint8_t* dst) {
 // A load is starting (load request hook): remove the clone now, before the load respawns player 0.
 // Clone mode spawns her again once our player has been back 5 s.
 void RemoveCloneForLoad(unsigned mode) {
+    Log("load request: mode %u, removing the clone in the script context", mode);   // 11-02: loads at 09:33 and 11:25 logged nothing; is the hook reached?
     RunInScriptContext([mode] {
         uint64_t argv[8] = {Fnv1a("player-2")}, ret[4] = {};
-        if (!SafeNative(BuildRva(0xD3BA00), 1, argv, ret) || !(ret[0] & 0xFF)) return;   // entity-exists?: no clone
+        if (!SafeNative(BuildRva(0xD3BA00), 1, argv, ret) || !(ret[0] & 0xFF)) { Log("load request: mode %u, no clone entity to remove", mode); return; }   // entity-exists?
         uint64_t k[8] = {Fnv1a("player-2")}, kr[4] = {};
         bool killed = SafeNative(BuildRva(0xD4BB40), 1, k, kr) && kr[0];
         Log("load: the game starts a load (mode %u); clone removed first: %s", mode, killed ? "yes" : "FAILED");
