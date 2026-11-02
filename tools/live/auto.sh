@@ -30,12 +30,11 @@ aim() {
 }
 aimwalk() {
   mark; frameB aimwalk-before
-  printf 'trigger l 255 9000
-' >> "$C"; sleep 1.2
-' >> "$C"; sleep 1.2
-  for leg in "0 32767" "32767 0" "0 -32767"; do printf 'stick l %s 1400
-' "$leg" >> "$C"; sleep 1.9; printf 'stick l 0 0 300
-' >> "$C"; sleep 0.6; done
+  printf 'trigger l 255 9000\n' >> "$C"; sleep 1.2
+  for leg in "0 32767" "32767 0" "0 -32767"; do
+    printf 'stick l %s 1400\n' "$leg" >> "$C"; sleep 1.9
+    printf 'stick l 0 0 300\n' >> "$C"; sleep 0.6
+  done
   frameB aimwalk-after; sleep 3; report aimwalk
 }
 case "${1:-all}" in walk) walk ;; aim) aim ;; aimwalk) aimwalk ;; *) walk; aim; aimwalk ;; esac
