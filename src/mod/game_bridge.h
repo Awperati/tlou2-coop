@@ -301,6 +301,7 @@ public:
     Vec3 cloneTarget_; float cloneTargetYaw_ = 0; bool cloneTargetMoving_ = false, cloneHasTarget_ = false;
     unsigned long long cloneFixAt_ = 0, cloneStillSince_ = 0, cloneNotMovingAt_ = 0, lastStaleStickLog_ = 0, cloneStickOnAt_ = 0, lastStrafeLog_ = 0, lastAimTurnAt_ = 0, lastAimTurnLog_ = 0;
     bool cloneStrafeForce_ = false;   // the controller force spins her while she walks (see strafeWrite)
+    unsigned long long strafeWriteUntil_ = 0;
     bool cloneStrafeWrite_ = true;    // [clone] StrafeWrite: write her rotation per frame while they strafe
       // force her facing while she walks when they strafe (toggle: strafeforce on|off)
     bool cloneAimHold_ = true;   // [clone] AimHold: while they aim and she stands, write her body yaw = their aim yaw each frame

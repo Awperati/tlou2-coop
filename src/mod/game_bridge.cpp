@@ -2968,8 +2968,12 @@ void GameBridge::TickCloneDrive() {
         bool strafeWrite = false;
         float strafeYaw = 0.f;
         if (cloneStrafeWrite_) {
-            bool tm; float ty; { std::lock_guard lk(cloneMu_); tm = cloneTargetMoving_; ty = cloneTargetYaw_; }
-            if (tm && IsStrafing(ty, mx, mz)) { strafeWrite = true; strafeYaw = ty; }
+            // From the first frame their stick says strafe (their moving flag lags ~0.4 s behind it), and kept 0.3 s after
+            // it drops, so a stop/start or a 90 degree leg change never lets her own walk facing spin her (11-02 10:54).
+            float ty; { std::lock_guard lk(cloneMu_); ty = cloneTargetYaw_; }
+            ULONGLONG tq = GetTickCount64();
+            if (IsStrafing(ty, mx, mz)) strafeWriteUntil_ = tq + 300;
+            if (tq < strafeWriteUntil_) { strafeWrite = true; strafeYaw = ty; }
         }
         bool aimHold = cloneAimHold_ && (cloneAimingFlag_.load() || cloneCombatAim_.load() || (cloneHeld_.load() & 0x200)) && mx * mx + mz * mz < 0.0025f;
         if ((cloneFaceSync_ || aimHold || strafeWrite) && offRot_ && cloneHasTarget_) {
