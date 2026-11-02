@@ -125,7 +125,7 @@ static bool HandleToggle(const std::string& line, GameBridge& b) {
         {"gesturelog", &GameBridge::gestureLog_}, {"lookanswer", &GameBridge::cloneLookAnswer_},
         {"catchup", &GameBridge::cloneCatchUp_}, {"combatsync", &GameBridge::cloneCombat_},
         {"combatlog", &GameBridge::combatLog_}, {"weaponactions", &GameBridge::cloneWeaponActions_},
-        {"strafeforce", &GameBridge::cloneStrafeForce_}, {"aimhold", &GameBridge::cloneAimHold_}, {"aimturn", &GameBridge::cloneAimTurn_}, {"aimstick", &GameBridge::cloneAimStick_},
+        {"strafeforce", &GameBridge::cloneStrafeForce_}, {"strafewrite", &GameBridge::cloneStrafeWrite_}, {"aimhold", &GameBridge::cloneAimHold_}, {"aimturn", &GameBridge::cloneAimTurn_}, {"aimstick", &GameBridge::cloneAimStick_},
     };
     for (const auto& t : kToggles) {
         std::string n = t.name;
@@ -282,6 +282,7 @@ void CoopMain() {
     bridge.cloneAimOverride_ = cfg.getBool("clone", "AimOverride", true);
     bridge.cloneAimTurn_ = cfg.getBool("clone", "AimTurn", false);
     bridge.cloneAimHold_ = cfg.getBool("clone", "AimHold", true);
+    bridge.cloneStrafeWrite_ = cfg.getBool("clone", "StrafeWrite", true);
     bridge.cloneAimStick_ = cfg.getBool("clone", "AimStick", false);
     bridge.aimStickSign_ = bridge.cloneAimSign_;
     bridge.cloneAimOrder_ = cfg.getInt("clone", "AimOrder", 0);

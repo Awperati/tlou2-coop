@@ -1,5 +1,6 @@
 #include "mod/game_bridge.h"
 #include "core/clonedrive.h"
+#include "core/yawwrap.h"
 #include "mod/log.h"
 #include "mod/main_thread.h"
 #include "mod/fiber_hook.h"
@@ -2960,9 +2961,20 @@ void GameBridge::TickCloneDrive() {
         // Aiming and standing (11-02 10:32 puppet test): her aim controller keeps turning her body back to this PC's own
         // camera heading (-0.91 in every run), so a turn lasted one second. Write her rotation after each of her own
         // updates, like FaceSync does, while she aims without a stick: nothing is sent to the game, so no state reset.
+        // Strafing partner: the facing force makes her SPIN while she walks (she 2.67 -> 1.40 -> 0.18 -> ... at
+        // ~2.5 rad/s, host body +-2.9, 10:45): while walking the controller treats the forced direction relative to
+        // her heading. So the force is off by default; [clone] StrafeWrite writes her rotation after each of her own updates
+        // instead (the AimHold mechanism) while they strafe.
+        bool strafeWrite = false;
+        float strafeYaw = 0.f;
+        if (cloneStrafeWrite_) {
+            bool tm; float ty; { std::lock_guard lk(cloneMu_); tm = cloneTargetMoving_; ty = cloneTargetYaw_; }
+            if (tm && IsStrafing(ty, mx, mz)) { strafeWrite = true; strafeYaw = ty; }
+        }
         bool aimHold = cloneAimHold_ && (cloneAimingFlag_.load() || cloneCombatAim_.load() || (cloneHeld_.load() & 0x200)) && mx * mx + mz * mz < 0.0025f;
-        if ((cloneFaceSync_ || aimHold) && offRot_ && cloneHasTarget_) {
+        if ((cloneFaceSync_ || aimHold || strafeWrite) && offRot_ && cloneHasTarget_) {
             float want; { std::lock_guard lk(cloneMu_); want = cloneTargetYaw_; }
+            if (strafeWrite) want = strafeYaw;
             if (cloneAimingFlag_.load() || cloneCombatAim_.load() || (cloneHeld_.load() & 0x200)) want = cloneAimYaw_.load();
             ActiveUpdateHookInstall(BuildRva(0xAD61E0));
             SetCloneFacing(true, want, offRot_);
@@ -3141,7 +3153,7 @@ void GameBridge::TickCloneDrive() {
                 bool strafing = false;
                 if (cloneStrafeForce_ && tmov && cloneFaceStored_ && !herIdle && (mx * mx + mz * mz) > 0.04f) {
                     float walkDir = std::atan2(mx, mz);
-                    strafing = std::fabs(std::remainder(tyaw - walkDir, 6.2831853f)) > 0.6f;
+                    strafing = IsStrafing(tyaw, mx, mz);
                     if (strafing && tn - lastStrafeLog_ > 500) { lastStrafeLog_ = tn; Log("cloneface: partner strafes (body %.2f, walk %.2f): facing forced while she walks; she %.2f, her stick %.2f %.2f, weapon-drawn %d, herIdle %d, faceOn %d, hold %d/turn %d/stick %d", tyaw, walkDir, YawFromQuat(*q), wx ? *wx : 0.f, wz ? *wz : 0.f, cloneCombatAim_.load() ? 1 : 0, herIdle ? 1 : 0, cloneFaceForce_ ? 1 : 0, cloneAimHold_ ? 1 : 0, cloneAimTurn_ ? 1 : 0, cloneAimStick_ ? 1 : 0); }
                 }
                 bool faceNow = cloneFaceForce_ && (herIdle || strafing) && (cloneFaceStored_ || tn - localMoveAt_ > 500);

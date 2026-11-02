@@ -20,6 +20,7 @@
 #include "core/teleport.h"
 #include "core/traversal.h"
 #include "core/viewmodel.h"
+#include "core/yawwrap.h"
 #include "core/combat.h"
 #include "core/weaponsync.h"
 #include <cstdio>
@@ -400,6 +401,23 @@ static void TestTraversalCopy() {
         CHECK(TraversalCopy::Active(w) == &st && (w & TraversalCopy::kUntilMask) == 25'920'000'000ull);
     }
     CHECK(TraversalCopy::Active(0) == nullptr);
+}
+
+static void TestYawWrap() {
+    // Targets near the +-pi wrap: shortest arc, strafing decided the same on both sides.
+    for (float target : {3.0f, -3.0f, 3.14f, -3.14f, 0.1f}) {
+        for (float d : {-0.3f, -0.05f, 0.f, 0.05f, 0.3f}) {
+            float body = target + d;
+            CHECK(std::fabs(YawDiff(body, target) - d) < 1e-3f);
+            CHECK(std::fabs(YawDiff(body, target)) <= 3.1416f);
+        }
+        // Walking along their body: not strafing. Walking back or sideways: strafing.
+        CHECK(!IsStrafing(target, std::sin(target), std::cos(target)));
+        CHECK(IsStrafing(target, std::sin(target + 1.5f), std::cos(target + 1.5f)));
+        CHECK(IsStrafing(target, std::sin(target - 3.0f), std::cos(target - 3.0f)));
+        CHECK(!IsStrafing(target, 0.1f, 0.1f));   // stick below the threshold
+    }
+    CHECK(std::fabs(YawDiff(3.1f, -3.1f) - (-0.0832f)) < 1e-3f);   // across the wrap, not 6.2
 }
 
 static void TestSections() {
@@ -1323,6 +1341,7 @@ int main() {
     TestTraversalCopy();
     TestTraversalThreads();
     TestFreshHeld();
+    TestYawWrap();
     TestSections();
     TestJumpDetector();
     TestThetaSettledGuard();
