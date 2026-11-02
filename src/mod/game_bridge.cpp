@@ -2926,8 +2926,11 @@ void GameBridge::TickCloneDrive() {
             ULONGLONG tq = GetTickCount64();
             if (tmovNow || !cloneHasTarget_) cloneNotMovingAt_ = 0;
             else if (!cloneNotMovingAt_) cloneNotMovingAt_ = tq;
-            if ((mx != 0 || mz != 0) && cloneNotMovingAt_ && tq - cloneNotMovingAt_ > 1000) {
-                if (tq - lastStaleStickLog_ > 5000) { lastStaleStickLog_ = tq; Log("clonedrive: their stick %.2f %.2f held but their body stood still %llu ms: ignored", mx, mz, tq - cloneNotMovingAt_); }
+            if (mx == 0 && mz == 0) cloneStickOnAt_ = 0; else if (!cloneStickOnAt_) cloneStickOnAt_ = tq;
+            // From the later of "body stopped" and "stick came on": a walk that starts after a long stand is not stale.
+            unsigned long long since = cloneNotMovingAt_ ? std::max(cloneNotMovingAt_, cloneStickOnAt_) : 0;
+            if ((mx != 0 || mz != 0) && since && tq - since > 1000) {
+                if (tq - lastStaleStickLog_ > 5000) { lastStaleStickLog_ = tq; Log("clonedrive: their stick %.2f %.2f held but their body stood still %llu ms: ignored", mx, mz, tq - since); }
                 mx = mz = 0;
             }
         }
@@ -3116,7 +3119,16 @@ void GameBridge::TickCloneDrive() {
                 // Force while she is not walking herself (herIdle; was: they stood 0.5 s and she had no stick for
                 // 0.8 s, which held every turn back by 0.5-0.8 s and never covered a walk that did not take).
                 // The globals mode keeps the old pause while this PC's player walks; stored mode sets no global.
-                bool faceNow = cloneFaceForce_ && herIdle && (cloneFaceStored_ || tn - localMoveAt_ > 500);
+                // Strafing partner (10-ish 11-02: their body yaw stayed 2.38 while the stick walked four ways; her own walk
+                // faced her walk direction, up to 2.45 rad off): while they move and their body is more than 0.6 rad off
+                // their walk direction, force her facing to their body yaw while she walks too.
+                bool strafing = false;
+                if (tmov && cloneFaceStored_ && !herIdle && (mx * mx + mz * mz) > 0.04f) {
+                    float walkDir = std::atan2(mx, mz);
+                    strafing = std::fabs(std::remainder(tyaw - walkDir, 6.2831853f)) > 0.6f;
+                    if (strafing && tn - lastStrafeLog_ > 2000) { lastStrafeLog_ = tn; Log("cloneface: partner strafes (body %.2f, walk %.2f): facing forced while she walks", tyaw, walkDir); }
+                }
+                bool faceNow = cloneFaceForce_ && (herIdle || strafing) && (cloneFaceStored_ || tn - localMoveAt_ > 500);
                 SetCloneFaceDir(p, faceNow, std::sin(look), std::cos(look));
                 // Game-driven facing ([clone] FaceForce): her movement controller's desired facing = target.
                 // Target = their body yaw (12:19: with the camera yaw she strafed while their body turned to walk).
